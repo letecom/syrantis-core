@@ -47,6 +47,97 @@ Agents must not:
 - Agents may reference secret names and required variables, but not values.
 - Any accidental exposure must trigger the incident runbook.
 
+## Tenant and Data Isolation Rules
+
+Workspace isolation is a hard security boundary.
+
+Agents must enforce these rules on every business feature:
+
+- `workspaceId` must come only from trusted server context.
+- Trusted server context means `tenantGuard`, a future approved machine-to-machine token, or a future approved internal job context.
+- `workspaceId` must never be accepted from request body, query params, URL params, headers, or client-side state.
+- Client-provided `workspaceId` is forbidden, even when it matches the current session.
+- All workspace-scoped business reads must filter by `workspaceId`.
+- All workspace-scoped business detail reads must filter by both resource `id` and `workspaceId`.
+- All workspace-scoped business updates must filter by both resource `id` and `workspaceId`.
+- Cross-workspace resources must behave as invisible and return `404`, not `403`.
+- Routes must not reveal whether a resource exists in another workspace.
+- Any route that touches business data must be protected by `tenantGuard` or an explicitly approved equivalent guard.
+- New protected route patterns must be documented in the related issue spec and implementation report.
+
+Workspace-scoped business tables include at minimum:
+
+- organizations
+- contacts
+- leads
+- opportunities
+- tasks
+- approvals
+- drafts
+- email_sends
+- email_events
+- activity_logs
+- ai_runs
+- templates
+- notes
+
+## Repository and Query Rules
+
+Business queries must be written so the tenant boundary is obvious during review.
+
+Agents must follow these rules:
+
+- Business repositories must receive `workspaceId` explicitly.
+- Business repositories must not depend on Hono `Context`.
+- Hono routes extract `workspaceId` from context and pass it into services or repositories.
+- Services may orchestrate business behavior but must not infer tenant identity from client input.
+- Repository functions that read one record must include both `id` and `workspaceId` in the query.
+- Repository functions that update one record must include both `id` and `workspaceId` in the query.
+- Repository functions that list records must include `workspaceId` in the query.
+- Business route, service, and repository code must use Drizzle query builder by default.
+- Raw SQL is forbidden in business routes, services, and repositories unless the issue explicitly approves it and documents why Drizzle cannot express the operation safely.
+- Raw SQL may exist in schema, migrations, low-level DB health checks, or explicitly approved infrastructure code.
+
+## Deletion Rules
+
+Business records are not physically deleted by default.
+
+Agents must not add physical delete behavior for business records unless a dedicated issue explicitly approves it and defines:
+
+- authorization
+- audit logging
+- rollback behavior
+- retention impact
+- GDPR or legal impact
+- production validation
+
+For normal user-facing removal, prefer status transitions such as `cancelled`, `archived`, or a future approved soft-delete field.
+
+Issue 008 confirms this rule for tasks: task cancellation is a status transition, and no task `DELETE` route is approved.
+
+## Agent Access Rules
+
+AI agents must be treated as untrusted operators with limited scopes.
+
+Agents must not:
+
+- access the database directly
+- receive raw production database credentials
+- bypass Syrantis API authorization
+- send emails directly
+- approve their own generated actions
+- execute destructive actions without an approved workflow
+
+Future AI agents must interact through approved Syrantis API endpoints or approved internal service interfaces with explicit scopes.
+
+The expected future pattern is:
+
+- agent reads approved input through API
+- agent writes a draft, task, recommendation, or ai_run
+- agent requests human approval when external action is needed
+- human approval triggers the final external action
+- the system, not the agent, sends emails or performs external side effects
+
 ## PR Rules
 
 - One scoped issue per PR.
@@ -65,6 +156,7 @@ Agents must not:
 - Operational procedures live in `docs/runbooks/`.
 - Ideas outside the 90-day wedge go to `docs/future/`.
 - Docs must be updated in the same PR as behavior or operational changes.
+- Durable architectural decisions must be added to `DECISIONS.md`.
 
 ## Protected Scope
 
@@ -81,4 +173,3 @@ Until at least 5 paying recurring clients, do not build:
 - multi-tenant client dashboard beyond minimal controlled scope
 
 The wedge is plumbers and heating contractors with Lead Response and Devis Relance.
-
