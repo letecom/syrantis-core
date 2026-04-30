@@ -149,3 +149,9 @@ Decision: tasks are the first protected business resource and prove the applicat
 Task routes are mounted under `/api/tasks`, protected by `tenantGuard`, and backed by service/repository functions that receive `workspaceId` explicitly.
 
 Task cancellation uses `PATCH status = cancelled`. No physical task deletion, approvals workflow, activity logging, jobs, email sending, or UI behavior is approved in Issue 008.
+
+## 2026-04-30 - Issue 009B Updated At Ownership
+
+Decision: `updated_at` is maintained by PostgreSQL through the `syrantis_set_updated_at` trigger, not by application repositories.
+
+Repositories should not manually patch `updated_at` unless a future issue explicitly documents an exception.
