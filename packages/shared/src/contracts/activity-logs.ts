@@ -1,8 +1,14 @@
 import { z } from "zod";
 
-export const ActivityLogActionSchema = z.enum(["task.created", "task.updated"]);
+export const ActivityLogActionSchema = z.enum([
+  "task.created",
+  "task.updated",
+  "approval.created",
+  "approval.approved",
+  "approval.rejected"
+]);
 
-export const ActivityLogEntityTypeSchema = z.enum(["task"]);
+export const ActivityLogEntityTypeSchema = z.enum(["task", "approval"]);
 
 export const ActivityLogQuerySchema = z.object({
   entityType: ActivityLogEntityTypeSchema.optional(),
