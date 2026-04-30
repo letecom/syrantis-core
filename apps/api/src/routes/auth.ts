@@ -7,8 +7,11 @@ import {
   SESSION_COOKIE_NAME,
   SESSION_TTL_SECONDS
 } from "../lib/session-token.js";
+import { getWorkspaceId } from "../lib/tenant.js";
+import { createTenantGuard } from "../middleware/tenant.js";
 import type { AuthService } from "../services/auth.js";
 import { createProductionAuthService } from "../services/auth.js";
+import type { AppEnv } from "../types/hono.js";
 
 const unauthorizedResponse = AuthErrorSchema.parse({
   success: false,
@@ -37,8 +40,9 @@ function getCookieOptions() {
 }
 
 export function createAuthRoutes(dependencies: AuthRoutesDependencies = {}) {
-  const authRoutes = new Hono();
+  const authRoutes = new Hono<AppEnv>();
   const authService = dependencies.authService ?? createProductionAuthService();
+  const routeTenantGuard = createTenantGuard(authService);
 
   authRoutes.post("/login", async (c) => {
     const body = await c.req.json().catch(() => null);
@@ -83,6 +87,16 @@ export function createAuthRoutes(dependencies: AuthRoutesDependencies = {}) {
         data: user
       })
     );
+  });
+
+  authRoutes.get("/session-check", routeTenantGuard, (c) => {
+    return c.json({
+      success: true,
+      data: {
+        userId: c.get("userId"),
+        workspaceId: getWorkspaceId(c)
+      }
+    });
   });
 
   authRoutes.post("/logout", async (c) => {
