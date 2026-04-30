@@ -1,4 +1,4 @@
-.PHONY: install typecheck lint build format format-check db-up db-stop db-down db-logs db-ps db-health db-migrate
+.PHONY: install typecheck lint build format format-check db-up db-stop db-down db-logs db-ps db-health db-migrate auth-create-founder
 
 install:
 	pnpm install
@@ -38,3 +38,6 @@ db-health:
 
 db-migrate:
 	bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter @syrantis/db migrate'
+
+auth-create-founder:
+	bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter @syrantis/api create-founder'
