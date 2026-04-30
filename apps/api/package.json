@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "create-founder": "tsx src/cli/create-founder.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
@@ -12,10 +13,14 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
+    "@syrantis/db": "workspace:*",
     "@syrantis/shared": "workspace:*",
+    "bcryptjs": "^2.4.3",
+    "drizzle-orm": "^0.36.4",
     "hono": "^4.6.10"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "tsx": "^4.19.2",
     "vitest": "^2.1.9"
   }

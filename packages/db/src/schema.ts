@@ -75,6 +75,7 @@ export const sessions = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
     status: varchar("status", { length: 24 }).notNull().default("active"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
