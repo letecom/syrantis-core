@@ -4,6 +4,7 @@ import { tasks } from "@syrantis/db";
 import type { CreateTaskInput, TaskListQuery, UpdateTaskInput } from "@syrantis/shared";
 
 import { withWorkspaceDb } from "../lib/db.js";
+import { createActivityLog } from "./activity-logs.js";
 
 export type TaskRow = typeof tasks.$inferSelect;
 
@@ -22,12 +23,14 @@ export type FindTaskByIdRepositoryInput = {
 export type CreateTaskRepositoryInput = {
   workspaceId: string;
   createdByUserId?: string;
+  actorUserId?: string;
   data: CreateTaskInput;
 };
 
 export type UpdateTaskRepositoryInput = {
   workspaceId: string;
   id: string;
+  actorUserId?: string;
   data: UpdateTaskInput;
 };
 
@@ -117,6 +120,18 @@ export async function createTask(input: CreateTaskRepositoryInput): Promise<Task
       throw new Error("Failed to create task.");
     }
 
+    await createActivityLog(tx, {
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId ?? input.createdByUserId ?? null,
+      action: "task.created",
+      entityType: "task",
+      entityId: task.id,
+      metadataJson: {
+        taskType: task.type,
+        status: task.status
+      }
+    });
+
     return task;
   });
 }
@@ -137,6 +152,21 @@ export async function updateTask(input: UpdateTaskRepositoryInput): Promise<Task
       .where(and(...taskFilters({ workspaceId: input.workspaceId, id: input.id })))
       .returning();
 
-    return task ?? null;
+    if (!task) {
+      return null;
+    }
+
+    await createActivityLog(tx, {
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId ?? null,
+      action: "task.updated",
+      entityType: "task",
+      entityId: task.id,
+      metadataJson: {
+        status: task.status
+      }
+    });
+
+    return task;
   });
 }

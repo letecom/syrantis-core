@@ -141,7 +141,7 @@ export function createTaskRoutes(dependencies: TaskRoutesDependencies = {}) {
       return c.json(invalidRequestResponse, 400);
     }
 
-    const task = await taskService.updateTask(getWorkspaceId(c), taskId, parsedBody.data);
+    const task = await taskService.updateTask(getWorkspaceId(c), c.get("userId"), taskId, parsedBody.data);
 
     if (!task) {
       return c.json(taskNotFoundResponse, 404);
