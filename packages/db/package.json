@@ -11,7 +11,8 @@
   },
   "scripts": {
     "generate": "drizzle-kit generate --config=drizzle.config.ts",
-    "migrate": "echo \"Migration execution requires approved database wiring in a later issue.\"",
+    "migrate": "tsx src/migrate-cli.ts",
+    "health": "tsx src/health-cli.ts",
     "seed": "echo \"Seed is intentionally a placeholder for Issue 002.\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.json"
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@types/pg": "^8.11.10",
-    "drizzle-kit": "^0.27.2"
+    "drizzle-kit": "^0.27.2",
+    "tsx": "^4.19.2"
   }
 }
