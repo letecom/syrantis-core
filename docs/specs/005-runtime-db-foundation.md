@@ -43,6 +43,8 @@ Auth, sessions, tenant guard, approvals, and workflows need a real migrated Post
 
 Runtime secrets live outside the repository in `/opt/syrantis/env/core.prod.env`. Agents must not read or print that file. The repository only includes `ops/docker/.env.example` with dummy values for configuration validation.
 
+Generate `POSTGRES_PASSWORD` with `openssl rand -hex 32`. Base64 passwords may contain URL-unsafe characters such as `/`, `+`, and `=`, and must be URL-encoded before being embedded in `DATABASE_URL`.
+
 Required variables:
 
 - `POSTGRES_DB`
@@ -92,6 +94,7 @@ Remove `ops/docker/docker-compose.yml`, `ops/docker/.env.example`, `docs/runbook
 
 - Docker commands must be run by the `syrantis` runtime user, not by `syrantis-ai`.
 - A weak or missing `POSTGRES_PASSWORD` in the runtime env will prevent a safe runtime posture.
+- A base64 password embedded directly in `DATABASE_URL` can break URL parsing if it contains URL-unsafe characters.
 - Migration execution remains explicit and should happen only after reviewing the target database URL.
 
 ## Next Issue

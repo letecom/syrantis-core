@@ -25,6 +25,7 @@
 - The repository contains only `ops/docker/.env.example` with dummy values.
 - Makefile commands reference the external env path but do not print it.
 - Agents must not read or copy the external runtime env file.
+- Production validation used `openssl rand -hex 32` for `POSTGRES_PASSWORD`. Base64 output can contain URL-unsafe characters such as `/`, `+`, and `=`, so base64 passwords must be URL-encoded before being placed in `DATABASE_URL`.
 
 ## Commands Added
 
@@ -59,6 +60,7 @@
 - Forbidden runtime file audit: passed; no real `.env`, Caddyfile, or Dockerfile was created. The only `.env*` file is the allowed dummy `ops/docker/.env.example`.
 - Public bind audit: passed; Compose binds PostgreSQL to `127.0.0.1:5432:5432` and contains no `0.0.0.0` bind.
 - Secret audit: passed; no real secret values were added. The repository contains only dummy example values and external env path references.
+- Production validation after merge: `make db-health` OK, `make db-migrate` OK, and 16 tables were created.
 
 ## Deviations
 
