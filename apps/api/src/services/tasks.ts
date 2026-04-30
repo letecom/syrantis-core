@@ -20,7 +20,7 @@ export type TaskService = {
   listTasks(workspaceId: string, query: TaskListQuery): Promise<TaskOutput[]>;
   createTask(workspaceId: string, userId: string, input: CreateTaskInput): Promise<TaskOutput>;
   getTask(workspaceId: string, id: string): Promise<TaskOutput | null>;
-  updateTask(workspaceId: string, id: string, input: UpdateTaskInput): Promise<TaskOutput | null>;
+  updateTask(workspaceId: string, userId: string, id: string, input: UpdateTaskInput): Promise<TaskOutput | null>;
 };
 
 function toIsoDate(value: Date | null): string | null {
@@ -86,6 +86,7 @@ export function createProductionTaskService(): TaskService {
       const row = await createTask({
         workspaceId,
         createdByUserId: userId,
+        actorUserId: userId,
         data: input
       });
 
@@ -97,7 +98,7 @@ export function createProductionTaskService(): TaskService {
       return row ? mapTaskRow(row) : null;
     },
 
-    async updateTask(workspaceId: string, id: string, input: UpdateTaskInput): Promise<TaskOutput | null> {
+    async updateTask(workspaceId: string, userId: string, id: string, input: UpdateTaskInput): Promise<TaskOutput | null> {
       const data = { ...input };
 
       if (input.assignedTo !== undefined) {
@@ -110,7 +111,7 @@ export function createProductionTaskService(): TaskService {
         data.metadata = mergeAssignedTo(input.metadata ?? existingTask.metadataJson, input.assignedTo);
       }
 
-      const row = await updateTask({ workspaceId, id, data });
+      const row = await updateTask({ workspaceId, id, actorUserId: userId, data });
       return row ? mapTaskRow(row) : null;
     }
   };

@@ -117,7 +117,7 @@ export function createFakeTaskService(): TaskService {
       return task?.workspaceId === workspaceId ? task : null;
     }),
 
-    updateTask: vi.fn(async (workspaceId: string, id: string, input: UpdateTaskInput) => {
+    updateTask: vi.fn(async (workspaceId: string, _userId: string, id: string, input: UpdateTaskInput) => {
       const task = tasks.get(id);
 
       if (!task || task.workspaceId !== workspaceId) {
