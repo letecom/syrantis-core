@@ -115,6 +115,10 @@ For normal user-facing removal, prefer status transitions such as `cancelled`, `
 
 Issue 008 confirms this rule for tasks: task cancellation is a status transition, and no task `DELETE` route is approved.
 
+## Timestamp Rules
+
+Any new table with an `updated_at` column must have a `syrantis_set_updated_at` trigger. The application must not be responsible for maintaining `updated_at`; exceptions must be explicitly documented in the related issue.
+
 ## Agent Access Rules
 
 AI agents must be treated as untrusted operators with limited scopes.
