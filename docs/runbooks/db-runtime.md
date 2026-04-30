@@ -11,8 +11,10 @@ Create `/opt/syrantis/env/core.prod.env` manually as an operator. Agents must no
 Generate a password:
 
 ```sh
-openssl rand -base64 32
+openssl rand -hex 32
 ```
+
+Use hex output by default. Base64 passwords may contain URL-unsafe characters such as `/`, `+`, and `=`, which can break `DATABASE_URL` when embedded directly. Use base64 only if the password is URL-encoded before being placed in `DATABASE_URL`.
 
 Required variables:
 
@@ -70,6 +72,14 @@ make db-migrate
 ```
 
 Review the target environment before running migrations. Migrations are explicit and do not run automatically.
+
+## Production Validation
+
+Production validation completed with a hex-generated `POSTGRES_PASSWORD`:
+
+- `make db-health`: OK.
+- `make db-migrate`: OK.
+- Database contains 16 migrated tables.
 
 ## List Tables
 
