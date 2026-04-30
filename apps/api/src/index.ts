@@ -1,12 +1,5 @@
 import { serve } from "@hono/node-server";
-import { Hono } from "hono";
-import { errorHandler } from "./middleware/error";
-import { routes } from "./routes";
-
-export const app = new Hono();
-
-app.onError(errorHandler);
-app.route("/", routes);
+import { app } from "./app.js";
 
 const port = Number(process.env.PORT ?? 8787);
 
