@@ -1,7 +1,9 @@
 import { and, desc, eq, type SQL } from "drizzle-orm";
 
-import { getGlobalDbClient, tasks } from "@syrantis/db";
+import { tasks } from "@syrantis/db";
 import type { CreateTaskInput, TaskListQuery, UpdateTaskInput } from "@syrantis/shared";
+
+import { withWorkspaceDb } from "../lib/db.js";
 
 export type TaskRow = typeof tasks.$inferSelect;
 
@@ -71,66 +73,70 @@ function metadataWithAssignedTo(
 }
 
 export async function listTasks(input: ListTasksRepositoryInput): Promise<TaskRow[]> {
-  const { db } = getGlobalDbClient();
-  const filters = taskFilters(input);
+  return withWorkspaceDb(input.workspaceId, async (tx) => {
+    const filters = taskFilters(input);
 
-  return db
-    .select()
-    .from(tasks)
-    .where(and(...filters))
-    .orderBy(desc(tasks.createdAt))
-    .limit(resolveLimit(input.limit));
+    return tx
+      .select()
+      .from(tasks)
+      .where(and(...filters))
+      .orderBy(desc(tasks.createdAt))
+      .limit(resolveLimit(input.limit));
+  });
 }
 
 export async function findTaskById(input: FindTaskByIdRepositoryInput): Promise<TaskRow | null> {
-  const { db } = getGlobalDbClient();
-  const [task] = await db
-    .select()
-    .from(tasks)
-    .where(and(...taskFilters(input)))
-    .limit(1);
+  return withWorkspaceDb(input.workspaceId, async (tx) => {
+    const [task] = await tx
+      .select()
+      .from(tasks)
+      .where(and(...taskFilters(input)))
+      .limit(1);
 
-  return task ?? null;
+    return task ?? null;
+  });
 }
 
 export async function createTask(input: CreateTaskRepositoryInput): Promise<TaskRow> {
-  const { db } = getGlobalDbClient();
-  const values: typeof tasks.$inferInsert = {
-    workspaceId: input.workspaceId,
-    type: input.data.type,
-    title: input.data.title,
-    metadataJson: metadataWithAssignedTo(input.data.metadata, input.data.assignedTo),
-    ...(input.data.description !== undefined ? { description: input.data.description } : {}),
-    ...(input.data.dueDate !== undefined ? { dueAt: new Date(input.data.dueDate) } : {}),
-    ...(input.data.opportunityId !== undefined ? { opportunityId: input.data.opportunityId } : {}),
-    ...(input.data.leadId !== undefined ? { leadId: input.data.leadId } : {}),
-    ...(input.data.contactId !== undefined ? { contactId: input.data.contactId } : {})
-  };
+  return withWorkspaceDb(input.workspaceId, async (tx) => {
+    const values: typeof tasks.$inferInsert = {
+      workspaceId: input.workspaceId,
+      type: input.data.type,
+      title: input.data.title,
+      metadataJson: metadataWithAssignedTo(input.data.metadata, input.data.assignedTo),
+      ...(input.data.description !== undefined ? { description: input.data.description } : {}),
+      ...(input.data.dueDate !== undefined ? { dueAt: new Date(input.data.dueDate) } : {}),
+      ...(input.data.opportunityId !== undefined ? { opportunityId: input.data.opportunityId } : {}),
+      ...(input.data.leadId !== undefined ? { leadId: input.data.leadId } : {}),
+      ...(input.data.contactId !== undefined ? { contactId: input.data.contactId } : {})
+    };
 
-  const [task] = await db.insert(tasks).values(values).returning();
+    const [task] = await tx.insert(tasks).values(values).returning();
 
-  if (!task) {
-    throw new Error("Failed to create task.");
-  }
+    if (!task) {
+      throw new Error("Failed to create task.");
+    }
 
-  return task;
+    return task;
+  });
 }
 
 export async function updateTask(input: UpdateTaskRepositoryInput): Promise<TaskRow | null> {
-  const { db } = getGlobalDbClient();
-  const values: Partial<typeof tasks.$inferInsert> = {
-    ...(input.data.title !== undefined ? { title: input.data.title } : {}),
-    ...(input.data.description !== undefined ? { description: input.data.description } : {}),
-    ...(input.data.status !== undefined ? { status: input.data.status } : {}),
-    ...(input.data.dueDate !== undefined ? { dueAt: input.data.dueDate === null ? null : new Date(input.data.dueDate) } : {}),
-    ...(input.data.metadata !== undefined ? { metadataJson: input.data.metadata } : {})
-  };
+  return withWorkspaceDb(input.workspaceId, async (tx) => {
+    const values: Partial<typeof tasks.$inferInsert> = {
+      ...(input.data.title !== undefined ? { title: input.data.title } : {}),
+      ...(input.data.description !== undefined ? { description: input.data.description } : {}),
+      ...(input.data.status !== undefined ? { status: input.data.status } : {}),
+      ...(input.data.dueDate !== undefined ? { dueAt: input.data.dueDate === null ? null : new Date(input.data.dueDate) } : {}),
+      ...(input.data.metadata !== undefined ? { metadataJson: input.data.metadata } : {})
+    };
 
-  const [task] = await db
-    .update(tasks)
-    .set(values)
-    .where(and(...taskFilters({ workspaceId: input.workspaceId, id: input.id })))
-    .returning();
+    const [task] = await tx
+      .update(tasks)
+      .set(values)
+      .where(and(...taskFilters({ workspaceId: input.workspaceId, id: input.id })))
+      .returning();
 
-  return task ?? null;
+    return task ?? null;
+  });
 }
