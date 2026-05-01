@@ -4,6 +4,7 @@
 
 - `packages/db/src/schema.ts`
 - `packages/db/migrations/0003_activity_logs_workspace_not_null.sql`
+- `packages/db/migrations/meta/_journal.json`
 - `apps/api/src/repositories/activity-logs.ts`
 - `apps/api/src/tests/activity-logs.test.ts`
 - `docs/specs/014B2-activity-logs-workspace-nullability.md`
@@ -32,6 +33,8 @@ ALTER TABLE activity_logs ALTER COLUMN workspace_id SET NOT NULL;
 ```
 
 No backfill, delete, RLS activation, or policy creation is included.
+
+Hotfix note: `0003_activity_logs_workspace_not_null` is registered in `packages/db/migrations/meta/_journal.json` so the Drizzle migrator recognizes and executes the existing SQL migration.
 
 ## Schema Changes
 
