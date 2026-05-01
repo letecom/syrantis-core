@@ -1,12 +1,17 @@
-import { and, desc, eq, type SQL } from "drizzle-orm";
+import { and, desc, eq, ne, type SQL } from "drizzle-orm";
 
-import { tasks } from "@syrantis/db";
+import { contacts, leads, opportunities, organizations, tasks } from "@syrantis/db";
 import type { CreateTaskInput, TaskListQuery, UpdateTaskInput } from "@syrantis/shared";
 
-import { withWorkspaceDb } from "../lib/db.js";
+import { withWorkspaceDb, type WorkspaceDbTransaction } from "../lib/db.js";
 import { createActivityLog } from "./activity-logs.js";
 
 export type TaskRow = typeof tasks.$inferSelect;
+
+export type TaskMutationResult =
+  | { result: "ok"; task: TaskRow }
+  | { result: "not_found" }
+  | { result: "invalid_relation" };
 
 export type ListTasksRepositoryInput = {
   workspaceId: string;
@@ -75,6 +80,184 @@ function metadataWithAssignedTo(
   };
 }
 
+function mergeAssignedTo(
+  metadata: Record<string, unknown>,
+  assignedTo: string | null | undefined
+): Record<string, unknown> {
+  if (assignedTo === undefined) {
+    return metadata;
+  }
+
+  const nextMetadata = { ...metadata };
+
+  if (assignedTo === null) {
+    delete nextMetadata.assignedTo;
+  } else {
+    nextMetadata.assignedTo = assignedTo;
+  }
+
+  return nextMetadata;
+}
+
+function hasOwnField<T extends object>(value: T, key: keyof T): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function hasRelationshipInput(data: UpdateTaskInput): boolean {
+  return (
+    hasOwnField(data, "organizationId") ||
+    hasOwnField(data, "contactId") ||
+    hasOwnField(data, "leadId") ||
+    hasOwnField(data, "opportunityId")
+  );
+}
+
+type TaskRelationshipState = {
+  organizationId: string | null;
+  contactId: string | null;
+  leadId: string | null;
+  opportunityId: string | null;
+};
+
+type RelatedRows = {
+  contact?: { id: string; organizationId: string | null };
+  lead?: { id: string; organizationId: string | null; contactId: string | null };
+  opportunity?: { id: string; organizationId: string | null; contactId: string | null; leadId: string | null };
+};
+
+function relationshipsFromCreate(data: CreateTaskInput): TaskRelationshipState {
+  return {
+    organizationId: data.organizationId ?? null,
+    contactId: data.contactId ?? null,
+    leadId: data.leadId ?? null,
+    opportunityId: data.opportunityId ?? null
+  };
+}
+
+function relationshipsFromUpdate(existingTask: TaskRow, data: UpdateTaskInput): TaskRelationshipState {
+  return {
+    organizationId: hasOwnField(data, "organizationId") ? (data.organizationId ?? null) : existingTask.organizationId,
+    contactId: hasOwnField(data, "contactId") ? (data.contactId ?? null) : existingTask.contactId,
+    leadId: hasOwnField(data, "leadId") ? (data.leadId ?? null) : existingTask.leadId,
+    opportunityId: hasOwnField(data, "opportunityId") ? (data.opportunityId ?? null) : existingTask.opportunityId
+  };
+}
+
+async function validateTaskRelationships(
+  tx: WorkspaceDbTransaction,
+  input: { workspaceId: string; relationships: TaskRelationshipState }
+): Promise<Exclude<TaskMutationResult, { result: "ok" }> | { result: "ok"; relatedRows: RelatedRows }> {
+  const { relationships } = input;
+  const relatedRows: RelatedRows = {};
+
+  if (relationships.organizationId) {
+    const [organization] = await tx
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(
+        and(
+          eq(organizations.id, relationships.organizationId),
+          eq(organizations.workspaceId, input.workspaceId),
+          ne(organizations.status, "archived")
+        )
+      )
+      .limit(1);
+
+    if (!organization) {
+      return { result: "not_found" };
+    }
+  }
+
+  if (relationships.contactId) {
+    const [contact] = await tx
+      .select({ id: contacts.id, organizationId: contacts.organizationId })
+      .from(contacts)
+      .where(and(eq(contacts.id, relationships.contactId), eq(contacts.workspaceId, input.workspaceId)))
+      .limit(1);
+
+    if (!contact) {
+      return { result: "not_found" };
+    }
+
+    relatedRows.contact = contact;
+  }
+
+  if (relationships.leadId) {
+    const [lead] = await tx
+      .select({ id: leads.id, organizationId: leads.organizationId, contactId: leads.contactId })
+      .from(leads)
+      .where(and(eq(leads.id, relationships.leadId), eq(leads.workspaceId, input.workspaceId)))
+      .limit(1);
+
+    if (!lead) {
+      return { result: "not_found" };
+    }
+
+    relatedRows.lead = lead;
+  }
+
+  if (relationships.opportunityId) {
+    const [opportunity] = await tx
+      .select({
+        id: opportunities.id,
+        organizationId: opportunities.organizationId,
+        contactId: opportunities.contactId,
+        leadId: opportunities.leadId
+      })
+      .from(opportunities)
+      .where(and(eq(opportunities.id, relationships.opportunityId), eq(opportunities.workspaceId, input.workspaceId)))
+      .limit(1);
+
+    if (!opportunity) {
+      return { result: "not_found" };
+    }
+
+    relatedRows.opportunity = opportunity;
+  }
+
+  if (
+    relatedRows.contact?.organizationId &&
+    relationships.organizationId &&
+    relatedRows.contact.organizationId !== relationships.organizationId
+  ) {
+    return { result: "invalid_relation" };
+  }
+
+  if (
+    relatedRows.lead?.organizationId &&
+    relationships.organizationId &&
+    relatedRows.lead.organizationId !== relationships.organizationId
+  ) {
+    return { result: "invalid_relation" };
+  }
+
+  if (relatedRows.lead?.contactId && relationships.contactId && relatedRows.lead.contactId !== relationships.contactId) {
+    return { result: "invalid_relation" };
+  }
+
+  if (
+    relatedRows.opportunity?.organizationId &&
+    relationships.organizationId &&
+    relatedRows.opportunity.organizationId !== relationships.organizationId
+  ) {
+    return { result: "invalid_relation" };
+  }
+
+  if (
+    relatedRows.opportunity?.contactId &&
+    relationships.contactId &&
+    relatedRows.opportunity.contactId !== relationships.contactId
+  ) {
+    return { result: "invalid_relation" };
+  }
+
+  if (relatedRows.opportunity?.leadId && relationships.leadId && relatedRows.opportunity.leadId !== relationships.leadId) {
+    return { result: "invalid_relation" };
+  }
+
+  return { result: "ok", relatedRows };
+}
+
 export async function listTasks(input: ListTasksRepositoryInput): Promise<TaskRow[]> {
   return withWorkspaceDb(input.workspaceId, async (tx) => {
     const filters = taskFilters(input);
@@ -100,8 +283,17 @@ export async function findTaskById(input: FindTaskByIdRepositoryInput): Promise<
   });
 }
 
-export async function createTask(input: CreateTaskRepositoryInput): Promise<TaskRow> {
+export async function createTask(input: CreateTaskRepositoryInput): Promise<TaskMutationResult> {
   return withWorkspaceDb(input.workspaceId, async (tx) => {
+    const relationshipValidation = await validateTaskRelationships(tx, {
+      workspaceId: input.workspaceId,
+      relationships: relationshipsFromCreate(input.data)
+    });
+
+    if (relationshipValidation.result !== "ok") {
+      return relationshipValidation;
+    }
+
     const values: typeof tasks.$inferInsert = {
       workspaceId: input.workspaceId,
       type: input.data.type,
@@ -109,6 +301,7 @@ export async function createTask(input: CreateTaskRepositoryInput): Promise<Task
       metadataJson: metadataWithAssignedTo(input.data.metadata, input.data.assignedTo),
       ...(input.data.description !== undefined ? { description: input.data.description } : {}),
       ...(input.data.dueDate !== undefined ? { dueAt: new Date(input.data.dueDate) } : {}),
+      ...(input.data.organizationId !== undefined ? { organizationId: input.data.organizationId } : {}),
       ...(input.data.opportunityId !== undefined ? { opportunityId: input.data.opportunityId } : {}),
       ...(input.data.leadId !== undefined ? { leadId: input.data.leadId } : {}),
       ...(input.data.contactId !== undefined ? { contactId: input.data.contactId } : {})
@@ -132,18 +325,46 @@ export async function createTask(input: CreateTaskRepositoryInput): Promise<Task
       }
     });
 
-    return task;
+    return { result: "ok", task };
   });
 }
 
-export async function updateTask(input: UpdateTaskRepositoryInput): Promise<TaskRow | null> {
+export async function updateTask(input: UpdateTaskRepositoryInput): Promise<TaskMutationResult> {
   return withWorkspaceDb(input.workspaceId, async (tx) => {
+    const [existingTask] = await tx
+      .select()
+      .from(tasks)
+      .where(and(...taskFilters({ workspaceId: input.workspaceId, id: input.id })))
+      .limit(1);
+
+    if (!existingTask) {
+      return { result: "not_found" };
+    }
+
+    if (hasRelationshipInput(input.data)) {
+      const relationshipValidation = await validateTaskRelationships(tx, {
+        workspaceId: input.workspaceId,
+        relationships: relationshipsFromUpdate(existingTask, input.data)
+      });
+
+      if (relationshipValidation.result !== "ok") {
+        return relationshipValidation;
+      }
+    }
+
     const values: Partial<typeof tasks.$inferInsert> = {
       ...(input.data.title !== undefined ? { title: input.data.title } : {}),
       ...(input.data.description !== undefined ? { description: input.data.description } : {}),
       ...(input.data.status !== undefined ? { status: input.data.status } : {}),
       ...(input.data.dueDate !== undefined ? { dueAt: input.data.dueDate === null ? null : new Date(input.data.dueDate) } : {}),
-      ...(input.data.metadata !== undefined ? { metadataJson: input.data.metadata } : {})
+      ...(input.data.organizationId !== undefined ? { organizationId: input.data.organizationId } : {}),
+      ...(input.data.opportunityId !== undefined ? { opportunityId: input.data.opportunityId } : {}),
+      ...(input.data.leadId !== undefined ? { leadId: input.data.leadId } : {}),
+      ...(input.data.contactId !== undefined ? { contactId: input.data.contactId } : {}),
+      ...(input.data.assignedTo !== undefined
+        ? { metadataJson: mergeAssignedTo(input.data.metadata ?? existingTask.metadataJson, input.data.assignedTo) }
+        : {}),
+      ...(input.data.assignedTo === undefined && input.data.metadata !== undefined ? { metadataJson: input.data.metadata } : {})
     };
 
     const [task] = await tx
@@ -153,7 +374,7 @@ export async function updateTask(input: UpdateTaskRepositoryInput): Promise<Task
       .returning();
 
     if (!task) {
-      return null;
+      return { result: "not_found" };
     }
 
     await createActivityLog(tx, {
@@ -167,6 +388,6 @@ export async function updateTask(input: UpdateTaskRepositoryInput): Promise<Task
       }
     });
 
-    return task;
+    return { result: "ok", task };
   });
 }

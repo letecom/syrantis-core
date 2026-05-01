@@ -12,6 +12,7 @@ export const CreateTaskInputSchema = z.object({
   description: z.string().max(2000).optional(),
   dueDate: z.string().datetime({ offset: true }).optional(),
   assignedTo: z.string().uuid().optional(),
+  organizationId: z.string().uuid().optional(),
   opportunityId: z.string().uuid().optional(),
   leadId: z.string().uuid().optional(),
   contactId: z.string().uuid().optional(),
@@ -25,6 +26,10 @@ export const UpdateTaskInputSchema = z
     status: TaskStatusSchema.optional(),
     dueDate: z.string().datetime({ offset: true }).nullable().optional(),
     assignedTo: z.string().uuid().nullable().optional(),
+    organizationId: z.string().uuid().nullable().optional(),
+    opportunityId: z.string().uuid().nullable().optional(),
+    leadId: z.string().uuid().nullable().optional(),
+    contactId: z.string().uuid().nullable().optional(),
     metadata: MetadataSchema.optional()
   })
   .refine((value) => Object.keys(value).length > 0, {
@@ -40,6 +45,7 @@ export const TaskOutputSchema = z.object({
   description: z.string().nullable(),
   dueDate: z.string().nullable(),
   assignedTo: z.string().uuid().nullable(),
+  organizationId: z.string().uuid().nullable(),
   opportunityId: z.string().uuid().nullable(),
   leadId: z.string().uuid().nullable(),
   contactId: z.string().uuid().nullable(),

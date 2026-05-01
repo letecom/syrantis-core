@@ -14,7 +14,8 @@ import { createTenantGuard, tenantGuard } from "../middleware/tenant.js";
 import type { AuthService } from "../services/auth.js";
 import {
   createProductionTaskService,
-  type TaskService
+  type TaskService,
+  type TaskServiceMutationResult
 } from "../services/tasks.js";
 import type { AppEnv } from "../types/hono.js";
 
@@ -47,6 +48,24 @@ async function readJsonBody(c: Context<AppEnv>): Promise<unknown> {
 
 function parseTaskId(value: string): string | null {
   return uuidPattern.test(value) ? value : null;
+}
+
+function mutationResponse(c: Context<AppEnv>, result: TaskServiceMutationResult, successStatus: 200 | 201 = 200) {
+  if (result.result === "not_found") {
+    return c.json(taskNotFoundResponse, 404);
+  }
+
+  if (result.result === "invalid_relation") {
+    return c.json(invalidRequestResponse, 400);
+  }
+
+  return c.json(
+    TaskSuccessSchema.parse({
+      success: true,
+      data: result.task
+    }),
+    successStatus
+  );
 }
 
 export function createTaskRoutes(dependencies: TaskRoutesDependencies = {}) {
@@ -90,15 +109,8 @@ export function createTaskRoutes(dependencies: TaskRoutesDependencies = {}) {
       return c.json(invalidRequestResponse, 400);
     }
 
-    const task = await taskService.createTask(getWorkspaceId(c), c.get("userId"), parsedBody.data);
-
-    return c.json(
-      TaskSuccessSchema.parse({
-        success: true,
-        data: task
-      }),
-      201
-    );
+    const result = await taskService.createTask(getWorkspaceId(c), c.get("userId"), parsedBody.data);
+    return mutationResponse(c, result, 201);
   });
 
   routes.get("/:id", async (c) => {
@@ -141,18 +153,8 @@ export function createTaskRoutes(dependencies: TaskRoutesDependencies = {}) {
       return c.json(invalidRequestResponse, 400);
     }
 
-    const task = await taskService.updateTask(getWorkspaceId(c), c.get("userId"), taskId, parsedBody.data);
-
-    if (!task) {
-      return c.json(taskNotFoundResponse, 404);
-    }
-
-    return c.json(
-      TaskSuccessSchema.parse({
-        success: true,
-        data: task
-      })
-    );
+    const result = await taskService.updateTask(getWorkspaceId(c), c.get("userId"), taskId, parsedBody.data);
+    return mutationResponse(c, result);
   });
 
   return routes;
