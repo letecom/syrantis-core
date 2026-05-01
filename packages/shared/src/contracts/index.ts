@@ -4,5 +4,6 @@ export * from "./auth.js";
 export * from "./contacts.js";
 export * from "./errors.js";
 export * from "./health.js";
+export * from "./leads.js";
 export * from "./organizations.js";
 export * from "./tasks.js";
