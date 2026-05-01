@@ -22,6 +22,13 @@
       "when": 1777578464429,
       "tag": "0002_updated_at_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1777647260810,
+      "tag": "0003_activity_logs_workspace_not_null",
+      "breakpoints": true
     }
   ]
 }
