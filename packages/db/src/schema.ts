@@ -407,7 +407,9 @@ export const activityLogs = pgTable(
   "activity_logs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    workspaceId: uuid("workspace_id").references(() => workspaces.id),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
     userId: uuid("user_id").references(() => users.id),
     entityType: varchar("entity_type", { length: 80 }),
     entityId: uuid("entity_id"),

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ActivityLogOutput, ActivityLogQuery } from "@syrantis/shared";
 
 import { SESSION_COOKIE_NAME } from "../lib/session-token.js";
+import { createActivityLog } from "../repositories/activity-logs.js";
 import { createActivityLogRoutes } from "../routes/activity-logs.js";
 import type { ActivityLogService } from "../services/activity-logs.js";
 import { createFakeAuthService, testUser, validSessionToken } from "./mocks/auth.js";
@@ -150,5 +151,47 @@ describe("activity log routes", () => {
       error: "Invalid request.",
       code: "INVALID_REQUEST"
     });
+  });
+});
+
+describe("createActivityLog", () => {
+  function createMockTx() {
+    return {
+      insert: vi.fn(() => ({
+        values: vi.fn(() => ({
+          returning: vi.fn(async () => [])
+        }))
+      }))
+    };
+  }
+
+  it("rejects missing workspaceId at runtime before insert", async () => {
+    const tx = createMockTx();
+
+    await expect(
+      createActivityLog(tx as never, {
+        workspaceId: "",
+        actorUserId: testUser.id,
+        action: "task.created",
+        entityType: "task",
+        entityId: currentWorkspaceTaskId
+      })
+    ).rejects.toThrow("createActivityLog requires workspaceId.");
+    expect(tx.insert).not.toHaveBeenCalled();
+  });
+
+  it("rejects null workspaceId at runtime before insert when the type is bypassed", async () => {
+    const tx = createMockTx();
+
+    await expect(
+      createActivityLog(tx as never, {
+        workspaceId: null,
+        actorUserId: testUser.id,
+        action: "task.created",
+        entityType: "task",
+        entityId: currentWorkspaceTaskId
+      } as never)
+    ).rejects.toThrow("createActivityLog requires workspaceId.");
+    expect(tx.insert).not.toHaveBeenCalled();
   });
 });

@@ -48,6 +48,10 @@ export async function createActivityLog(
   tx: ActivityLogTx,
   input: CreateActivityLogInput
 ): Promise<ActivityLogRow> {
+  if (!input.workspaceId) {
+    throw new Error("createActivityLog requires workspaceId.");
+  }
+
   const [activityLog] = await tx
     .insert(activityLogs)
     .values({
