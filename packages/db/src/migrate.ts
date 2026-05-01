@@ -31,12 +31,17 @@ function getDefaultMigrationsFolder(): string {
   return migrationsFolder;
 }
 
+function getMigrationDatabaseUrl(): string | undefined {
+  const value = process.env.MIGRATION_DATABASE_URL?.trim();
+  return value && value.length > 0 ? value : undefined;
+}
+
 export async function runMigrations(databaseUrl?: string): Promise<RunMigrationsResult> {
   const startedAt = performance.now();
   let client: ReturnType<typeof createDbClient> | undefined;
 
   try {
-    const resolvedDatabaseUrl = databaseUrl ?? requireDatabaseUrl();
+    const resolvedDatabaseUrl = databaseUrl ?? getMigrationDatabaseUrl() ?? requireDatabaseUrl();
     const migrationsFolder = getDefaultMigrationsFolder();
     client = createDbClient(resolvedDatabaseUrl);
 

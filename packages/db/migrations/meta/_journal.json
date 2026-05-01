@@ -29,6 +29,13 @@
       "when": 1777647260810,
       "tag": "0003_activity_logs_workspace_not_null",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777648206573,
+      "tag": "0004_create_runtime_db_role",
+      "breakpoints": true
     }
   ]
 }
