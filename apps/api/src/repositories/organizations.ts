@@ -1,4 +1,4 @@
-import { and, desc, eq, type SQL } from "drizzle-orm";
+import { and, desc, eq, ne, type SQL } from "drizzle-orm";
 
 import { organizations } from "@syrantis/db";
 import type {
@@ -61,7 +61,7 @@ function organizationFilters(input: {
   id?: string | undefined;
   status?: string | undefined;
 }): SQL[] {
-  const filters = [eq(organizations.workspaceId, input.workspaceId)];
+  const filters = [eq(organizations.workspaceId, input.workspaceId), ne(organizations.status, "archived")];
 
   if (input.id) {
     filters.push(eq(organizations.id, input.id));

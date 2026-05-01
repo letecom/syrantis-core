@@ -139,6 +139,10 @@ function createFakeOrganizationService(): OrganizationService {
           return false;
         }
 
+        if (organization.status === "archived") {
+          return false;
+        }
+
         if (query.status && organization.status !== query.status) {
           return false;
         }
@@ -149,7 +153,7 @@ function createFakeOrganizationService(): OrganizationService {
 
     getOrganization: vi.fn(async (workspaceId: string, id: string) => {
       const organization = organizations.get(id);
-      return organization?.workspaceId === workspaceId ? organization : null;
+      return organization?.workspaceId === workspaceId && organization.status !== "archived" ? organization : null;
     }),
 
     createOrganization: vi.fn(async (workspaceId: string, _actorUserId: string, input: CreateOrganizationInput) => {
@@ -175,7 +179,7 @@ function createFakeOrganizationService(): OrganizationService {
       async (workspaceId: string, _actorUserId: string, id: string, input: UpdateOrganizationInput) => {
         const organization = organizations.get(id);
 
-        if (!organization || organization.workspaceId !== workspaceId) {
+        if (!organization || organization.workspaceId !== workspaceId || organization.status === "archived") {
           return { result: "not_found" } satisfies OrganizationServiceMutationResult;
         }
 
@@ -199,7 +203,7 @@ function createFakeOrganizationService(): OrganizationService {
     archiveOrganization: vi.fn(async (workspaceId: string, _actorUserId: string, id: string) => {
       const organization = organizations.get(id);
 
-      if (!organization || organization.workspaceId !== workspaceId) {
+      if (!organization || organization.workspaceId !== workspaceId || organization.status === "archived") {
         return { result: "not_found" } satisfies OrganizationServiceMutationResult;
       }
 
@@ -374,6 +378,78 @@ describe("organization routes", () => {
         status: "archived",
         updatedAt: "2026-04-30T14:00:00.000Z"
       }
+    });
+  });
+
+  it("returns 404 for an organization after archive", async () => {
+    const app = createTestApp(createFakeOrganizationService());
+
+    const archiveResponse = await app.request(`/api/organizations/${currentWorkspaceOrganizationId}/archive`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({})
+    });
+
+    expect(archiveResponse.status).toBe(200);
+
+    const response = await app.request(`/api/organizations/${currentWorkspaceOrganizationId}`, {
+      headers: validSessionHeaders()
+    });
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      success: false,
+      error: "Organization not found.",
+      code: "ORGANIZATION_NOT_FOUND"
+    });
+  });
+
+  it("does not list an organization after archive", async () => {
+    const app = createTestApp(createFakeOrganizationService());
+
+    const archiveResponse = await app.request(`/api/organizations/${currentWorkspaceOrganizationId}/archive`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({})
+    });
+
+    expect(archiveResponse.status).toBe(200);
+
+    const response = await app.request("/api/organizations", {
+      headers: validSessionHeaders()
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      success: true,
+      data: []
+    });
+  });
+
+  it("returns 404 when patching an archived organization", async () => {
+    const app = createTestApp(createFakeOrganizationService());
+
+    const archiveResponse = await app.request(`/api/organizations/${currentWorkspaceOrganizationId}/archive`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({})
+    });
+
+    expect(archiveResponse.status).toBe(200);
+
+    const response = await app.request(`/api/organizations/${currentWorkspaceOrganizationId}`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        name: "Should remain hidden"
+      })
+    });
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      success: false,
+      error: "Organization not found.",
+      code: "ORGANIZATION_NOT_FOUND"
     });
   });
 });
