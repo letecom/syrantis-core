@@ -64,6 +64,13 @@
       "when": 1777722200000,
       "tag": "0008_workspace_api_key_public_lookup_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777723200000,
+      "tag": "0009_drafts_foundation_access_rls",
+      "breakpoints": true
     }
   ]
 }
