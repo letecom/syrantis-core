@@ -8,6 +8,7 @@ import {
 
 import type { LeadListResult, LeadMutationResult, LeadRow } from "../repositories/leads.js";
 import { createLead, findLeadById, listLeads, updateLead } from "../repositories/leads.js";
+import { requestLeadScore } from "../repositories/lead-scoring.js";
 
 export type LeadServiceListResult =
   | { result: "ok"; leads: LeadOutput[] }
@@ -17,6 +18,10 @@ export type LeadServiceMutationResult =
   | { result: "ok"; lead: LeadOutput }
   | { result: "not_found" }
   | { result: "conflict" };
+
+export type LeadServiceScoreRequestResult =
+  | { result: "ok"; jobId: string; leadId: string }
+  | { result: "not_found" };
 
 export type LeadService = {
   listLeads(workspaceId: string, query: LeadListQuery): Promise<LeadServiceListResult>;
@@ -28,6 +33,11 @@ export type LeadService = {
     id: string,
     input: UpdateLeadInput
   ): Promise<LeadServiceMutationResult>;
+  requestLeadScore(
+    workspaceId: string,
+    actorUserId: string,
+    id: string
+  ): Promise<LeadServiceScoreRequestResult>;
 };
 
 function toIsoDate(value: Date | null): string | null {
@@ -123,6 +133,28 @@ export function createProductionLeadService(): LeadService {
           data: input
         })
       );
+    },
+
+    async requestLeadScore(
+      workspaceId: string,
+      actorUserId: string,
+      id: string
+    ): Promise<LeadServiceScoreRequestResult> {
+      const result = await requestLeadScore({
+        workspaceId,
+        actorUserId,
+        leadId: id
+      });
+
+      if (result.result === "not_found") {
+        return result;
+      }
+
+      return {
+        result: "ok",
+        jobId: result.job.id,
+        leadId: result.leadId
+      };
     }
   };
 }

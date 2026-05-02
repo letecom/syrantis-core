@@ -555,7 +555,7 @@ export const backgroundJobs = pgTable(
       "background_jobs_status_check",
       sql`${table.status} in ('pending', 'running', 'completed', 'failed', 'cancelled')`
     ),
-    check("background_jobs_type_check", sql`${table.type} in ('send_email')`),
+    check("background_jobs_type_check", sql`${table.type} in ('send_email', 'score_lead')`),
     check("background_jobs_attempts_check", sql`${table.attempts} >= 0`),
     check("background_jobs_max_attempts_check", sql`${table.maxAttempts} >= 1`),
     index("background_jobs_workspace_id_idx").on(table.workspaceId),
@@ -648,17 +648,66 @@ export const aiRuns = pgTable(
     confidenceScore: numeric("confidence_score", { precision: 5, scale: 4 }),
     status: varchar("status", { length: 24 }).notNull(),
     errorMessage: text("error_message"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+    jobId: uuid("job_id").references(() => backgroundJobs.id),
+    referenceType: varchar("reference_type", { length: 50 }),
+    referenceId: uuid("reference_id"),
+    purpose: varchar("purpose", { length: 50 }),
+    provider: varchar("provider", { length: 50 }),
+    promptTemplateId: varchar("prompt_template_id", { length: 80 }),
+    promptJson: jsonb("prompt_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
+    outputJson: jsonb("output_json").$type<Record<string, unknown>>(),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    costEstimateCents: integer("cost_estimate_cents").notNull().default(0),
+    ...timestamps
   },
   (table) => [
-    check("ai_runs_status_check", sql`${table.status} in ('success', 'error', 'cached', 'fallback')`),
+    check(
+      "ai_runs_status_check",
+      sql`${table.status} in ('pending', 'running', 'success', 'error', 'cached', 'fallback')`
+    ),
     index("ai_runs_workspace_id_idx").on(table.workspaceId),
+    index("ai_runs_job_id_idx").on(table.jobId),
+    index("ai_runs_reference_idx").on(table.referenceType, table.referenceId),
+    index("ai_runs_purpose_idx").on(table.purpose),
     index("ai_runs_skill_name_idx").on(table.skillName),
     index("ai_runs_prompt_hash_idx").on(table.promptHash),
     index("ai_runs_git_commit_idx").on(table.gitCommit),
     index("ai_runs_input_hash_idx").on(table.inputHash),
     index("ai_runs_status_idx").on(table.status),
     index("ai_runs_created_at_idx").on(table.createdAt)
+  ]
+);
+
+export const leadScores = pgTable(
+  "lead_scores",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    leadId: uuid("lead_id")
+      .notNull()
+      .references(() => leads.id),
+    aiRunId: uuid("ai_run_id").references(() => aiRuns.id),
+    score: integer("score").notNull(),
+    qualification: varchar("qualification", { length: 24 }).notNull(),
+    summary: text("summary").notNull(),
+    rationale: text("rationale").notNull(),
+    recommendedAction: text("recommended_action").notNull(),
+    confidence: integer("confidence").notNull(),
+    model: varchar("model", { length: 120 }).notNull(),
+    promptTemplateId: varchar("prompt_template_id", { length: 80 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    check("lead_scores_score_check", sql`${table.score} between 0 and 100`),
+    check("lead_scores_qualification_check", sql`${table.qualification} in ('cold', 'warm', 'hot')`),
+    check("lead_scores_confidence_check", sql`${table.confidence} between 0 and 100`),
+    index("lead_scores_workspace_id_idx").on(table.workspaceId),
+    index("lead_scores_lead_id_idx").on(table.leadId),
+    index("lead_scores_ai_run_id_idx").on(table.aiRunId),
+    index("lead_scores_created_at_idx").on(table.createdAt)
   ]
 );
 

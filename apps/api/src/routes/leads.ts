@@ -6,6 +6,7 @@ import {
   CreateLeadInputSchema,
   LeadListQuerySchema,
   LeadListSuccessSchema,
+  LeadScoreRequestSuccessSchema,
   LeadSuccessSchema,
   UpdateLeadInputSchema
 } from "@syrantis/shared";
@@ -132,6 +133,41 @@ export function createLeadRoutes(dependencies: LeadRoutesDependencies = {}) {
 
     const result = await leadService.createLead(getWorkspaceId(c), c.get("userId"), parsedBody.data);
     return mutationResponse(c, result, 201);
+  });
+
+  routes.post("/:id/score", async (c) => {
+    const leadId = parseId(c.req.param("id"));
+
+    if (!leadId) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const body = await readJsonBody(c);
+
+    if (hasClientWorkspaceId(body)) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    if (body && typeof body === "object" && Object.keys(body).length > 0) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const result = await leadService.requestLeadScore(getWorkspaceId(c), c.get("userId"), leadId);
+
+    if (result.result === "not_found") {
+      return c.json(leadNotFoundResponse, 404);
+    }
+
+    return c.json(
+      LeadScoreRequestSuccessSchema.parse({
+        success: true,
+        data: {
+          jobId: result.jobId,
+          leadId: result.leadId
+        }
+      }),
+      202
+    );
   });
 
   routes.get("/:id", async (c) => {

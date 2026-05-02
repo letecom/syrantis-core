@@ -35,6 +35,7 @@ vi.mock("../repositories/activity-logs.js", () => ({
 const currentWorkspaceLeadId = "00000000-0000-4000-8000-000000000901";
 const otherWorkspaceLeadId = "00000000-0000-4000-8000-000000000902";
 const createdLeadId = "00000000-0000-4000-8000-000000000903";
+const scoreJobId = "00000000-0000-4000-8000-000000000904";
 const currentWorkspaceOrganizationId = "00000000-0000-4000-8000-000000000701";
 const otherWorkspaceOrganizationId = "00000000-0000-4000-8000-000000000702";
 const currentWorkspaceContactId = "00000000-0000-4000-8000-000000000801";
@@ -251,6 +252,20 @@ function createFakeLeadService(): LeadService {
 
       leads.set(id, updatedLead);
       return mutationOk(updatedLead);
+    }),
+
+    requestLeadScore: vi.fn(async (workspaceId: string, _actorUserId: string, id: string) => {
+      const lead = leads.get(id);
+
+      if (!lead || lead.workspaceId !== workspaceId) {
+        return { result: "not_found" as const };
+      }
+
+      return {
+        result: "ok" as const,
+        jobId: scoreJobId,
+        leadId: id
+      };
     })
   };
 }

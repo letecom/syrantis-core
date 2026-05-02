@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 
 import { backgroundJobs } from "@syrantis/db";
-import type { SendEmailJobPayload } from "@syrantis/shared";
+import type { ScoreLeadJobPayload, SendEmailJobPayload } from "@syrantis/shared";
 
 import type { WorkspaceDbTransaction } from "../lib/db.js";
 import { getWorkerDbClient } from "../lib/worker-db.js";
@@ -11,6 +11,12 @@ export type BackgroundJobRow = typeof backgroundJobs.$inferSelect;
 export type EnqueueSendEmailJobInput = {
   workspaceId: string;
   emailSendId: string;
+  runAfter?: Date;
+};
+
+export type EnqueueScoreLeadJobInput = {
+  workspaceId: string;
+  leadId: string;
   runAfter?: Date;
 };
 
@@ -99,6 +105,32 @@ export async function enqueueSendEmailJob(
 
   if (!job) {
     throw new Error("Failed to enqueue send_email job.");
+  }
+
+  return job;
+}
+
+export async function enqueueScoreLeadJob(
+  tx: WorkspaceDbTransaction,
+  input: EnqueueScoreLeadJobInput,
+): Promise<BackgroundJobRow> {
+  const payload: ScoreLeadJobPayload = {
+    leadId: input.leadId,
+  };
+
+  const [job] = await tx
+    .insert(backgroundJobs)
+    .values({
+      workspaceId: input.workspaceId,
+      type: "score_lead",
+      payloadJson: payload,
+      status: "pending",
+      runAfter: input.runAfter ?? new Date(),
+    })
+    .returning();
+
+  if (!job) {
+    throw new Error("Failed to enqueue score_lead job.");
   }
 
   return job;
