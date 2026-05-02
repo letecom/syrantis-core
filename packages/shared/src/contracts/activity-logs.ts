@@ -12,10 +12,24 @@ export const ActivityLogActionSchema = z.enum([
   "task.updated",
   "approval.created",
   "approval.approved",
-  "approval.rejected"
+  "approval.rejected",
+  "external_connection.created",
+  "external_connection.updated",
+  "external_connection.archived",
+  "external_object_mapping.created",
+  "external_object_mapping.updated",
+  "external_object_mapping.archived"
 ]);
 
-export const ActivityLogEntityTypeSchema = z.enum(["organization", "contact", "lead", "task", "approval"]);
+export const ActivityLogEntityTypeSchema = z.enum([
+  "organization",
+  "contact",
+  "lead",
+  "task",
+  "approval",
+  "external_connection",
+  "external_object_mapping"
+]);
 
 export const ActivityLogQuerySchema = z.object({
   entityType: ActivityLogEntityTypeSchema.optional(),
