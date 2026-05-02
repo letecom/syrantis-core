@@ -9,6 +9,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
   varchar
 } from "drizzle-orm/pg-core";
@@ -320,6 +321,131 @@ export const approvals = pgTable(
     index("approvals_workspace_status_idx").on(table.workspaceId, table.status),
     index("approvals_approval_type_idx").on(table.approvalType),
     index("approvals_created_at_idx").on(table.createdAt)
+  ]
+);
+
+export const externalConnections = pgTable(
+  "external_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    provider: varchar("provider", { length: 80 }).notNull(),
+    name: varchar("name", { length: 255 }).notNull(),
+    status: varchar("status", { length: 32 }).notNull().default("setup"),
+    authType: varchar("auth_type", { length: 32 }).notNull().default("none"),
+    externalAccountId: varchar("external_account_id", { length: 255 }),
+    externalAccountLabel: varchar("external_account_label", { length: 255 }),
+    configJson: jsonb("config_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
+    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
+    lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+    ...timestamps
+  },
+  (table) => [
+    check(
+      "external_connections_provider_check",
+      sql`${table.provider} in ('manual', 'generic', 'hubspot', 'pipedrive', 'odoo', 'zoho', 'sellsy', 'google_sheets', 'airtable', 'notion', 'make', 'zapier', 'custom')`
+    ),
+    check("external_connections_status_check", sql`${table.status} in ('setup', 'active', 'paused', 'error', 'archived')`),
+    check("external_connections_auth_type_check", sql`${table.authType} in ('none', 'external', 'secret_ref', 'oauth2', 'api_key')`),
+    index("external_connections_workspace_id_idx").on(table.workspaceId),
+    index("external_connections_provider_idx").on(table.provider),
+    index("external_connections_status_idx").on(table.status),
+    index("external_connections_created_at_idx").on(table.createdAt)
+  ]
+);
+
+export const externalObjectMappings = pgTable(
+  "external_object_mappings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => externalConnections.id),
+    externalObjectType: varchar("external_object_type", { length: 80 }).notNull(),
+    externalObjectId: varchar("external_object_id", { length: 255 }).notNull(),
+    syrantisEntityType: varchar("syrantis_entity_type", { length: 80 }).notNull(),
+    syrantisEntityId: uuid("syrantis_entity_id").notNull(),
+    syncDirection: varchar("sync_direction", { length: 32 }).notNull().default("inbound"),
+    syncStatus: varchar("sync_status", { length: 32 }).notNull().default("active"),
+    externalUrl: text("external_url"),
+    externalUpdatedAt: timestamp("external_updated_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
+    ...timestamps
+  },
+  (table) => [
+    check(
+      "external_object_mappings_external_object_type_check",
+      sql`${table.externalObjectType} in ('lead', 'contact', 'organization', 'deal', 'task', 'note', 'form_submission', 'row', 'email', 'custom')`
+    ),
+    check(
+      "external_object_mappings_syrantis_entity_type_check",
+      sql`${table.syrantisEntityType} in ('organization', 'contact', 'lead', 'task', 'approval')`
+    ),
+    check(
+      "external_object_mappings_sync_direction_check",
+      sql`${table.syncDirection} in ('inbound', 'outbound', 'bidirectional')`
+    ),
+    check(
+      "external_object_mappings_sync_status_check",
+      sql`${table.syncStatus} in ('active', 'stale', 'conflict', 'archived')`
+    ),
+    index("external_object_mappings_workspace_id_idx").on(table.workspaceId),
+    index("external_object_mappings_connection_id_idx").on(table.connectionId),
+    index("external_object_mappings_entity_idx").on(table.syrantisEntityType, table.syrantisEntityId),
+    index("external_object_mappings_external_object_idx").on(table.externalObjectType, table.externalObjectId),
+    index("external_object_mappings_created_at_idx").on(table.createdAt),
+    uniqueIndex("external_object_mappings_unique_idx").on(
+      table.workspaceId,
+      table.connectionId,
+      table.externalObjectType,
+      table.externalObjectId,
+      table.syrantisEntityType
+    )
+  ]
+);
+
+export const integrationEvents = pgTable(
+  "integration_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    connectionId: uuid("connection_id").references(() => externalConnections.id),
+    mappingId: uuid("mapping_id").references(() => externalObjectMappings.id),
+    direction: varchar("direction", { length: 32 }).notNull(),
+    eventType: varchar("event_type", { length: 120 }).notNull(),
+    status: varchar("status", { length: 32 }).notNull(),
+    externalObjectType: varchar("external_object_type", { length: 80 }),
+    externalObjectId: varchar("external_object_id", { length: 255 }),
+    syrantisEntityType: varchar("syrantis_entity_type", { length: 80 }),
+    syrantisEntityId: uuid("syrantis_entity_id"),
+    message: text("message"),
+    payloadHash: varchar("payload_hash", { length: 255 }),
+    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    check(
+      "integration_events_direction_check",
+      sql`${table.direction} in ('inbound', 'outbound', 'internal')`
+    ),
+    check(
+      "integration_events_status_check",
+      sql`${table.status} in ('received', 'processed', 'failed', 'skipped')`
+    ),
+    index("integration_events_workspace_id_idx").on(table.workspaceId),
+    index("integration_events_connection_id_idx").on(table.connectionId),
+    index("integration_events_mapping_id_idx").on(table.mappingId),
+    index("integration_events_event_type_idx").on(table.eventType),
+    index("integration_events_status_idx").on(table.status),
+    index("integration_events_created_at_idx").on(table.createdAt)
   ]
 );
 
