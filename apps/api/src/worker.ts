@@ -2,6 +2,7 @@ import { closeGlobalDbClient } from "@syrantis/db";
 
 import { closeWorkerDbClient } from "./lib/worker-db.js";
 import { processNextBackgroundJob } from "./services/background-worker.js";
+import { checkWorkerEnvironment } from "./services/worker-ops.js";
 
 const defaultWorkerId = `worker:${process.pid}`;
 const defaultPollIntervalMs = 1000;
@@ -31,20 +32,75 @@ async function closeClients(): Promise<void> {
   await Promise.all([closeWorkerDbClient(), closeGlobalDbClient()]);
 }
 
-async function runOnce(): Promise<void> {
-  const result = await processNextBackgroundJob({
-    workerId: resolveWorkerId(),
-  });
+function logWorkerEvent(input: {
+  level: "info" | "error";
+  workerId: string;
+  event: string;
+  message: string;
+}): void {
+  const line = {
+    timestamp: new Date().toISOString(),
+    level: input.level,
+    workerId: input.workerId,
+    event: input.event,
+    message: input.message,
+  };
+  const output = `${JSON.stringify(line)}\n`;
 
-  if (result.status === "idle") {
-    console.log("BACKGROUND_WORKER_IDLE");
+  if (input.level === "error") {
+    process.stderr.write(output);
     return;
   }
 
-  console.log(`BACKGROUND_WORKER_${result.status.toUpperCase()}`);
+  process.stdout.write(output);
 }
 
-async function runLoop(): Promise<void> {
+async function runPreflight(workerId: string): Promise<boolean> {
+  const result = await checkWorkerEnvironment();
+
+  if (result.ok) {
+    logWorkerEvent({
+      level: "info",
+      workerId,
+      event: "worker.preflight_ok",
+      message: "Worker preflight passed.",
+    });
+    return true;
+  }
+
+  logWorkerEvent({
+    level: "error",
+    workerId,
+    event: "worker.preflight_failed",
+    message: "Worker preflight failed.",
+  });
+  return false;
+}
+
+async function processOne(workerId: string): Promise<void> {
+  const result = await processNextBackgroundJob({
+    workerId,
+  });
+
+  if (result.status === "idle") {
+    logWorkerEvent({
+      level: "info",
+      workerId,
+      event: "worker.idle",
+      message: "No background job available.",
+    });
+    return;
+  }
+
+  logWorkerEvent({
+    level: result.status === "failed" ? "error" : "info",
+    workerId,
+    event: `worker.job_${result.status}`,
+    message: `Background job ${result.status}.`,
+  });
+}
+
+async function runLoop(workerId: string): Promise<void> {
   let shouldStop = false;
   const pollIntervalMs = resolvePollIntervalMs();
 
@@ -56,25 +112,35 @@ async function runLoop(): Promise<void> {
   process.once("SIGTERM", stop);
 
   while (!shouldStop) {
-    await runOnce();
+    await processOne(workerId);
     await sleep(pollIntervalMs);
   }
 }
 
+export async function runWorkerMode(mode = process.argv[2] ?? "once"): Promise<number> {
+  const workerId = resolveWorkerId();
+  const preflightOk = await runPreflight(workerId);
+
+  if (!preflightOk) {
+    return 1;
+  }
+
+  if (mode === "run") {
+    await runLoop(workerId);
+    return 0;
+  }
+
+  if (mode !== "once") {
+    throw new Error("Worker mode must be once or run.");
+  }
+
+  await processOne(workerId);
+  return 0;
+}
+
 async function main(): Promise<void> {
-  const mode = process.argv[2] ?? "once";
-
   try {
-    if (mode === "run") {
-      await runLoop();
-      return;
-    }
-
-    if (mode !== "once") {
-      throw new Error("Worker mode must be once or run.");
-    }
-
-    await runOnce();
+    process.exitCode = await runWorkerMode();
   } finally {
     await closeClients();
   }
@@ -82,7 +148,12 @@ async function main(): Promise<void> {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch(async (error: unknown) => {
-    console.error(error instanceof Error ? error.message : "BACKGROUND_WORKER_FAILED");
+    logWorkerEvent({
+      level: "error",
+      workerId: resolveWorkerId(),
+      event: "worker.failed",
+      message: error instanceof Error ? error.message : "Background worker failed.",
+    });
     await closeClients();
     process.exit(1);
   });
