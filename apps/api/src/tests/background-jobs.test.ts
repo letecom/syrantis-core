@@ -185,10 +185,16 @@ function createEmailSendTx(initialStatus: string) {
     createdAt: new Date("2026-05-01T12:00:00.000Z"),
     updatedAt: new Date("2026-05-01T12:00:00.000Z"),
   };
+  const draft = {
+    id: emailSend.draftId,
+    workspaceId: testUser.workspaceId,
+    status: "approved",
+  };
   const updates: Record<string, unknown>[] = [];
+  const selectResponses = [[emailSend], [draft]];
 
   const tx = {
-    select: vi.fn(() => createSelectBuilder([emailSend])),
+    select: vi.fn(() => createSelectBuilder(selectResponses.shift() ?? [])),
     update: vi.fn(() =>
       createUpdateBuilder((values) => {
         updates.push(values);
@@ -201,9 +207,204 @@ function createEmailSendTx(initialStatus: string) {
   return {
     tx,
     emailSend,
+    draft,
     updates,
   };
 }
+
+function resendResponse(input: { status?: number; body?: Record<string, unknown> } = {}) {
+  return new Response(JSON.stringify(input.body ?? { id: "resend-message-1" }), {
+    status: input.status ?? 200,
+    headers: {
+      "content-type": "application/json",
+    },
+  });
+}
+
+async function importSendEmailHandlerWithTx(harness: ReturnType<typeof createEmailSendTx>) {
+  const activityLogs: Array<Record<string, unknown>> = [];
+
+  vi.doMock("../lib/db.js", () => ({
+    withWorkspaceDb: vi.fn(async (_workspaceId: string, fn: (tx: unknown) => Promise<unknown>) =>
+      fn(harness.tx),
+    ),
+  }));
+  vi.doMock("../repositories/activity-logs.js", () => ({
+    createActivityLog: vi.fn(async (_tx: unknown, input: Record<string, unknown>) => {
+      activityLogs.push(input);
+      return { id: "00000000-0000-4000-8000-000000002999" };
+    }),
+  }));
+
+  const handler = await import("../services/send-email-job-handler.js");
+
+  return {
+    ...handler,
+    activityLogs,
+  };
+}
+
+describe("Resend email provider", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it("resend.provider.success returns messageId", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => resendResponse()));
+    const { ResendProvider } = await import("../services/email/resend-provider.js");
+
+    await expect(
+      new ResendProvider({ apiKey: "test-key", retryDelayMs: { rateLimit: 0, server: 0 } }).send({
+        emailSendId,
+        to: "client@example.com",
+        from: "Syrantis <noreply@send.syrantis.fr>",
+        subject: "Subject",
+        text: "Body",
+      }),
+    ).resolves.toEqual({
+      provider: "resend",
+      messageId: "resend-message-1",
+    });
+  });
+
+  it("resend.provider.idempotency sets Idempotency-Key", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => {
+      void _input;
+      void _init;
+      return resendResponse();
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { ResendProvider } = await import("../services/email/resend-provider.js");
+
+    await new ResendProvider({ apiKey: "test-key", retryDelayMs: { rateLimit: 0, server: 0 } }).send({
+      emailSendId,
+      to: "client@example.com",
+      from: "Syrantis <noreply@send.syrantis.fr>",
+      subject: "Subject",
+      text: "Body",
+    });
+
+    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(requestInit?.headers).toMatchObject({
+      "Idempotency-Key": emailSendId,
+    });
+  });
+
+  it("resend.provider.user_agent sets User-Agent", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => {
+      void _input;
+      void _init;
+      return resendResponse();
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { ResendProvider } = await import("../services/email/resend-provider.js");
+
+    await new ResendProvider({ apiKey: "test-key", retryDelayMs: { rateLimit: 0, server: 0 } }).send({
+      emailSendId,
+      to: "client@example.com",
+      from: "Syrantis <noreply@send.syrantis.fr>",
+      subject: "Subject",
+      text: "Body",
+    });
+
+    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(requestInit?.headers).toMatchObject({
+      "User-Agent": "Syrantis-Core/1.0",
+    });
+  });
+
+  it("resend.provider.timeout retries once then throws timeout", async () => {
+    const timeout = Object.assign(new Error("aborted"), { name: "AbortError" });
+    const fetchMock = vi.fn().mockRejectedValue(timeout);
+    vi.stubGlobal("fetch", fetchMock);
+    const { EmailProviderTimeoutError, ResendProvider } = await import("../services/email/resend-provider.js");
+
+    await expect(
+      new ResendProvider({ apiKey: "test-key", retryDelayMs: { rateLimit: 0, server: 0 } }).send({
+        emailSendId,
+        to: "client@example.com",
+        from: "Syrantis <noreply@send.syrantis.fr>",
+        subject: "Subject",
+        text: "Body",
+      }),
+    ).rejects.toThrow(EmailProviderTimeoutError);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("resend.provider.429 retries once then throws", async () => {
+    const fetchMock = vi.fn(async () => resendResponse({ status: 429 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { EmailProviderHttpError, ResendProvider } = await import("../services/email/resend-provider.js");
+
+    await expect(
+      new ResendProvider({ apiKey: "test-key", retryDelayMs: { rateLimit: 0, server: 0 } }).send({
+        emailSendId,
+        to: "client@example.com",
+        from: "Syrantis <noreply@send.syrantis.fr>",
+        subject: "Subject",
+        text: "Body",
+      }),
+    ).rejects.toThrow(EmailProviderHttpError);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("resend.provider.500 retries once then throws", async () => {
+    const fetchMock = vi.fn(async () => resendResponse({ status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { EmailProviderHttpError, ResendProvider } = await import("../services/email/resend-provider.js");
+
+    await expect(
+      new ResendProvider({ apiKey: "test-key", retryDelayMs: { rateLimit: 0, server: 0 } }).send({
+        emailSendId,
+        to: "client@example.com",
+        from: "Syrantis <noreply@send.syrantis.fr>",
+        subject: "Subject",
+        text: "Body",
+      }),
+    ).rejects.toThrow(EmailProviderHttpError);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("resend.provider.400 throws immediately without retry", async () => {
+    const fetchMock = vi.fn(async () => resendResponse({ status: 400 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { EmailProviderHttpError, ResendProvider } = await import("../services/email/resend-provider.js");
+
+    await expect(
+      new ResendProvider({ apiKey: "test-key", retryDelayMs: { rateLimit: 0, server: 0 } }).send({
+        emailSendId,
+        to: "client@example.com",
+        from: "Syrantis <noreply@send.syrantis.fr>",
+        subject: "Subject",
+        text: "Body",
+      }),
+    ).rejects.toThrow(EmailProviderHttpError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("resend.allowlist.reject throws before fetch", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { EmailRecipientNotAllowedError, ResendProvider } = await import("../services/email/resend-provider.js");
+
+    await expect(
+      new ResendProvider({
+        apiKey: "test-key",
+        allowlist: "allowed@example.com",
+        retryDelayMs: { rateLimit: 0, server: 0 },
+      }).send({
+        emailSendId,
+        to: "client@example.com",
+        from: "Syrantis <noreply@send.syrantis.fr>",
+        subject: "Subject",
+        text: "Body",
+      }),
+    ).rejects.toThrow(EmailRecipientNotAllowedError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
 
 describe("background job claim repository", () => {
   beforeEach(() => {
@@ -273,37 +474,153 @@ describe("send_email job handler", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
+    vi.unstubAllGlobals();
   });
 
-  it("moves a pending email_send to queued without sent provider fields", async () => {
-    const { tx, emailSend, updates } = createEmailSendTx("pending");
-    const { handleSendEmailJob } = await import("../services/send-email-job-handler.js");
+  it("handler.send_email.internal_regression moves pending email_send to queued without fetch", async () => {
+    process.env.SEND_EMAIL_PROVIDER = "internal";
+    const harness = createEmailSendTx("pending");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { handleSendEmailJob } = await importSendEmailHandlerWithTx(harness);
 
     await handleSendEmailJob({
-      tx: tx as never,
       workspaceId: testUser.workspaceId,
       jobId,
       payload: { emailSendId },
     });
 
-    expect(emailSend.status).toBe("queued");
-    expect(emailSend.sentAt).toBeNull();
-    expect(emailSend.providerMessageId).toBeNull();
-    expect(updates).toEqual([{ status: "queued" }]);
+    expect(harness.emailSend.status).toBe("queued");
+    expect(harness.emailSend.sentAt).toBeNull();
+    expect(harness.emailSend.providerMessageId).toBeNull();
+    expect(harness.updates).toEqual([{ status: "queued" }]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("is idempotent when email_send is already queued", async () => {
-    const { tx, updates } = createEmailSendTx("queued");
-    const { handleSendEmailJob } = await import("../services/send-email-job-handler.js");
+  it("handler.send_email.resend_success marks email_send sent and writes compact activity log", async () => {
+    const harness = createEmailSendTx("pending");
+    const provider = {
+      mode: "resend" as const,
+      send: vi.fn(async () => ({
+        provider: "resend" as const,
+        messageId: "resend-message-1",
+      })),
+    };
+    const { activityLogs, handleSendEmailJob } = await importSendEmailHandlerWithTx(harness);
 
     await handleSendEmailJob({
-      tx: tx as never,
       workspaceId: testUser.workspaceId,
       jobId,
       payload: { emailSendId },
+      provider,
     });
 
-    expect(updates).toEqual([]);
+    expect(provider.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        emailSendId,
+        to: "client@example.com",
+        subject: "Stored snapshot",
+      }),
+    );
+    expect(harness.emailSend.status).toBe("sent");
+    expect(harness.emailSend.provider).toBe("resend");
+    expect(harness.emailSend.providerMessageId).toBe("resend-message-1");
+    expect(harness.emailSend.sentAt).toBeInstanceOf(Date);
+    expect(activityLogs).toEqual([
+      expect.objectContaining({
+        action: "email_send.sent",
+        entityType: "email_send",
+        entityId: emailSendId,
+        metadataJson: {
+          emailSendId,
+          provider: "resend",
+          messageId: "resend-message-1",
+        },
+      }),
+    ]);
+    expect(JSON.stringify(activityLogs)).not.toContain("Stored snapshot");
+    expect(JSON.stringify(activityLogs)).not.toContain("Stored body");
+  });
+
+  it("handler.send_email.already_sent completes without calling provider", async () => {
+    const harness = createEmailSendTx("sent");
+    const provider = {
+      mode: "resend" as const,
+      send: vi.fn(),
+    };
+    const { handleSendEmailJob } = await importSendEmailHandlerWithTx(harness);
+
+    await handleSendEmailJob({
+      workspaceId: testUser.workspaceId,
+      jobId,
+      payload: { emailSendId },
+      provider,
+    });
+
+    expect(provider.send).not.toHaveBeenCalled();
+    expect(harness.updates).toEqual([]);
+  });
+
+  it("handler.send_email.draft_unapproved fails before provider call", async () => {
+    const harness = createEmailSendTx("pending");
+    harness.draft.status = "draft";
+    const provider = {
+      mode: "resend" as const,
+      send: vi.fn(),
+    };
+    const { handleSendEmailJob } = await importSendEmailHandlerWithTx(harness);
+
+    await expect(
+      handleSendEmailJob({
+        workspaceId: testUser.workspaceId,
+        jobId,
+        payload: { emailSendId },
+        provider,
+      }),
+    ).rejects.toThrow("DRAFT_NOT_APPROVED");
+    expect(provider.send).not.toHaveBeenCalled();
+    expect(harness.emailSend.status).toBe("failed");
+  });
+
+  it("handler.send_email.resend_failure marks email_send failed and writes compact activity log", async () => {
+    const harness = createEmailSendTx("pending");
+    const error = Object.assign(new Error("EMAIL_PROVIDER_HTTP_ERROR"), {
+      code: "EMAIL_PROVIDER_HTTP_ERROR",
+      statusCode: 500,
+    });
+    const provider = {
+      mode: "resend" as const,
+      send: vi.fn(async () => {
+        throw error;
+      }),
+    };
+    const { activityLogs, handleSendEmailJob } = await importSendEmailHandlerWithTx(harness);
+
+    await expect(
+      handleSendEmailJob({
+        workspaceId: testUser.workspaceId,
+        jobId,
+        payload: { emailSendId },
+        provider,
+      }),
+    ).rejects.toThrow("EMAIL_PROVIDER_HTTP_ERROR");
+
+    expect(harness.emailSend.status).toBe("failed");
+    expect(harness.emailSend.provider).toBe("resend");
+    expect(harness.emailSend.failedAt).toBeInstanceOf(Date);
+    expect(activityLogs).toEqual([
+      expect.objectContaining({
+        action: "email_send.failed",
+        metadataJson: {
+          emailSendId,
+          provider: "resend",
+          errorType: "EMAIL_PROVIDER_HTTP_ERROR",
+          statusCode: 500,
+        },
+      }),
+    ]);
+    expect(JSON.stringify(activityLogs)).not.toContain("Stored snapshot");
+    expect(JSON.stringify(activityLogs)).not.toContain("Stored body");
   });
 });
 
