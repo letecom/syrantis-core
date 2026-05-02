@@ -92,6 +92,13 @@
       "when": 1777982400000,
       "tag": "0012_ai_scoring_sandbox",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1778068800000,
+      "tag": "0013_ai_provider_hardening",
+      "breakpoints": true
     }
   ]
 }

@@ -659,6 +659,8 @@ export const aiRuns = pgTable(
     inputTokens: integer("input_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),
     costEstimateCents: integer("cost_estimate_cents").notNull().default(0),
+    finishReason: varchar("finish_reason", { length: 50 }),
+    costEstimateMicroUsd: integer("cost_estimate_micro_usd").notNull().default(0),
     ...timestamps
   },
   (table) => [

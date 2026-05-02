@@ -18,13 +18,23 @@ export type LeadScoringPrompt = {
 };
 
 export class AiOutputParseError extends Error {
-  readonly code: "AI_OUTPUT_INVALID_JSON" | "AI_OUTPUT_INVALID_SCHEMA";
+  readonly code = "AI_OUTPUT_INVALID_JSON";
   readonly rawPreview: string;
 
-  constructor(code: "AI_OUTPUT_INVALID_JSON" | "AI_OUTPUT_INVALID_SCHEMA", rawContent: string) {
-    super(code);
+  constructor(rawContent: string) {
+    super("AI_OUTPUT_INVALID_JSON");
     this.name = "AiOutputParseError";
-    this.code = code;
+    this.rawPreview = redactText(rawContent).slice(0, 1000);
+  }
+}
+
+export class AiOutputSchemaError extends Error {
+  readonly code = "AI_OUTPUT_INVALID_SCHEMA";
+  readonly rawPreview: string;
+
+  constructor(rawContent: string) {
+    super("AI_OUTPUT_INVALID_SCHEMA");
+    this.name = "AiOutputSchemaError";
     this.rawPreview = redactText(rawContent).slice(0, 1000);
   }
 }
@@ -132,7 +142,7 @@ function parseJsonLikeContent(content: string): unknown {
     }
   }
 
-  throw new AiOutputParseError("AI_OUTPUT_INVALID_JSON", content);
+  throw new AiOutputParseError(content);
 }
 
 export function parseLeadScoringOutput(content: string): LeadScoreOutput {
@@ -141,7 +151,7 @@ export function parseLeadScoringOutput(content: string): LeadScoreOutput {
   const result = LeadScoreOutputSchema.safeParse(parsed);
 
   if (!result.success) {
-    throw new AiOutputParseError("AI_OUTPUT_INVALID_SCHEMA", content);
+    throw new AiOutputSchemaError(content);
   }
 
   return result.data;

@@ -52,6 +52,56 @@ export async function processNextBackgroundJob(
   }
 
   try {
+    if (job.type === "score_lead") {
+      const payload = ScoreLeadJobPayloadSchema.parse(job.payloadJson);
+
+      await withWorkspaceDb(job.workspaceId, async (tx) => {
+        await createActivityLog(tx, {
+          workspaceId: job.workspaceId,
+          actorUserId: null,
+          action: "background_job.claimed",
+          entityType: "background_job",
+          entityId: job.id,
+          metadataJson: {
+            jobId: job.id,
+            type: job.type,
+            workerId: input.workerId,
+            attempts: job.attempts,
+          },
+        });
+      });
+
+      await handleScoreLeadJob({
+        workspaceId: job.workspaceId,
+        jobId: job.id,
+        payload,
+      });
+
+      const completedJob = await withWorkspaceDb(job.workspaceId, async (tx) => {
+        const completed = await completeBackgroundJob(tx, {
+          workspaceId: job.workspaceId,
+          jobId: job.id,
+        });
+
+        await createActivityLog(tx, {
+          workspaceId: job.workspaceId,
+          actorUserId: null,
+          action: "background_job.completed",
+          entityType: "background_job",
+          entityId: job.id,
+          metadataJson: {
+            jobId: job.id,
+            type: job.type,
+            workerId: input.workerId,
+          },
+        });
+
+        return completed;
+      });
+
+      return { status: "completed", job: completedJob };
+    }
+
     const completedJob = await withWorkspaceDb(job.workspaceId, async (tx) => {
       await createActivityLog(tx, {
         workspaceId: job.workspaceId,
@@ -67,7 +117,7 @@ export async function processNextBackgroundJob(
         },
       });
 
-      if (job.type !== "send_email" && job.type !== "score_lead") {
+      if (job.type !== "send_email") {
         throw new Error("BACKGROUND_JOB_TYPE_UNSUPPORTED");
       }
 
@@ -77,30 +127,19 @@ export async function processNextBackgroundJob(
         workerId: input.workerId,
       };
 
-      if (job.type === "send_email") {
-        const payload = SendEmailJobPayloadSchema.parse(job.payloadJson);
+      const payload = SendEmailJobPayloadSchema.parse(job.payloadJson);
 
-        await handleSendEmailJob({
-          tx,
-          workspaceId: job.workspaceId,
-          jobId: job.id,
-          payload,
-        });
+      await handleSendEmailJob({
+        tx,
+        workspaceId: job.workspaceId,
+        jobId: job.id,
+        payload,
+      });
 
-        completionMetadata = {
-          ...completionMetadata,
-          emailSendId: payload.emailSendId,
-        };
-      } else {
-        const payload = ScoreLeadJobPayloadSchema.parse(job.payloadJson);
-
-        await handleScoreLeadJob({
-          tx,
-          workspaceId: job.workspaceId,
-          jobId: job.id,
-          payload,
-        });
-      }
+      completionMetadata = {
+        ...completionMetadata,
+        emailSendId: payload.emailSendId,
+      };
 
       const completed = await completeBackgroundJob(tx, {
         workspaceId: job.workspaceId,
