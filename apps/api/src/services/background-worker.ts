@@ -1,4 +1,4 @@
-import { SendEmailJobPayloadSchema } from "@syrantis/shared";
+import { ScoreLeadJobPayloadSchema, SendEmailJobPayloadSchema } from "@syrantis/shared";
 
 import { withWorkspaceDb } from "../lib/db.js";
 import { createActivityLog } from "../repositories/activity-logs.js";
@@ -9,6 +9,7 @@ import {
   type BackgroundJobRow,
 } from "../repositories/background-jobs.js";
 import { handleSendEmailJob } from "./send-email-job-handler.js";
+import { handleScoreLeadJob } from "./score-lead-job-handler.js";
 
 export type ProcessNextBackgroundJobInput = {
   workerId: string;
@@ -66,18 +67,40 @@ export async function processNextBackgroundJob(
         },
       });
 
-      if (job.type !== "send_email") {
+      if (job.type !== "send_email" && job.type !== "score_lead") {
         throw new Error("BACKGROUND_JOB_TYPE_UNSUPPORTED");
       }
 
-      const payload = SendEmailJobPayloadSchema.parse(job.payloadJson);
-
-      await handleSendEmailJob({
-        tx,
-        workspaceId: job.workspaceId,
+      let completionMetadata: Record<string, unknown> = {
         jobId: job.id,
-        payload,
-      });
+        type: job.type,
+        workerId: input.workerId,
+      };
+
+      if (job.type === "send_email") {
+        const payload = SendEmailJobPayloadSchema.parse(job.payloadJson);
+
+        await handleSendEmailJob({
+          tx,
+          workspaceId: job.workspaceId,
+          jobId: job.id,
+          payload,
+        });
+
+        completionMetadata = {
+          ...completionMetadata,
+          emailSendId: payload.emailSendId,
+        };
+      } else {
+        const payload = ScoreLeadJobPayloadSchema.parse(job.payloadJson);
+
+        await handleScoreLeadJob({
+          tx,
+          workspaceId: job.workspaceId,
+          jobId: job.id,
+          payload,
+        });
+      }
 
       const completed = await completeBackgroundJob(tx, {
         workspaceId: job.workspaceId,
@@ -90,12 +113,7 @@ export async function processNextBackgroundJob(
         action: "background_job.completed",
         entityType: "background_job",
         entityId: job.id,
-        metadataJson: {
-          jobId: job.id,
-          type: job.type,
-          workerId: input.workerId,
-          emailSendId: payload.emailSendId,
-        },
+        metadataJson: completionMetadata,
       });
 
       return completed;

@@ -1,0 +1,19 @@
+export type AiCompletionInput = {
+  model: string;
+  messages: Array<{ role: "system" | "user"; content: string }>;
+  maxTokens: number;
+  temperature: number;
+  timeoutMs: number;
+};
+
+export type AiCompletionOutput = {
+  content: string;
+  inputTokens: number;
+  outputTokens: number;
+  model: string;
+  provider: "openrouter";
+};
+
+export interface AiProvider {
+  complete(input: AiCompletionInput): Promise<AiCompletionOutput>;
+}
