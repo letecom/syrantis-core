@@ -8,3 +8,4 @@ export * from "./integrations.js";
 export * from "./leads.js";
 export * from "./organizations.js";
 export * from "./tasks.js";
+export * from "./workspace-api-keys.js";

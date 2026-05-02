@@ -449,6 +449,31 @@ export const integrationEvents = pgTable(
   ]
 );
 
+export const workspaceApiKeys = pgTable(
+  "workspace_api_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    name: varchar("name", { length: 160 }).notNull(),
+    keyHash: text("key_hash").notNull(),
+    keyPrefix: varchar("key_prefix", { length: 24 }).notNull(),
+    last4: varchar("last4", { length: 8 }).notNull(),
+    status: varchar("status", { length: 24 }).notNull().default("active"),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    ...timestamps
+  },
+  (table) => [
+    check("workspace_api_keys_status_check", sql`${table.status} in ('active', 'revoked')`),
+    index("workspace_api_keys_workspace_id_idx").on(table.workspaceId),
+    index("workspace_api_keys_status_idx").on(table.status),
+    index("workspace_api_keys_created_at_idx").on(table.createdAt),
+    uniqueIndex("workspace_api_keys_key_hash_idx").on(table.keyHash)
+  ]
+);
+
 export const emailSends = pgTable(
   "email_sends",
   {
