@@ -1,19 +1,87 @@
 import { and, eq } from "drizzle-orm";
 
-import { emailSends } from "@syrantis/db";
+import { drafts, emailSends } from "@syrantis/db";
 import type { SendEmailJobPayload } from "@syrantis/shared";
 
-import type { WorkspaceDbTransaction } from "../lib/db.js";
+import { withWorkspaceDb, type WorkspaceDbTransaction } from "../lib/db.js";
+import { createActivityLog } from "../repositories/activity-logs.js";
+import { createEmailProvider, type EmailProvider } from "./email/email-provider.js";
+import type { SendEmailProviderInput } from "./email/resend-provider.js";
 
 export type SendEmailJobHandlerInput = {
-  tx: WorkspaceDbTransaction;
   workspaceId: string;
   jobId: string;
   payload: SendEmailJobPayload;
+  provider?: EmailProvider;
 };
 
-export async function handleSendEmailJob(input: SendEmailJobHandlerInput): Promise<void> {
-  const [emailSend] = await input.tx
+type PreparedSendEmail =
+  | { result: "already_sent"; emailSendId: string }
+  | { result: "internal_queued"; emailSendId: string }
+  | {
+      result: "send";
+      emailSendId: string;
+      providerInput: SendEmailProviderInput;
+    };
+
+class EmailSendProcessError extends Error {
+  constructor(
+    message: string,
+    public readonly emailSendId: string,
+  ) {
+    super(message);
+  }
+}
+
+function resolveProviderErrorCode(error: unknown): string {
+  if (error instanceof Error && "code" in error && typeof error.code === "string") {
+    return error.code.trim().slice(0, 120) || "EMAIL_SEND_FAILED";
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message.trim().slice(0, 120) || "EMAIL_SEND_FAILED";
+  }
+
+  return "EMAIL_SEND_FAILED";
+}
+
+function resolveProviderStatusCode(error: unknown): number | undefined {
+  if (
+    error instanceof Error &&
+    "statusCode" in error &&
+    typeof error.statusCode === "number"
+  ) {
+    return error.statusCode;
+  }
+
+  return undefined;
+}
+
+function resolveFromEmail(input: { provider: EmailProvider; fromEmail: string }): string {
+  if (input.provider.mode === "resend" && process.env.RESEND_FROM_EMAIL) {
+    return process.env.RESEND_FROM_EMAIL;
+  }
+
+  return input.fromEmail;
+}
+
+function resolveReplyToEmail(input: { provider: EmailProvider; replyToEmail: string | null }): string | undefined {
+  if (input.provider.mode === "resend" && process.env.RESEND_REPLY_TO) {
+    return process.env.RESEND_REPLY_TO;
+  }
+
+  return input.replyToEmail ?? undefined;
+}
+
+async function prepareSendEmail(
+  tx: WorkspaceDbTransaction,
+  input: {
+    workspaceId: string;
+    payload: SendEmailJobPayload;
+    provider: EmailProvider;
+  },
+): Promise<PreparedSendEmail> {
+  const [emailSend] = await tx
     .select()
     .from(emailSends)
     .where(
@@ -28,25 +96,187 @@ export async function handleSendEmailJob(input: SendEmailJobHandlerInput): Promi
     throw new Error("EMAIL_SEND_NOT_FOUND");
   }
 
-  if (emailSend.status === "pending") {
-    const [updatedEmailSend] = await input.tx
+  if (emailSend.status === "sent") {
+    return { result: "already_sent", emailSendId: emailSend.id };
+  }
+
+  if (emailSend.status === "failed") {
+    throw new Error("EMAIL_SEND_ALREADY_FAILED");
+  }
+
+  if (emailSend.status !== "pending" && emailSend.status !== "queued") {
+    throw new EmailSendProcessError("EMAIL_SEND_INVALID_STATUS", emailSend.id);
+  }
+
+  const [draft] = await tx
+    .select({ id: drafts.id, status: drafts.status })
+    .from(drafts)
+    .where(and(eq(drafts.id, emailSend.draftId), eq(drafts.workspaceId, input.workspaceId)))
+    .limit(1);
+
+  if (!draft || draft.status !== "approved") {
+    throw new EmailSendProcessError("DRAFT_NOT_APPROVED", emailSend.id);
+  }
+
+  if (input.provider.mode === "internal") {
+    if (emailSend.status === "pending") {
+      const [updatedEmailSend] = await tx
+        .update(emailSends)
+        .set({
+          status: "queued",
+        })
+        .where(and(eq(emailSends.id, emailSend.id), eq(emailSends.workspaceId, input.workspaceId)))
+        .returning();
+
+      if (!updatedEmailSend) {
+        throw new Error("EMAIL_SEND_NOT_FOUND");
+      }
+    }
+
+    return { result: "internal_queued", emailSendId: emailSend.id };
+  }
+
+  const replyTo = resolveReplyToEmail({ provider: input.provider, replyToEmail: emailSend.replyToEmail });
+
+  return {
+    result: "send",
+    emailSendId: emailSend.id,
+    providerInput: {
+      emailSendId: emailSend.id,
+      to: emailSend.toEmail,
+      from: resolveFromEmail({ provider: input.provider, fromEmail: emailSend.fromEmail }),
+      ...(replyTo ? { replyTo } : {}),
+      subject: emailSend.subject,
+      html: emailSend.htmlBody,
+      text: emailSend.textBody,
+    },
+  };
+}
+
+async function persistSendSuccess(input: {
+  workspaceId: string;
+  emailSendId: string;
+  provider: "resend";
+  messageId: string;
+}) {
+  await withWorkspaceDb(input.workspaceId, async (tx) => {
+    const [updatedEmailSend] = await tx
       .update(emailSends)
       .set({
-        status: "queued",
+        status: "sent",
+        provider: input.provider,
+        providerMessageId: input.messageId,
+        sentAt: new Date(),
+        failedAt: null,
+        lastErrorCode: null,
+        lastErrorMessage: null,
       })
-      .where(and(eq(emailSends.id, emailSend.id), eq(emailSends.workspaceId, input.workspaceId)))
+      .where(and(eq(emailSends.id, input.emailSendId), eq(emailSends.workspaceId, input.workspaceId)))
       .returning();
 
     if (!updatedEmailSend) {
       throw new Error("EMAIL_SEND_NOT_FOUND");
     }
 
-    return;
-  }
+    await createActivityLog(tx, {
+      workspaceId: input.workspaceId,
+      actorUserId: null,
+      action: "email_send.sent",
+      entityType: "email_send",
+      entityId: input.emailSendId,
+      metadataJson: {
+        emailSendId: input.emailSendId,
+        provider: input.provider,
+        messageId: input.messageId,
+      },
+    });
+  });
+}
 
-  if (emailSend.status === "queued" || emailSend.status === "sent") {
-    return;
-  }
+async function persistSendFailure(input: {
+  workspaceId: string;
+  emailSendId: string;
+  provider: "resend";
+  error: unknown;
+}) {
+  const errorType = resolveProviderErrorCode(input.error);
+  const statusCode = resolveProviderStatusCode(input.error);
 
-  throw new Error("EMAIL_SEND_NOT_PROCESSABLE");
+  await withWorkspaceDb(input.workspaceId, async (tx) => {
+    const [updatedEmailSend] = await tx
+      .update(emailSends)
+      .set({
+        status: "failed",
+        provider: input.provider,
+        failedAt: new Date(),
+        lastErrorCode: errorType,
+        lastErrorMessage: errorType,
+      })
+      .where(and(eq(emailSends.id, input.emailSendId), eq(emailSends.workspaceId, input.workspaceId)))
+      .returning();
+
+    if (!updatedEmailSend) {
+      throw new Error("EMAIL_SEND_NOT_FOUND");
+    }
+
+    await createActivityLog(tx, {
+      workspaceId: input.workspaceId,
+      actorUserId: null,
+      action: "email_send.failed",
+      entityType: "email_send",
+      entityId: input.emailSendId,
+      metadataJson: {
+        emailSendId: input.emailSendId,
+        provider: input.provider,
+        errorType,
+        ...(statusCode ? { statusCode } : {}),
+      },
+    });
+  });
+}
+
+export async function handleSendEmailJob(input: SendEmailJobHandlerInput): Promise<void> {
+  const provider = input.provider ?? createEmailProvider();
+  let prepared: PreparedSendEmail | null = null;
+
+  try {
+    prepared = await withWorkspaceDb(input.workspaceId, async (tx) =>
+      prepareSendEmail(tx, {
+        workspaceId: input.workspaceId,
+        payload: input.payload,
+        provider,
+      }),
+    );
+
+    if (prepared.result !== "send") {
+      return;
+    }
+
+    const result = await provider.send(prepared.providerInput);
+
+    await persistSendSuccess({
+      workspaceId: input.workspaceId,
+      emailSendId: prepared.emailSendId,
+      provider: result.provider,
+      messageId: result.messageId,
+    });
+  } catch (error) {
+    if (prepared?.result === "send" && provider.mode === "resend") {
+      await persistSendFailure({
+        workspaceId: input.workspaceId,
+        emailSendId: prepared.emailSendId,
+        provider: "resend",
+        error,
+      });
+    } else if (error instanceof EmailSendProcessError && provider.mode === "resend") {
+      await persistSendFailure({
+        workspaceId: input.workspaceId,
+        emailSendId: error.emailSendId,
+        provider: "resend",
+        error,
+      });
+    }
+
+    throw error;
+  }
 }
