@@ -529,6 +529,44 @@ export const emailSends = pgTable(
   ]
 );
 
+export const backgroundJobs = pgTable(
+  "background_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    type: varchar("type", { length: 80 }).notNull(),
+    payloadJson: jsonb("payload_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
+    status: varchar("status", { length: 24 }).notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(3),
+    runAfter: timestamp("run_after", { withTimezone: true }).notNull().defaultNow(),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    lockedBy: varchar("locked_by", { length: 255 }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    lastErrorCode: varchar("last_error_code", { length: 120 }),
+    lastErrorMessage: text("last_error_message"),
+    ...timestamps
+  },
+  (table) => [
+    check(
+      "background_jobs_status_check",
+      sql`${table.status} in ('pending', 'running', 'completed', 'failed', 'cancelled')`
+    ),
+    check("background_jobs_type_check", sql`${table.type} in ('send_email')`),
+    check("background_jobs_attempts_check", sql`${table.attempts} >= 0`),
+    check("background_jobs_max_attempts_check", sql`${table.maxAttempts} >= 1`),
+    index("background_jobs_workspace_id_idx").on(table.workspaceId),
+    index("background_jobs_status_idx").on(table.status),
+    index("background_jobs_type_idx").on(table.type),
+    index("background_jobs_run_after_idx").on(table.runAfter),
+    index("background_jobs_poll_idx").on(table.status, table.runAfter, table.lockedAt),
+    index("background_jobs_created_at_idx").on(table.createdAt)
+  ]
+);
+
 export const emailEvents = pgTable(
   "email_events",
   {
