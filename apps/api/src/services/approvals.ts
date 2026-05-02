@@ -3,7 +3,7 @@ import {
   type ApprovalListQuery,
   type ApprovalOutput,
   type CreateApprovalInput,
-  type RejectApprovalInput
+  type RejectApprovalInput,
 } from "@syrantis/shared";
 
 import type { ApprovalMutationResult, ApprovalRow } from "../repositories/approvals.js";
@@ -12,7 +12,7 @@ import {
   createApproval,
   findApprovalById,
   listApprovals,
-  rejectApproval
+  rejectApproval,
 } from "../repositories/approvals.js";
 
 export type ApprovalServiceMutationResult =
@@ -26,14 +26,18 @@ export type ApprovalService = {
   createApproval(
     workspaceId: string,
     actorUserId: string,
-    input: CreateApprovalInput
+    input: CreateApprovalInput,
   ): Promise<ApprovalServiceMutationResult>;
-  approveApproval(workspaceId: string, actorUserId: string, id: string): Promise<ApprovalServiceMutationResult>;
+  approveApproval(
+    workspaceId: string,
+    actorUserId: string,
+    id: string,
+  ): Promise<ApprovalServiceMutationResult>;
   rejectApproval(
     workspaceId: string,
     actorUserId: string,
     id: string,
-    input: RejectApprovalInput
+    input: RejectApprovalInput,
   ): Promise<ApprovalServiceMutationResult>;
 };
 
@@ -45,6 +49,7 @@ function mapApprovalRow(row: ApprovalRow): ApprovalOutput {
   return ApprovalOutputSchema.parse({
     id: row.id,
     workspaceId: row.workspaceId,
+    draftId: row.draftId,
     taskId: row.taskId,
     status: row.status,
     approvedBy: row.approvedBy,
@@ -54,7 +59,7 @@ function mapApprovalRow(row: ApprovalRow): ApprovalOutput {
     rejectionReason: row.rejectionReason,
     metadata: row.metadataJson,
     createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString()
+    updatedAt: row.updatedAt.toISOString(),
   });
 }
 
@@ -65,7 +70,7 @@ function mapMutationResult(result: ApprovalMutationResult): ApprovalServiceMutat
 
   return {
     result: "ok",
-    approval: mapApprovalRow(result.approval)
+    approval: mapApprovalRow(result.approval),
   };
 }
 
@@ -77,7 +82,7 @@ export function createProductionApprovalService(): ApprovalService {
         ...(query.taskId !== undefined ? { taskId: query.taskId } : {}),
         ...(query.status !== undefined ? { status: query.status } : {}),
         limit: query.limit,
-        offset: query.offset
+        offset: query.offset,
       });
 
       return rows.map(mapApprovalRow);
@@ -91,22 +96,22 @@ export function createProductionApprovalService(): ApprovalService {
     async createApproval(
       workspaceId: string,
       actorUserId: string,
-      input: CreateApprovalInput
+      input: CreateApprovalInput,
     ): Promise<ApprovalServiceMutationResult> {
       return mapMutationResult(
         await createApproval({
           workspaceId,
           actorUserId,
           taskId: input.taskId,
-          ...(input.metadata !== undefined ? { metadata: input.metadata } : {})
-        })
+          ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+        }),
       );
     },
 
     async approveApproval(
       workspaceId: string,
       actorUserId: string,
-      id: string
+      id: string,
     ): Promise<ApprovalServiceMutationResult> {
       return mapMutationResult(await approveApproval({ workspaceId, actorUserId, id }));
     },
@@ -115,16 +120,16 @@ export function createProductionApprovalService(): ApprovalService {
       workspaceId: string,
       actorUserId: string,
       id: string,
-      input: RejectApprovalInput
+      input: RejectApprovalInput,
     ): Promise<ApprovalServiceMutationResult> {
       return mapMutationResult(
         await rejectApproval({
           workspaceId,
           actorUserId,
           id,
-          ...(input.reason !== undefined ? { reason: input.reason } : {})
-        })
+          ...(input.reason !== undefined ? { reason: input.reason } : {}),
+        }),
       );
-    }
+    },
   };
 }

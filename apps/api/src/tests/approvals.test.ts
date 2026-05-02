@@ -1,28 +1,46 @@
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   ApprovalListQuery,
   ApprovalOutput,
   CreateApprovalInput,
-  RejectApprovalInput
+  RejectApprovalInput,
 } from "@syrantis/shared";
 
 import { SESSION_COOKIE_NAME } from "../lib/session-token.js";
+import { createActivityLog } from "../repositories/activity-logs.js";
+import * as approvalRepository from "../repositories/approvals.js";
 import { createApprovalRoutes } from "../routes/approvals.js";
 import type { ApprovalService, ApprovalServiceMutationResult } from "../services/approvals.js";
 import { createFakeAuthService, testUser, validSessionToken } from "./mocks/auth.js";
 import { currentWorkspaceTaskId, otherWorkspaceId, otherWorkspaceTaskId } from "./mocks/tasks.js";
+
+const mockDb = vi.hoisted(() => ({
+  tx: undefined as unknown,
+}));
+
+vi.mock("../lib/db.js", () => ({
+  withWorkspaceDb: vi.fn(async (_workspaceId: string, fn: (tx: unknown) => Promise<unknown>) =>
+    fn(mockDb.tx),
+  ),
+}));
+
+vi.mock("../repositories/activity-logs.js", () => ({
+  createActivityLog: vi.fn(async () => ({ id: "00000000-0000-4000-8000-000000000699" })),
+}));
 
 const pendingApprovalId = "00000000-0000-4000-8000-000000000601";
 const approvedApprovalId = "00000000-0000-4000-8000-000000000602";
 const rejectedApprovalId = "00000000-0000-4000-8000-000000000603";
 const otherWorkspaceApprovalId = "00000000-0000-4000-8000-000000000604";
 const missingTaskId = "00000000-0000-4000-8000-000000000999";
+const currentWorkspaceDraftId = "00000000-0000-4000-8000-000000000606";
 
 const pendingApproval: ApprovalOutput = {
   id: pendingApprovalId,
   workspaceId: testUser.workspaceId,
+  draftId: null,
   taskId: currentWorkspaceTaskId,
   status: "pending",
   approvedBy: null,
@@ -32,7 +50,7 @@ const pendingApproval: ApprovalOutput = {
   rejectionReason: null,
   metadata: { source: "test" },
   createdAt: "2026-04-30T15:00:00.000Z",
-  updatedAt: "2026-04-30T15:00:00.000Z"
+  updatedAt: "2026-04-30T15:00:00.000Z",
 };
 
 const approvedApproval: ApprovalOutput = {
@@ -41,7 +59,7 @@ const approvedApproval: ApprovalOutput = {
   status: "approved",
   approvedBy: testUser.id,
   approvedAt: "2026-04-30T16:00:00.000Z",
-  updatedAt: "2026-04-30T16:00:00.000Z"
+  updatedAt: "2026-04-30T16:00:00.000Z",
 };
 
 const rejectedApproval: ApprovalOutput = {
@@ -51,7 +69,7 @@ const rejectedApproval: ApprovalOutput = {
   rejectedBy: testUser.id,
   rejectedAt: "2026-04-30T16:30:00.000Z",
   rejectionReason: "Not ready",
-  updatedAt: "2026-04-30T16:30:00.000Z"
+  updatedAt: "2026-04-30T16:30:00.000Z",
 };
 
 const otherWorkspaceApproval: ApprovalOutput = {
@@ -59,15 +77,101 @@ const otherWorkspaceApproval: ApprovalOutput = {
   id: otherWorkspaceApprovalId,
   workspaceId: otherWorkspaceId,
   taskId: otherWorkspaceTaskId,
-  metadata: {}
+  metadata: {},
 };
+
+const pendingDraftApproval: ApprovalOutput = {
+  ...pendingApproval,
+  id: "00000000-0000-4000-8000-000000000607",
+  draftId: currentWorkspaceDraftId,
+  taskId: null,
+  metadata: {},
+};
+
+let mockTx: ReturnType<typeof createMockTx>;
+
+function createSelectBuilder(response: unknown[]) {
+  const builder = {
+    from: vi.fn(() => builder),
+    where: vi.fn(() => builder),
+    limit: vi.fn(() => builder),
+    then: (resolve: (value: unknown[]) => unknown, reject: (reason: unknown) => unknown) =>
+      Promise.resolve(response).then(resolve, reject),
+  };
+
+  return builder;
+}
+
+function createMockTx() {
+  const state = {
+    selectResponses: [] as unknown[][],
+    updateResponses: [] as unknown[],
+  };
+
+  return {
+    state,
+    select: vi.fn(() => createSelectBuilder(state.selectResponses.shift() ?? [])),
+    update: vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn(async () => {
+            const response = state.updateResponses.shift();
+            return response ? [response] : [];
+          }),
+        })),
+      })),
+    })),
+  };
+}
+
+function approvalRowFromOutput(approval: ApprovalOutput) {
+  return {
+    id: approval.id,
+    workspaceId: approval.workspaceId,
+    entityType: approval.draftId ? "draft" : "task",
+    entityId: approval.draftId ?? approval.taskId ?? currentWorkspaceTaskId,
+    draftId: approval.draftId,
+    taskId: approval.taskId,
+    approvalType: "manual",
+    status: approval.status,
+    requestedBy: testUser.id,
+    approvedBy: approval.approvedBy,
+    approvedAt: approval.approvedAt ? new Date(approval.approvedAt) : null,
+    rejectedBy: approval.rejectedBy,
+    rejectedAt: approval.rejectedAt ? new Date(approval.rejectedAt) : null,
+    rejectionReason: approval.rejectionReason,
+    riskLevel: "medium",
+    metadataJson: approval.metadata,
+    createdAt: new Date(approval.createdAt),
+    updatedAt: new Date(approval.updatedAt),
+  };
+}
+
+function draftRow(status: "pending_approval" | "approved" | "rejected") {
+  return {
+    id: currentWorkspaceDraftId,
+    workspaceId: testUser.workspaceId,
+    taskId: null,
+    leadId: null,
+    opportunityId: null,
+    contactId: null,
+    status,
+    channel: "email",
+    subject: "Draft",
+    textBody: "Body",
+    htmlBody: null,
+    metadataJson: {},
+    createdAt: new Date("2026-05-01T10:00:00.000Z"),
+    updatedAt: new Date("2026-05-01T10:00:00.000Z"),
+  };
+}
 
 function createFakeApprovalService(): ApprovalService {
   const approvals = new Map<string, ApprovalOutput>([
     [pendingApproval.id, pendingApproval],
     [approvedApproval.id, approvedApproval],
     [rejectedApproval.id, rejectedApproval],
-    [otherWorkspaceApproval.id, otherWorkspaceApproval]
+    [otherWorkspaceApproval.id, otherWorkspaceApproval],
   ]);
 
   function mutationOk(approval: ApprovalOutput): ApprovalServiceMutationResult {
@@ -98,29 +202,32 @@ function createFakeApprovalService(): ApprovalService {
       return approval?.workspaceId === workspaceId ? approval : null;
     }),
 
-    createApproval: vi.fn(async (workspaceId: string, _actorUserId: string, input: CreateApprovalInput) => {
-      if (input.taskId === missingTaskId) {
-        return { result: "not_found" } satisfies ApprovalServiceMutationResult;
-      }
+    createApproval: vi.fn(
+      async (workspaceId: string, _actorUserId: string, input: CreateApprovalInput) => {
+        if (input.taskId === missingTaskId) {
+          return { result: "not_found" } satisfies ApprovalServiceMutationResult;
+        }
 
-      const approval: ApprovalOutput = {
-        id: "00000000-0000-4000-8000-000000000605",
-        workspaceId,
-        taskId: input.taskId,
-        status: "pending",
-        approvedBy: null,
-        approvedAt: null,
-        rejectedBy: null,
-        rejectedAt: null,
-        rejectionReason: null,
-        metadata: input.metadata ?? {},
-        createdAt: "2026-04-30T17:00:00.000Z",
-        updatedAt: "2026-04-30T17:00:00.000Z"
-      };
+        const approval: ApprovalOutput = {
+          id: "00000000-0000-4000-8000-000000000605",
+          workspaceId,
+          draftId: null,
+          taskId: input.taskId,
+          status: "pending",
+          approvedBy: null,
+          approvedAt: null,
+          rejectedBy: null,
+          rejectedAt: null,
+          rejectionReason: null,
+          metadata: input.metadata ?? {},
+          createdAt: "2026-04-30T17:00:00.000Z",
+          updatedAt: "2026-04-30T17:00:00.000Z",
+        };
 
-      approvals.set(approval.id, approval);
-      return mutationOk(approval);
-    }),
+        approvals.set(approval.id, approval);
+        return mutationOk(approval);
+      },
+    ),
 
     approveApproval: vi.fn(async (workspaceId: string, actorUserId: string, id: string) => {
       const approval = approvals.get(id);
@@ -138,37 +245,39 @@ function createFakeApprovalService(): ApprovalService {
         status: "approved",
         approvedBy: actorUserId,
         approvedAt: "2026-04-30T18:00:00.000Z",
-        updatedAt: "2026-04-30T18:00:00.000Z"
+        updatedAt: "2026-04-30T18:00:00.000Z",
       };
 
       approvals.set(id, approved);
       return mutationOk(approved);
     }),
 
-    rejectApproval: vi.fn(async (workspaceId: string, actorUserId: string, id: string, input: RejectApprovalInput) => {
-      const approval = approvals.get(id);
+    rejectApproval: vi.fn(
+      async (workspaceId: string, actorUserId: string, id: string, input: RejectApprovalInput) => {
+        const approval = approvals.get(id);
 
-      if (!approval || approval.workspaceId !== workspaceId) {
-        return { result: "not_found" } satisfies ApprovalServiceMutationResult;
-      }
+        if (!approval || approval.workspaceId !== workspaceId) {
+          return { result: "not_found" } satisfies ApprovalServiceMutationResult;
+        }
 
-      if (approval.status !== "pending") {
-        return { result: "conflict" } satisfies ApprovalServiceMutationResult;
-      }
+        if (approval.status !== "pending") {
+          return { result: "conflict" } satisfies ApprovalServiceMutationResult;
+        }
 
-      const rejected: ApprovalOutput = {
-        ...approval,
-        status: "rejected",
-        rejectedBy: actorUserId,
-        rejectedAt: "2026-04-30T18:30:00.000Z",
-        rejectionReason: input.reason ?? null,
-        metadata: approval.metadata,
-        updatedAt: "2026-04-30T18:30:00.000Z"
-      };
+        const rejected: ApprovalOutput = {
+          ...approval,
+          status: "rejected",
+          rejectedBy: actorUserId,
+          rejectedAt: "2026-04-30T18:30:00.000Z",
+          rejectionReason: input.reason ?? null,
+          metadata: approval.metadata,
+          updatedAt: "2026-04-30T18:30:00.000Z",
+        };
 
-      approvals.set(id, rejected);
-      return mutationOk(rejected);
-    })
+        approvals.set(id, rejected);
+        return mutationOk(rejected);
+      },
+    ),
   };
 }
 
@@ -179,8 +288,8 @@ function createTestApp(approvalService: ApprovalService): Hono {
     "/api/approvals",
     createApprovalRoutes({
       authService: createFakeAuthService(),
-      approvalService
-    })
+      approvalService,
+    }),
   );
 
   return app;
@@ -188,14 +297,14 @@ function createTestApp(approvalService: ApprovalService): Hono {
 
 function validSessionHeaders() {
   return {
-    cookie: `${SESSION_COOKIE_NAME}=${validSessionToken}`
+    cookie: `${SESSION_COOKIE_NAME}=${validSessionToken}`,
   };
 }
 
 function jsonHeaders() {
   return {
     ...validSessionHeaders(),
-    "content-type": "application/json"
+    "content-type": "application/json",
   };
 }
 
@@ -209,7 +318,7 @@ describe("approval routes", () => {
     expect(await response.json()).toEqual({
       success: false,
       error: "Unauthorized.",
-      code: "NO_SESSION"
+      code: "NO_SESSION",
     });
   });
 
@@ -222,8 +331,8 @@ describe("approval routes", () => {
       headers: jsonHeaders(),
       body: JSON.stringify({
         taskId: currentWorkspaceTaskId,
-        metadata: { requestedFor: "send_quote" }
-      })
+        metadata: { requestedFor: "send_quote" },
+      }),
     });
 
     expect(response.status).toBe(201);
@@ -232,6 +341,7 @@ describe("approval routes", () => {
       data: {
         id: "00000000-0000-4000-8000-000000000605",
         workspaceId: testUser.workspaceId,
+        draftId: null,
         taskId: currentWorkspaceTaskId,
         status: "pending",
         approvedBy: null,
@@ -241,13 +351,13 @@ describe("approval routes", () => {
         rejectionReason: null,
         metadata: { requestedFor: "send_quote" },
         createdAt: "2026-04-30T17:00:00.000Z",
-        updatedAt: "2026-04-30T17:00:00.000Z"
-      }
+        updatedAt: "2026-04-30T17:00:00.000Z",
+      },
     });
     expect(approvalService.createApproval).toHaveBeenCalledWith(
       testUser.workspaceId,
       testUser.id,
-      expect.objectContaining({ taskId: currentWorkspaceTaskId })
+      expect.objectContaining({ taskId: currentWorkspaceTaskId }),
     );
   });
 
@@ -259,15 +369,15 @@ describe("approval routes", () => {
       headers: jsonHeaders(),
       body: JSON.stringify({
         workspaceId: testUser.workspaceId,
-        taskId: currentWorkspaceTaskId
-      })
+        taskId: currentWorkspaceTaskId,
+      }),
     });
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
       success: false,
       error: "Invalid request.",
-      code: "INVALID_REQUEST"
+      code: "INVALID_REQUEST",
     });
   });
 
@@ -278,15 +388,15 @@ describe("approval routes", () => {
       method: "POST",
       headers: jsonHeaders(),
       body: JSON.stringify({
-        taskId: missingTaskId
-      })
+        taskId: missingTaskId,
+      }),
     });
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({
       success: false,
       error: "Approval not found.",
-      code: "APPROVAL_NOT_FOUND"
+      code: "APPROVAL_NOT_FOUND",
     });
   });
 
@@ -294,13 +404,13 @@ describe("approval routes", () => {
     const app = createTestApp(createFakeApprovalService());
 
     const response = await app.request("/api/approvals", {
-      headers: validSessionHeaders()
+      headers: validSessionHeaders(),
     });
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       success: true,
-      data: [pendingApproval, approvedApproval, rejectedApproval]
+      data: [pendingApproval, approvedApproval, rejectedApproval],
     });
   });
 
@@ -309,18 +419,18 @@ describe("approval routes", () => {
     const app = createTestApp(approvalService);
 
     const response = await app.request(`/api/approvals?taskId=${currentWorkspaceTaskId}`, {
-      headers: validSessionHeaders()
+      headers: validSessionHeaders(),
     });
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       success: true,
-      data: [pendingApproval, approvedApproval, rejectedApproval]
+      data: [pendingApproval, approvedApproval, rejectedApproval],
     });
     expect(approvalService.listApprovals).toHaveBeenCalledWith(testUser.workspaceId, {
       taskId: currentWorkspaceTaskId,
       limit: 50,
-      offset: 0
+      offset: 0,
     });
   });
 
@@ -328,13 +438,13 @@ describe("approval routes", () => {
     const app = createTestApp(createFakeApprovalService());
 
     const response = await app.request(`/api/approvals/${pendingApprovalId}`, {
-      headers: validSessionHeaders()
+      headers: validSessionHeaders(),
     });
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       success: true,
-      data: pendingApproval
+      data: pendingApproval,
     });
   });
 
@@ -342,14 +452,14 @@ describe("approval routes", () => {
     const app = createTestApp(createFakeApprovalService());
 
     const response = await app.request(`/api/approvals/${otherWorkspaceApprovalId}`, {
-      headers: validSessionHeaders()
+      headers: validSessionHeaders(),
     });
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({
       success: false,
       error: "Approval not found.",
-      code: "APPROVAL_NOT_FOUND"
+      code: "APPROVAL_NOT_FOUND",
     });
   });
 
@@ -358,7 +468,7 @@ describe("approval routes", () => {
 
     const response = await app.request(`/api/approvals/${pendingApprovalId}/approve`, {
       method: "POST",
-      headers: validSessionHeaders()
+      headers: validSessionHeaders(),
     });
 
     expect(response.status).toBe(200);
@@ -369,8 +479,8 @@ describe("approval routes", () => {
         status: "approved",
         approvedBy: testUser.id,
         approvedAt: "2026-04-30T18:00:00.000Z",
-        updatedAt: "2026-04-30T18:00:00.000Z"
-      }
+        updatedAt: "2026-04-30T18:00:00.000Z",
+      },
     });
   });
 
@@ -381,8 +491,8 @@ describe("approval routes", () => {
       method: "POST",
       headers: jsonHeaders(),
       body: JSON.stringify({
-        reason: "Needs a cleaner draft"
-      })
+        reason: "Needs a cleaner draft",
+      }),
     });
 
     expect(response.status).toBe(200);
@@ -394,8 +504,8 @@ describe("approval routes", () => {
         rejectedBy: testUser.id,
         rejectedAt: "2026-04-30T18:30:00.000Z",
         rejectionReason: "Needs a cleaner draft",
-        updatedAt: "2026-04-30T18:30:00.000Z"
-      }
+        updatedAt: "2026-04-30T18:30:00.000Z",
+      },
     });
   });
 
@@ -404,14 +514,14 @@ describe("approval routes", () => {
 
     const response = await app.request(`/api/approvals/${approvedApprovalId}/approve`, {
       method: "POST",
-      headers: validSessionHeaders()
+      headers: validSessionHeaders(),
     });
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
       success: false,
       error: "Approval is not pending.",
-      code: "APPROVAL_NOT_PENDING"
+      code: "APPROVAL_NOT_PENDING",
     });
   });
 
@@ -421,14 +531,110 @@ describe("approval routes", () => {
     const response = await app.request(`/api/approvals/${approvedApprovalId}/reject`, {
       method: "POST",
       headers: jsonHeaders(),
-      body: JSON.stringify({})
+      body: JSON.stringify({}),
     });
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
       success: false,
       error: "Approval is not pending.",
-      code: "APPROVAL_NOT_PENDING"
+      code: "APPROVAL_NOT_PENDING",
     });
+  });
+});
+
+describe("approval repository draft propagation", () => {
+  beforeEach(() => {
+    mockTx = createMockTx();
+    mockDb.tx = mockTx;
+    vi.mocked(createActivityLog).mockClear();
+  });
+
+  it("approves a draft approval and logs approval.approved plus draft.approved in one transaction", async () => {
+    const approvedApproval: ApprovalOutput = {
+      ...pendingDraftApproval,
+      status: "approved",
+      approvedBy: testUser.id,
+      approvedAt: "2026-05-01T16:00:00.000Z",
+      updatedAt: "2026-05-01T16:00:00.000Z",
+    };
+
+    mockTx.state.selectResponses.push(
+      [approvalRowFromOutput(pendingDraftApproval)],
+      [draftRow("pending_approval")],
+    );
+    mockTx.state.updateResponses.push(
+      draftRow("approved"),
+      approvalRowFromOutput(approvedApproval),
+    );
+
+    const result = await approvalRepository.approveApproval({
+      workspaceId: testUser.workspaceId,
+      actorUserId: testUser.id,
+      id: pendingDraftApproval.id,
+    });
+
+    expect(result.result).toBe("ok");
+    expect(createActivityLog).toHaveBeenCalledWith(
+      mockTx,
+      expect.objectContaining({
+        action: "approval.approved",
+        entityType: "approval",
+        entityId: pendingDraftApproval.id,
+      }),
+    );
+    expect(createActivityLog).toHaveBeenCalledWith(
+      mockTx,
+      expect.objectContaining({
+        action: "draft.approved",
+        entityType: "draft",
+        entityId: currentWorkspaceDraftId,
+      }),
+    );
+  });
+
+  it("rejects a draft approval and logs approval.rejected plus draft.rejected in one transaction", async () => {
+    const rejectedApproval: ApprovalOutput = {
+      ...pendingDraftApproval,
+      status: "rejected",
+      rejectedBy: testUser.id,
+      rejectedAt: "2026-05-01T16:30:00.000Z",
+      rejectionReason: "Needs changes",
+      updatedAt: "2026-05-01T16:30:00.000Z",
+    };
+
+    mockTx.state.selectResponses.push(
+      [approvalRowFromOutput(pendingDraftApproval)],
+      [draftRow("pending_approval")],
+    );
+    mockTx.state.updateResponses.push(
+      draftRow("rejected"),
+      approvalRowFromOutput(rejectedApproval),
+    );
+
+    const result = await approvalRepository.rejectApproval({
+      workspaceId: testUser.workspaceId,
+      actorUserId: testUser.id,
+      id: pendingDraftApproval.id,
+      reason: "Needs changes",
+    });
+
+    expect(result.result).toBe("ok");
+    expect(createActivityLog).toHaveBeenCalledWith(
+      mockTx,
+      expect.objectContaining({
+        action: "approval.rejected",
+        entityType: "approval",
+        entityId: pendingDraftApproval.id,
+      }),
+    );
+    expect(createActivityLog).toHaveBeenCalledWith(
+      mockTx,
+      expect.objectContaining({
+        action: "draft.rejected",
+        entityType: "draft",
+        entityId: currentWorkspaceDraftId,
+      }),
+    );
   });
 });

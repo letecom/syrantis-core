@@ -1,6 +1,6 @@
 import { and, desc, eq, type SQL } from "drizzle-orm";
 
-import { approvals, tasks } from "@syrantis/db";
+import { approvals, drafts, tasks } from "@syrantis/db";
 import type { ApprovalListQuery } from "@syrantis/shared";
 
 import { withWorkspaceDb } from "../lib/db.js";
@@ -123,7 +123,7 @@ export async function createApproval(input: CreateApprovalInput): Promise<Approv
         approvalType: "manual",
         status: "pending",
         requestedBy: input.actorUserId,
-        metadataJson: input.metadata ?? {}
+        metadataJson: input.metadata ?? {},
       })
       .returning();
 
@@ -138,16 +138,19 @@ export async function createApproval(input: CreateApprovalInput): Promise<Approv
       entityType: "approval",
       entityId: approval.id,
       metadataJson: {
+        draftId: approval.draftId,
         taskId: input.taskId,
-        status: approval.status
-      }
+        status: approval.status,
+      },
     });
 
     return { result: "ok", approval };
   });
 }
 
-export async function approveApproval(input: ApproveApprovalInput): Promise<ApprovalMutationResult> {
+export async function approveApproval(
+  input: ApproveApprovalInput,
+): Promise<ApprovalMutationResult> {
   return withWorkspaceDb(input.workspaceId, async (tx) => {
     const [existingApproval] = await tx
       .select()
@@ -163,12 +166,50 @@ export async function approveApproval(input: ApproveApprovalInput): Promise<Appr
       return { result: "conflict" };
     }
 
+    let propagatedDraft: typeof drafts.$inferSelect | null = null;
+
+    if (existingApproval.draftId) {
+      const [existingDraft] = await tx
+        .select()
+        .from(drafts)
+        .where(
+          and(eq(drafts.id, existingApproval.draftId), eq(drafts.workspaceId, input.workspaceId)),
+        )
+        .limit(1);
+
+      if (!existingDraft) {
+        return { result: "not_found" };
+      }
+
+      if (existingDraft.status !== "pending_approval") {
+        return { result: "conflict" };
+      }
+
+      const [draft] = await tx
+        .update(drafts)
+        .set({ status: "approved" })
+        .where(
+          and(
+            eq(drafts.id, existingApproval.draftId),
+            eq(drafts.workspaceId, input.workspaceId),
+            eq(drafts.status, "pending_approval"),
+          ),
+        )
+        .returning();
+
+      if (!draft) {
+        return { result: "conflict" };
+      }
+
+      propagatedDraft = draft;
+    }
+
     const [approval] = await tx
       .update(approvals)
       .set({
         status: "approved",
         approvedBy: input.actorUserId,
-        approvedAt: new Date()
+        approvedAt: new Date(),
       })
       .where(and(...approvalFilters({ workspaceId: input.workspaceId, id: input.id })))
       .returning();
@@ -184,10 +225,25 @@ export async function approveApproval(input: ApproveApprovalInput): Promise<Appr
       entityType: "approval",
       entityId: approval.id,
       metadataJson: {
+        draftId: approval.draftId,
         taskId: approval.taskId,
-        status: approval.status
-      }
+        status: approval.status,
+      },
     });
+
+    if (propagatedDraft) {
+      await createActivityLog(tx, {
+        workspaceId: input.workspaceId,
+        actorUserId: input.actorUserId,
+        action: "draft.approved",
+        entityType: "draft",
+        entityId: propagatedDraft.id,
+        metadataJson: {
+          approvalId: approval.id,
+          status: propagatedDraft.status,
+        },
+      });
+    }
 
     return { result: "ok", approval };
   });
@@ -209,13 +265,51 @@ export async function rejectApproval(input: RejectApprovalInput): Promise<Approv
       return { result: "conflict" };
     }
 
+    let propagatedDraft: typeof drafts.$inferSelect | null = null;
+
+    if (existingApproval.draftId) {
+      const [existingDraft] = await tx
+        .select()
+        .from(drafts)
+        .where(
+          and(eq(drafts.id, existingApproval.draftId), eq(drafts.workspaceId, input.workspaceId)),
+        )
+        .limit(1);
+
+      if (!existingDraft) {
+        return { result: "not_found" };
+      }
+
+      if (existingDraft.status !== "pending_approval") {
+        return { result: "conflict" };
+      }
+
+      const [draft] = await tx
+        .update(drafts)
+        .set({ status: "rejected" })
+        .where(
+          and(
+            eq(drafts.id, existingApproval.draftId),
+            eq(drafts.workspaceId, input.workspaceId),
+            eq(drafts.status, "pending_approval"),
+          ),
+        )
+        .returning();
+
+      if (!draft) {
+        return { result: "conflict" };
+      }
+
+      propagatedDraft = draft;
+    }
+
     const [approval] = await tx
       .update(approvals)
       .set({
         status: "rejected",
         rejectedBy: input.actorUserId,
         rejectedAt: new Date(),
-        ...(input.reason !== undefined ? { rejectionReason: input.reason } : {})
+        ...(input.reason !== undefined ? { rejectionReason: input.reason } : {}),
       })
       .where(and(...approvalFilters({ workspaceId: input.workspaceId, id: input.id })))
       .returning();
@@ -231,10 +325,25 @@ export async function rejectApproval(input: RejectApprovalInput): Promise<Approv
       entityType: "approval",
       entityId: approval.id,
       metadataJson: {
+        draftId: approval.draftId,
         taskId: approval.taskId,
-        status: approval.status
-      }
+        status: approval.status,
+      },
     });
+
+    if (propagatedDraft) {
+      await createActivityLog(tx, {
+        workspaceId: input.workspaceId,
+        actorUserId: input.actorUserId,
+        action: "draft.rejected",
+        entityType: "draft",
+        entityId: propagatedDraft.id,
+        metadataJson: {
+          approvalId: approval.id,
+          status: propagatedDraft.status,
+        },
+      });
+    }
 
     return { result: "ok", approval };
   });
