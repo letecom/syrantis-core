@@ -102,7 +102,13 @@ export async function processNextBackgroundJob(
       return { status: "completed", job: completedJob };
     }
 
-    const completedJob = await withWorkspaceDb(job.workspaceId, async (tx) => {
+    if (job.type !== "send_email") {
+      throw new Error("BACKGROUND_JOB_TYPE_UNSUPPORTED");
+    }
+
+    const payload = SendEmailJobPayloadSchema.parse(job.payloadJson);
+
+    await withWorkspaceDb(job.workspaceId, async (tx) => {
       await createActivityLog(tx, {
         workspaceId: job.workspaceId,
         actorUserId: null,
@@ -116,28 +122,19 @@ export async function processNextBackgroundJob(
           attempts: job.attempts,
         },
       });
+    });
 
-      if (job.type !== "send_email") {
-        throw new Error("BACKGROUND_JOB_TYPE_UNSUPPORTED");
-      }
+    await handleSendEmailJob({
+      workspaceId: job.workspaceId,
+      jobId: job.id,
+      payload,
+    });
 
-      let completionMetadata: Record<string, unknown> = {
+    const completedJob = await withWorkspaceDb(job.workspaceId, async (tx) => {
+      const completionMetadata: Record<string, unknown> = {
         jobId: job.id,
         type: job.type,
         workerId: input.workerId,
-      };
-
-      const payload = SendEmailJobPayloadSchema.parse(job.payloadJson);
-
-      await handleSendEmailJob({
-        tx,
-        workspaceId: job.workspaceId,
-        jobId: job.id,
-        payload,
-      });
-
-      completionMetadata = {
-        ...completionMetadata,
         emailSendId: payload.emailSendId,
       };
 
