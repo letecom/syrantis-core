@@ -360,7 +360,7 @@ export async function handleScoreLeadJob(input: HandleScoreLeadJobInput): Promis
     completion = await provider.complete({
       model: prepared.model,
       messages: prepared.prompt.messages,
-      maxTokens: 600,
+      maxTokens: 1000,
       temperature: 0.1,
       timeoutMs: 15_000,
     });

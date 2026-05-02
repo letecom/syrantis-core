@@ -7,8 +7,13 @@ export const LEAD_SCORING_PROMPT_TEMPLATE_ID = "lead-score-v1";
 
 const SYSTEM_PROMPT = [
   "You are Syrantis Core lead scoring.",
-  "Score the provided redacted B2B lead signals for a plumbing or heating contractor.",
-  "Return only strict JSON with score, qualification, summary, rationale, recommended_action, confidence.",
+  "Syrantis is a B2B AI orchestration and CRM workflow automation infrastructure platform.",
+  "Score the provided redacted B2B lead signals.",
+  "Return compact JSON only. No markdown. No long paragraphs.",
+  "Use score integer 0..100, qualification cold|warm|hot, summary, rationale, recommended_action, confidence integer 0..100.",
+  "summary must be one sentence and at most 220 chars.",
+  "rationale must be at most two short sentences and at most 500 chars.",
+  "recommended_action must be one concrete next action and at most 240 chars.",
   "Do not include personal data or invent missing identity details.",
 ].join(" ");
 
@@ -45,9 +50,9 @@ export function buildLeadScoringPrompt(input: RedactedLeadForScoring): LeadScori
     schema: {
       score: "integer 0..100",
       qualification: "cold | warm | hot",
-      summary: "string <= 280 chars",
-      rationale: "string <= 500 chars",
-      recommended_action: "string <= 240 chars",
+      summary: "one sentence, string <= 220 chars",
+      rationale: "max two short sentences, string <= 500 chars",
+      recommended_action: "one concrete next action, string <= 240 chars",
       confidence: "integer 0..100",
     },
     signals: input,
@@ -145,8 +150,40 @@ function parseJsonLikeContent(content: string): unknown {
   throw new AiOutputParseError(content);
 }
 
+function truncateString(value: string, maxLength: number): string {
+  const trimmed = value.trim();
+
+  if (trimmed.length <= maxLength) {
+    return trimmed;
+  }
+
+  return trimmed.slice(0, maxLength).trimEnd();
+}
+
+function normalizeLeadScoringOutput(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  const output = { ...(value as Record<string, unknown>) };
+
+  if (typeof output.summary === "string") {
+    output.summary = truncateString(output.summary, 280);
+  }
+
+  if (typeof output.rationale === "string") {
+    output.rationale = truncateString(output.rationale, 500);
+  }
+
+  if (typeof output.recommended_action === "string") {
+    output.recommended_action = truncateString(output.recommended_action, 240);
+  }
+
+  return output;
+}
+
 export function parseLeadScoringOutput(content: string): LeadScoreOutput {
-  const parsed = parseJsonLikeContent(content);
+  const parsed = normalizeLeadScoringOutput(parseJsonLikeContent(content));
 
   const result = LeadScoreOutputSchema.safeParse(parsed);
 
