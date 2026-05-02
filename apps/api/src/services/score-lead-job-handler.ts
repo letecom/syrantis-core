@@ -3,16 +3,17 @@ import { and, eq } from "drizzle-orm";
 import { aiRuns, contacts, leadScores, leads, organizations } from "@syrantis/db";
 import type { ScoreLeadJobPayload } from "@syrantis/shared";
 
-import type { WorkspaceDbTransaction } from "../lib/db.js";
+import { withWorkspaceDb, type WorkspaceDbTransaction } from "../lib/db.js";
 import { createActivityLog } from "../repositories/activity-logs.js";
 import {
+  AiOutputParseError,
   buildLeadScoringPrompt,
   LEAD_SCORING_PROMPT_TEMPLATE_ID,
   parseLeadScoringOutput,
 } from "./ai/lead-scoring-prompt.js";
 import { DEFAULT_AI_MODEL, OpenRouterProvider } from "./ai/openrouter-provider.js";
 import { redactLeadForScoring } from "./ai/pii-redaction.js";
-import type { AiProvider } from "./ai/providers.js";
+import type { AiCompletionOutput, AiProvider } from "./ai/providers.js";
 
 export type HandleScoreLeadJobInput = {
   tx: WorkspaceDbTransaction;
@@ -38,15 +39,11 @@ function resolveModel(input?: string): string {
   return input?.trim() || process.env.AI_MODEL?.trim() || DEFAULT_AI_MODEL;
 }
 
-function compactErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) {
-    return error.message.trim().slice(0, 500);
+function resolveErrorCode(error: unknown): string {
+  if (error instanceof AiOutputParseError) {
+    return error.code;
   }
 
-  return "AI scoring failed.";
-}
-
-function resolveErrorCode(error: unknown): string {
   if (error instanceof Error && error.message) {
     return error.message.trim().slice(0, 120) || "AI_SCORING_FAILED";
   }
@@ -82,6 +79,67 @@ async function loadLeadContext(
     .limit(1);
 
   return row ?? null;
+}
+
+async function persistFailedAiRunAudit(input: {
+  workspaceId: string;
+  jobId: string;
+  leadId: string;
+  model: string;
+  promptJson: Record<string, unknown>;
+  completion: AiCompletionOutput | null;
+  error: unknown;
+}): Promise<void> {
+  const errorCode = resolveErrorCode(input.error);
+  const rawPreview = input.error instanceof AiOutputParseError ? input.error.rawPreview : null;
+
+  await withWorkspaceDb(input.workspaceId, async (tx) => {
+    const [aiRun] = await tx
+      .insert(aiRuns)
+      .values({
+        workspaceId: input.workspaceId,
+        jobId: input.jobId,
+        referenceType: "lead",
+        referenceId: input.leadId,
+        purpose: "scoring",
+        provider: "openrouter",
+        modelUsed: input.completion?.model ?? input.model,
+        promptTemplateId: LEAD_SCORING_PROMPT_TEMPLATE_ID,
+        promptJson: input.promptJson,
+        inputPayload: input.promptJson,
+        outputPayload: rawPreview ? { rawPreview } : null,
+        outputJson: rawPreview ? { rawPreview } : null,
+        outputText: rawPreview,
+        inputTokens: input.completion?.inputTokens ?? 0,
+        outputTokens: input.completion?.outputTokens ?? 0,
+        costEstimateCents: 0,
+        costCents: 0,
+        skillName: "lead_score",
+        promptFile: LEAD_SCORING_PROMPT_TEMPLATE_ID,
+        promptHash: LEAD_SCORING_PROMPT_TEMPLATE_ID,
+        status: "error",
+        errorMessage: errorCode,
+      })
+      .returning();
+
+    if (!aiRun) {
+      throw new Error("AI_RUN_FAILED_AUDIT_CREATE_FAILED");
+    }
+
+    await createActivityLog(tx, {
+      workspaceId: input.workspaceId,
+      actorUserId: null,
+      action: "ai_run.failed",
+      entityType: "ai_run",
+      entityId: aiRun.id,
+      metadataJson: {
+        jobId: input.jobId,
+        aiRunId: aiRun.id,
+        errorCode,
+        model: input.completion?.model ?? input.model,
+      },
+    });
+  });
 }
 
 export async function handleScoreLeadJob(input: HandleScoreLeadJobInput): Promise<void> {
@@ -150,9 +208,11 @@ export async function handleScoreLeadJob(input: HandleScoreLeadJobInput): Promis
     },
   });
 
+  let completion: AiCompletionOutput | null = null;
+
   try {
     const provider = input.provider ?? new OpenRouterProvider();
-    const completion = await provider.complete({
+    completion = await provider.complete({
       model,
       messages: prompt.messages,
       maxTokens: 600,
@@ -231,16 +291,7 @@ export async function handleScoreLeadJob(input: HandleScoreLeadJobInput): Promis
       },
     });
   } catch (error) {
-    const errorMessage = compactErrorMessage(error);
     const errorCode = resolveErrorCode(error);
-
-    await input.tx
-      .update(aiRuns)
-      .set({
-        status: "error",
-        errorMessage,
-      })
-      .where(and(eq(aiRuns.id, aiRun.id), eq(aiRuns.workspaceId, input.workspaceId)));
 
     await createActivityLog(input.tx, {
       workspaceId: input.workspaceId,
@@ -254,6 +305,16 @@ export async function handleScoreLeadJob(input: HandleScoreLeadJobInput): Promis
         errorCode,
         model,
       },
+    });
+
+    await persistFailedAiRunAudit({
+      workspaceId: input.workspaceId,
+      jobId: input.jobId,
+      leadId: input.payload.leadId,
+      model,
+      promptJson: prompt.promptJson,
+      completion,
+      error,
     });
 
     throw error;

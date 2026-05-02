@@ -8,6 +8,7 @@ import { testUser } from "./mocks/auth.js";
 const jobId = "00000000-0000-4000-8000-000000002001";
 const staleJobId = "00000000-0000-4000-8000-000000002002";
 const emailSendId = "00000000-0000-4000-8000-000000002101";
+const leadId = "00000000-0000-4000-8000-000000002102";
 const workerId = "test-worker-1";
 
 type RawBackgroundJobRow = {
@@ -315,6 +316,7 @@ describe("background worker service", () => {
   async function importWorkerWithMocks(input: {
     claimedJob: BackgroundJobRow | null;
     emailSendStatus?: string;
+    scoreHandlerError?: string;
   }) {
     const emailTx = input.emailSendStatus
       ? createEmailSendTx(input.emailSendStatus)
@@ -329,6 +331,11 @@ describe("background worker service", () => {
       lastErrorCode: failInput.errorCode,
       lastErrorMessage: failInput.errorMessage,
     }));
+    const handleScoreLeadJob = vi.fn(async () => {
+      if (input.scoreHandlerError) {
+        throw new Error(input.scoreHandlerError);
+      }
+    });
 
     vi.doMock("../repositories/background-jobs.js", () => ({
       claimNextBackgroundJob,
@@ -340,6 +347,9 @@ describe("background worker service", () => {
         activityLogs.push(input);
         return { id: "00000000-0000-4000-8000-000000002999" };
       }),
+    }));
+    vi.doMock("../services/score-lead-job-handler.js", () => ({
+      handleScoreLeadJob,
     }));
     vi.doMock("../lib/db.js", () => ({
       withWorkspaceDb: vi.fn(async (_workspaceId: string, fn: (tx: unknown) => Promise<unknown>) =>
@@ -356,6 +366,7 @@ describe("background worker service", () => {
       claimNextBackgroundJob,
       completeBackgroundJob,
       failBackgroundJob,
+      handleScoreLeadJob,
     };
   }
 
@@ -418,6 +429,33 @@ describe("background worker service", () => {
       worker.emailTx.tx,
       expect.objectContaining({
         errorCode: "EMAIL_SEND_NOT_FOUND",
+      }),
+    );
+  });
+
+  it("processNext marks score_lead job failed when scoring output is invalid", async () => {
+    const worker = await importWorkerWithMocks({
+      claimedJob: jobRow({
+        type: "score_lead",
+        payloadJson: { leadId },
+      }),
+      scoreHandlerError: "AI_OUTPUT_INVALID_JSON",
+    });
+
+    const result = await worker.processNextBackgroundJob({ workerId });
+
+    expect(result).toMatchObject({ status: "failed", errorCode: "AI_OUTPUT_INVALID_JSON" });
+    expect(worker.handleScoreLeadJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: testUser.workspaceId,
+        jobId,
+        payload: { leadId },
+      }),
+    );
+    expect(worker.failBackgroundJob).toHaveBeenCalledWith(
+      worker.emailTx.tx,
+      expect.objectContaining({
+        errorCode: "AI_OUTPUT_INVALID_JSON",
       }),
     );
   });

@@ -59,6 +59,7 @@ export class OpenRouterProvider implements AiProvider {
           messages: input.messages,
           max_tokens: input.maxTokens,
           temperature: input.temperature,
+          response_format: { type: "json_object" },
         }),
         signal: controller.signal,
       });
