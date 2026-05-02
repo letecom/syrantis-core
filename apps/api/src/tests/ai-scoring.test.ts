@@ -224,6 +224,10 @@ function validScoreJson(overrides: Record<string, unknown> = {}) {
   });
 }
 
+function repeatedText(value: string, minLength: number): string {
+  return value.repeat(Math.ceil(minLength / value.length));
+}
+
 function openRouterJsonResponse(input: {
   status?: number;
   finishReason?: string;
@@ -411,8 +415,46 @@ describe("lead scoring output parser", () => {
     });
   });
 
+  it("accepts real-style Mistral output with controlled long field normalization", () => {
+    const parsed = parseLeadScoringOutput(
+      validScoreJson({
+        summary: repeatedText("Qualified B2B workflow opportunity. ", 320),
+        rationale: repeatedText("Strong workflow intent and clear operational context. ", 650),
+        recommended_action: repeatedText("Prepare a concise qualification follow-up. ", 360),
+      }),
+    );
+
+    expect(parsed.summary.length).toBeLessThanOrEqual(280);
+    expect(parsed.rationale.length).toBeLessThanOrEqual(500);
+    expect(parsed.recommended_action.length).toBeLessThanOrEqual(240);
+    expect(parsed.score).toBe(82);
+    expect(parsed.qualification).toBe("hot");
+  });
+
+  it("rejects missing required fields", () => {
+    const missingAction = JSON.stringify({
+      score: 82,
+      qualification: "hot",
+      summary: "Qualified opportunity.",
+      rationale: "Clear workflow fit.",
+      confidence: 88,
+    });
+
+    expect(() => parseLeadScoringOutput(missingAction)).toThrow(AiOutputSchemaError);
+  });
+
   it("rejects missing JSON object with AI_OUTPUT_INVALID_JSON", () => {
     expect(() => parseLeadScoringOutput("No structured object here.")).toThrow(AiOutputParseError);
+  });
+
+  it("rejects score outside range", () => {
+    expect(() => parseLeadScoringOutput(validScoreJson({ score: 150 }))).toThrow(AiOutputSchemaError);
+  });
+
+  it("rejects invalid qualification", () => {
+    expect(() => parseLeadScoringOutput(validScoreJson({ qualification: "burning" }))).toThrow(
+      AiOutputSchemaError,
+    );
   });
 
   it("rejects invalid schema with AI_OUTPUT_INVALID_SCHEMA and safe preview", () => {
@@ -429,6 +471,26 @@ describe("lead scoring output parser", () => {
 });
 
 describe("AI lead scoring redaction", () => {
+  it("uses Syrantis context and no outdated vertical context", () => {
+    const prompt = buildLeadScoringPrompt(
+      redactLeadForScoring({
+        lead: {
+          source: "form",
+          status: "new",
+          rawContent: "Workflow automation request.",
+          metadataJson: {},
+        },
+        contact: null,
+        organization: null,
+      }),
+    );
+    const serialized = JSON.stringify(prompt);
+
+    expect(serialized).toContain("Syrantis is a B2B AI orchestration and CRM workflow automation infrastructure platform.");
+    expect(serialized).not.toMatch(/plumbing|heating contractor/i);
+    expect(serialized).toContain("Return compact JSON only. No markdown. No long paragraphs.");
+  });
+
   it("removes raw email and phone from redacted input and prompt", () => {
     const redacted = redactLeadForScoring({
       lead: {
@@ -657,6 +719,12 @@ describe("score_lead worker handler", () => {
           score: 82,
           qualification: "hot",
         }),
+      }),
+    );
+    expect(provider.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxTokens: 1000,
+        temperature: 0.1,
       }),
     );
   });
