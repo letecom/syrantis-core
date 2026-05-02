@@ -5,7 +5,7 @@ const acceptedDatabaseProtocols = new Set(["postgres:", "postgresql:"]);
 
 let workerDbClient: DbClient | null = null;
 
-function getWorkerDatabaseUrl(): string {
+export function getWorkerDatabaseUrl(): string {
   const databaseUrl = process.env[workerDatabaseUrlEnvName]?.trim();
 
   if (!databaseUrl) {
@@ -25,6 +25,16 @@ function getWorkerDatabaseUrl(): string {
   }
 
   return databaseUrl;
+}
+
+export function sanitizeWorkerDatabaseUrl(databaseUrl: string): string {
+  const parsedUrl = new URL(databaseUrl);
+
+  if (parsedUrl.password) {
+    parsedUrl.password = "***";
+  }
+
+  return parsedUrl.toString();
 }
 
 export function getWorkerDbClient(): DbClient {

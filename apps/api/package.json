@@ -11,7 +11,10 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "worker:once": "tsx src/worker.ts once",
-    "worker:run": "tsx src/worker.ts run"
+    "worker:run": "tsx src/worker.ts run",
+    "worker:check": "tsx src/worker-ops.ts check",
+    "worker:jobs": "tsx src/worker-ops.ts jobs",
+    "worker:repair-stale": "tsx src/worker-ops.ts repair-stale"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
