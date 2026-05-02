@@ -20,7 +20,8 @@ export const ActivityLogActionSchema = z.enum([
   "external_object_mapping.updated",
   "external_object_mapping.archived",
   "workspace_api_key.created",
-  "workspace_api_key.revoked"
+  "workspace_api_key.revoked",
+  "public_lead.received"
 ]);
 
 export const ActivityLogEntityTypeSchema = z.enum([

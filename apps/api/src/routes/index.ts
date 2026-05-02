@@ -7,6 +7,7 @@ import { healthRoutes } from "./health.js";
 import { integrationRoutes } from "./integrations.js";
 import { leadRoutes } from "./leads.js";
 import { organizationRoutes } from "./organizations.js";
+import { publicLeadRoutes } from "./public-leads.js";
 import { taskRoutes } from "./tasks.js";
 import { workspaceApiKeyRoutes } from "./workspace-api-keys.js";
 
@@ -20,6 +21,7 @@ routes.route("/api/contacts", contactRoutes);
 routes.route("/api/integrations", integrationRoutes);
 routes.route("/api/leads", leadRoutes);
 routes.route("/api/organizations", organizationRoutes);
+routes.route("/api/public/leads", publicLeadRoutes);
 routes.route("/api/tasks", taskRoutes);
 routes.route("/api/workspace-api-keys", workspaceApiKeyRoutes);
 routes.route("/auth", authRoutes);

@@ -57,6 +57,13 @@
       "when": 1777721200000,
       "tag": "0007_workspace_api_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777722200000,
+      "tag": "0008_workspace_api_key_public_lookup_policy",
+      "breakpoints": true
     }
   ]
 }
