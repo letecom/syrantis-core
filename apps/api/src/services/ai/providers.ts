@@ -12,6 +12,8 @@ export type AiCompletionOutput = {
   outputTokens: number;
   model: string;
   provider: "openrouter";
+  finishReason: string;
+  costEstimateMicroUsd: number;
 };
 
 export interface AiProvider {
