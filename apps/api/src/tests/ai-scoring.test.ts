@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   LeadOutput,
+  LeadScoreReadModel,
 } from "@syrantis/shared";
 
 import { SESSION_COOKIE_NAME } from "../lib/session-token.js";
 import { createActivityLog } from "../repositories/activity-logs.js";
 import { requestLeadScore } from "../repositories/lead-scoring.js";
+import { getLatestLeadScore, listLeadScores } from "../repositories/lead-scores.js";
 import { createLeadRoutes } from "../routes/leads.js";
 import {
   AiOutputParseError,
@@ -29,6 +31,7 @@ import {
 } from "../services/ai/pricing.js";
 import type { AiProvider } from "../services/ai/providers.js";
 import { handleScoreLeadJob } from "../services/score-lead-job-handler.js";
+import type { LeadScoreService } from "../services/lead-scores.js";
 import type { LeadService } from "../services/leads.js";
 import { createFakeAuthService, testUser, validSessionToken } from "./mocks/auth.js";
 import { otherWorkspaceId } from "./mocks/tasks.js";
@@ -59,9 +62,12 @@ vi.mock("../repositories/activity-logs.js", () => ({
 
 const leadId = "00000000-0000-4000-8000-000000003001";
 const otherWorkspaceLeadId = "00000000-0000-4000-8000-000000003002";
+const noScoreLeadId = "00000000-0000-4000-8000-000000003099";
 const jobId = "00000000-0000-4000-8000-000000003101";
 const aiRunId = "00000000-0000-4000-8000-000000003201";
 const leadScoreId = "00000000-0000-4000-8000-000000003301";
+const leadScoreId2 = "00000000-0000-4000-8000-000000003302";
+const leadScoreId3 = "00000000-0000-4000-8000-000000003303";
 
 const leadOutput: LeadOutput = {
   id: leadId,
@@ -79,13 +85,30 @@ const leadOutput: LeadOutput = {
   updatedAt: "2026-05-01T10:00:00.000Z",
 };
 
+function leadScoreOutput(overrides: Partial<LeadScoreReadModel> = {}): LeadScoreReadModel {
+  return {
+    id: leadScoreId,
+    leadId,
+    score: 82,
+    qualification: "hot",
+    summary: "Urgent qualified workflow request.",
+    rationale: "The lead has immediate need and clear service intent.",
+    recommendedAction: "Call today and prepare a quote follow-up.",
+    confidence: 88,
+    model: "mistralai/mistral-small-2603",
+    promptTemplateId: "lead-score-v1",
+    scoredAt: "2026-05-01T13:00:00.000Z",
+    ...overrides,
+  };
+}
+
 function validSessionHeaders() {
   return {
     cookie: `${SESSION_COOKIE_NAME}=${validSessionToken}`,
   };
 }
 
-function createTestApp(leadService: LeadService): Hono {
+function createTestApp(leadService: LeadService, leadScoreService?: LeadScoreService): Hono {
   const app = new Hono();
 
   app.route(
@@ -93,10 +116,55 @@ function createTestApp(leadService: LeadService): Hono {
     createLeadRoutes({
       authService: createFakeAuthService(),
       leadService,
+      ...(leadScoreService ? { leadScoreService } : {}),
     }),
   );
 
   return app;
+}
+
+function createRouteLeadScoreService(): LeadScoreService {
+  const scores = new Map<string, LeadScoreReadModel[]>([
+    [leadId, [leadScoreOutput()]],
+  ]);
+
+  return {
+    getLatestLeadScore: vi.fn(async (workspaceId: string, id: string) => {
+      if (workspaceId !== testUser.workspaceId || id === otherWorkspaceLeadId) {
+        return { result: "not_found" as const };
+      }
+
+      if (id !== leadId && id !== noScoreLeadId) {
+        return { result: "not_found" as const };
+      }
+
+      return {
+        result: "ok" as const,
+        score: scores.get(id)?.[0] ?? null,
+      };
+    }),
+    listLeadScores: vi.fn(async (workspaceId: string, id: string, query) => {
+      if (workspaceId !== testUser.workspaceId || id === otherWorkspaceLeadId) {
+        return { result: "not_found" as const };
+      }
+
+      if (id !== leadId && id !== noScoreLeadId) {
+        return { result: "not_found" as const };
+      }
+
+      const rows = scores.get(id) ?? [];
+      const cursor = query.cursor ? new Date(query.cursor) : null;
+      const filtered = cursor ? rows.filter((score) => new Date(score.scoredAt) < cursor) : rows;
+      const page = filtered.slice(0, query.limit);
+      const next = filtered.length > query.limit ? page[page.length - 1]?.scoredAt ?? null : null;
+
+      return {
+        result: "ok" as const,
+        scores: page,
+        nextCursor: next,
+      };
+    }),
+  };
 }
 
 function createRouteLeadService(): LeadService {
@@ -129,6 +197,7 @@ function createSelectBuilder(response: unknown[]) {
     from: vi.fn(() => builder),
     leftJoin: vi.fn(() => builder),
     where: vi.fn(() => builder),
+    orderBy: vi.fn(() => builder),
     limit: vi.fn(async () => response),
   };
 
@@ -195,6 +264,27 @@ function leadContextRow(overrides: Record<string, unknown> = {}) {
     organizationSector: "heating",
     organizationStatus: "prospect",
     ...overrides,
+  };
+}
+
+function leadScoreReadRow(input: {
+  id?: string;
+  createdAt: string;
+  score?: number;
+  qualification?: "cold" | "warm" | "hot";
+}) {
+  return {
+    id: input.id ?? leadScoreId,
+    leadId,
+    score: input.score ?? 82,
+    qualification: input.qualification ?? "hot",
+    summary: "Urgent qualified workflow request.",
+    rationale: "The lead has immediate need and clear service intent.",
+    recommendedAction: "Call today and prepare a quote follow-up.",
+    confidence: 88,
+    model: "mistralai/mistral-small-2603",
+    promptTemplateId: "lead-score-v1",
+    createdAt: new Date(input.createdAt),
   };
 }
 
@@ -517,7 +607,7 @@ describe("AI lead scoring redaction", () => {
 
 describe("POST /api/leads/:id/score", () => {
   it("returns 401 without session", async () => {
-    const app = createTestApp(createRouteLeadService());
+    const app = createTestApp(createRouteLeadService(), createRouteLeadScoreService());
 
     const response = await app.request(`/api/leads/${leadId}/score`, {
       method: "POST",
@@ -557,6 +647,241 @@ describe("POST /api/leads/:id/score", () => {
     });
 
     expect(response.status).toBe(404);
+  });
+});
+
+describe("GET /api/leads/:id/score", () => {
+  it("get.score.success returns the latest public read model without forbidden fields", async () => {
+    const app = createTestApp(createRouteLeadService(), createRouteLeadScoreService());
+
+    const response = await app.request(`/api/leads/${leadId}/score`, {
+      headers: validSessionHeaders(),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.data).toMatchObject({
+      id: leadScoreId,
+      leadId,
+      score: 82,
+      qualification: "hot",
+      recommendedAction: "Call today and prepare a quote follow-up.",
+      promptTemplateId: "lead-score-v1",
+      scoredAt: "2026-05-01T13:00:00.000Z",
+    });
+    for (const field of [
+      "workspaceId",
+      "aiRunId",
+      "jobId",
+      "promptJson",
+      "outputJson",
+      "inputPayload",
+      "outputPayload",
+      "errorMessage",
+      "finishReason",
+      "costEstimateMicroUsd",
+      "costEstimateCents",
+      "inputTokens",
+      "outputTokens",
+    ]) {
+      expect(body.data).not.toHaveProperty(field);
+    }
+  });
+
+  it("get.score.no_score returns null", async () => {
+    const app = createTestApp(createRouteLeadService(), createRouteLeadScoreService());
+
+    const response = await app.request(`/api/leads/${noScoreLeadId}/score`, {
+      headers: validSessionHeaders(),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      success: true,
+      data: null,
+    });
+  });
+
+  it("get.score.lead_not_found returns 404", async () => {
+    const app = createTestApp(createRouteLeadService(), createRouteLeadScoreService());
+
+    const response = await app.request(`/api/leads/00000000-0000-4000-8000-000000003404/score`, {
+      headers: validSessionHeaders(),
+    });
+
+    expect(response.status).toBe(404);
+  });
+
+  it("get.score.cross_workspace returns 404", async () => {
+    const app = createTestApp(createRouteLeadService(), createRouteLeadScoreService());
+
+    const response = await app.request(`/api/leads/${otherWorkspaceLeadId}/score`, {
+      headers: validSessionHeaders(),
+    });
+
+    expect(response.status).toBe(404);
+  });
+});
+
+describe("GET /api/leads/:id/scores", () => {
+  it("get.scores.empty returns an empty list without nextCursor", async () => {
+    const app = createTestApp(createRouteLeadService(), createRouteLeadScoreService());
+
+    const response = await app.request(`/api/leads/${noScoreLeadId}/scores`, {
+      headers: validSessionHeaders(),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      success: true,
+      data: [],
+    });
+    expect(body).not.toHaveProperty("nextCursor");
+  });
+
+  it("get.scores.limit_max returns 400", async () => {
+    const app = createTestApp(createRouteLeadService(), createRouteLeadScoreService());
+
+    const response = await app.request(`/api/leads/${leadId}/scores?limit=100`, {
+      headers: validSessionHeaders(),
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  it("get.scores.invalid_cursor returns 400", async () => {
+    const app = createTestApp(createRouteLeadService(), createRouteLeadScoreService());
+
+    const response = await app.request(`/api/leads/${leadId}/scores?cursor=not-a-date`, {
+      headers: validSessionHeaders(),
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  it("get.scores.forbidden_fields omits internal audit and provider fields", async () => {
+    const app = createTestApp(createRouteLeadService(), createRouteLeadScoreService());
+
+    const response = await app.request(`/api/leads/${leadId}/scores`, {
+      headers: validSessionHeaders(),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data).toHaveLength(1);
+    for (const field of [
+      "workspaceId",
+      "aiRunId",
+      "jobId",
+      "promptJson",
+      "outputJson",
+      "inputPayload",
+      "outputPayload",
+      "errorMessage",
+      "finishReason",
+      "costEstimateMicroUsd",
+      "costEstimateCents",
+      "inputTokens",
+      "outputTokens",
+    ]) {
+      expect(body.data[0]).not.toHaveProperty(field);
+    }
+  });
+});
+
+describe("lead score read repository", () => {
+  it("get.scores.order returns scores by createdAt desc", async () => {
+    const rows = [
+      leadScoreReadRow({ id: leadScoreId3, createdAt: "2026-05-01T15:00:00.000Z", score: 90 }),
+      leadScoreReadRow({ id: leadScoreId2, createdAt: "2026-05-01T14:00:00.000Z", score: 80 }),
+      leadScoreReadRow({ id: leadScoreId, createdAt: "2026-05-01T13:00:00.000Z", score: 70 }),
+    ];
+    const harness = createMockTx({
+      selectResponses: [[{ id: leadId }], rows],
+      insertResponses: [],
+    });
+    mockDb.tx = harness.tx;
+
+    const result = await listLeadScores({
+      workspaceId: testUser.workspaceId,
+      leadId,
+      limit: 20,
+    });
+
+    expect(result).toMatchObject({
+      result: "ok",
+      scores: [
+        { id: leadScoreId3, score: 90 },
+        { id: leadScoreId2, score: 80 },
+        { id: leadScoreId, score: 70 },
+      ],
+      nextCursor: null,
+    });
+    expect(harness.tx.insert).not.toHaveBeenCalled();
+    expect(harness.tx.update).not.toHaveBeenCalled();
+  });
+
+  it("get.scores.pagination returns limit rows and a next cursor", async () => {
+    const rows = [
+      leadScoreReadRow({ id: leadScoreId3, createdAt: "2026-05-01T15:00:00.000Z", score: 90 }),
+      leadScoreReadRow({ id: leadScoreId2, createdAt: "2026-05-01T14:00:00.000Z", score: 80 }),
+      leadScoreReadRow({ id: leadScoreId, createdAt: "2026-05-01T13:00:00.000Z", score: 70 }),
+    ];
+    const firstPage = createMockTx({
+      selectResponses: [[{ id: leadId }], rows],
+      insertResponses: [],
+    });
+    mockDb.tx = firstPage.tx;
+
+    const first = await listLeadScores({
+      workspaceId: testUser.workspaceId,
+      leadId,
+      limit: 2,
+    });
+
+    expect(first).toMatchObject({
+      result: "ok",
+      scores: [{ id: leadScoreId3 }, { id: leadScoreId2 }],
+      nextCursor: new Date("2026-05-01T14:00:00.000Z"),
+    });
+
+    const secondPage = createMockTx({
+      selectResponses: [[{ id: leadId }], [rows[2]]],
+      insertResponses: [],
+    });
+    mockDb.tx = secondPage.tx;
+
+    const second = await listLeadScores({
+      workspaceId: testUser.workspaceId,
+      leadId,
+      limit: 2,
+      cursor: new Date("2026-05-01T14:00:00.000Z"),
+    });
+
+    expect(second).toMatchObject({
+      result: "ok",
+      scores: [{ id: leadScoreId }],
+      nextCursor: null,
+    });
+  });
+
+  it("returns not_found for a missing or cross-workspace lead", async () => {
+    const harness = createMockTx({
+      selectResponses: [[]],
+      insertResponses: [],
+    });
+    mockDb.tx = harness.tx;
+
+    await expect(
+      getLatestLeadScore({
+        workspaceId: testUser.workspaceId,
+        leadId,
+      }),
+    ).resolves.toEqual({ result: "not_found" });
+    expect(harness.tx.insert).not.toHaveBeenCalled();
+    expect(harness.tx.update).not.toHaveBeenCalled();
   });
 });
 

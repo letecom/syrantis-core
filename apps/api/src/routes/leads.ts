@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { z } from "zod";
 
 import {
   ApiErrorSchema,
@@ -14,6 +15,10 @@ import {
 import { getWorkspaceId } from "../lib/tenant.js";
 import { createTenantGuard, tenantGuard } from "../middleware/tenant.js";
 import type { AuthService } from "../services/auth.js";
+import {
+  createProductionLeadScoreService,
+  type LeadScoreService
+} from "../services/lead-scores.js";
 import {
   createProductionLeadService,
   type LeadService,
@@ -42,9 +47,15 @@ const leadConflictResponse = ApiErrorSchema.parse({
   code: "LEAD_CONFLICT"
 });
 
+const LeadScoreHistoryRouteQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  cursor: z.string().datetime().optional()
+});
+
 export type LeadRoutesDependencies = {
   authService?: AuthService;
   leadService?: LeadService;
+  leadScoreService?: LeadScoreService;
 };
 
 function hasClientWorkspaceId(value: unknown): boolean {
@@ -98,6 +109,7 @@ export function createLeadRoutes(dependencies: LeadRoutesDependencies = {}) {
   const routes = new Hono<AppEnv>();
   const guard = dependencies.authService ? createTenantGuard(dependencies.authService) : tenantGuard;
   const leadService = dependencies.leadService ?? createProductionLeadService();
+  const leadScoreService = dependencies.leadScoreService ?? createProductionLeadScoreService();
 
   routes.use("*", guard);
 
@@ -167,6 +179,55 @@ export function createLeadRoutes(dependencies: LeadRoutesDependencies = {}) {
         }
       }),
       202
+    );
+  });
+
+  routes.get("/:id/score", async (c) => {
+    const leadId = parseId(c.req.param("id"));
+
+    if (!leadId) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const result = await leadScoreService.getLatestLeadScore(getWorkspaceId(c), leadId);
+
+    if (result.result === "not_found") {
+      return c.json(leadNotFoundResponse, 404);
+    }
+
+    return c.json(
+      {
+        success: true,
+        data: result.score
+      }
+    );
+  });
+
+  routes.get("/:id/scores", async (c) => {
+    const leadId = parseId(c.req.param("id"));
+
+    if (!leadId) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const parsedQuery = LeadScoreHistoryRouteQuerySchema.safeParse(c.req.query());
+
+    if (!parsedQuery.success) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const result = await leadScoreService.listLeadScores(getWorkspaceId(c), leadId, parsedQuery.data);
+
+    if (result.result === "not_found") {
+      return c.json(leadNotFoundResponse, 404);
+    }
+
+    return c.json(
+      {
+        success: true,
+        data: result.scores,
+        ...(result.nextCursor ? { nextCursor: result.nextCursor } : {})
+      }
     );
   });
 
