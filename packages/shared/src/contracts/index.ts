@@ -3,6 +3,7 @@ export * from "./approvals.js";
 export * from "./auth.js";
 export * from "./contacts.js";
 export * from "./drafts.js";
+export * from "./email-sends.js";
 export * from "./errors.js";
 export * from "./health.js";
 export * from "./integrations.js";

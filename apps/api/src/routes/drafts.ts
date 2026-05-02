@@ -8,7 +8,9 @@ import {
   DraftListQuerySchema,
   DraftListSuccessSchema,
   DraftSuccessSchema,
+  EmailSendSuccessSchema,
   RequestDraftApprovalInputSchema,
+  RequestEmailSendInputSchema,
   UpdateDraftInputSchema,
 } from "@syrantis/shared";
 
@@ -21,6 +23,11 @@ import {
   type DraftService,
   type DraftServiceMutationResult,
 } from "../services/drafts.js";
+import {
+  createProductionEmailSendService,
+  type EmailSendRequestServiceResult,
+  type EmailSendService,
+} from "../services/email-sends.js";
 import type { AppEnv } from "../types/hono.js";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -43,9 +50,22 @@ const draftApprovalConflictResponse = ApiErrorSchema.parse({
   code: "DRAFT_APPROVAL_CONFLICT",
 });
 
+const emailSendConflictResponse = ApiErrorSchema.parse({
+  success: false,
+  error: "Draft cannot request email send.",
+  code: "EMAIL_SEND_CONFLICT",
+});
+
+const emailSendRecipientMissingResponse = ApiErrorSchema.parse({
+  success: false,
+  error: "Email send recipient missing.",
+  code: "EMAIL_SEND_RECIPIENT_MISSING",
+});
+
 export type DraftRoutesDependencies = {
   authService?: AuthService;
   draftService?: DraftService;
+  emailSendService?: EmailSendService;
 };
 
 function hasClientWorkspaceId(value: unknown): boolean {
@@ -111,12 +131,35 @@ function approvalRequestResponse(c: Context<AppEnv>, result: DraftApprovalReques
   );
 }
 
+function emailSendRequestResponse(c: Context<AppEnv>, result: EmailSendRequestServiceResult) {
+  if (result.result === "not_found") {
+    return c.json(draftNotFoundResponse, 404);
+  }
+
+  if (result.result === "conflict") {
+    return c.json(emailSendConflictResponse, 409);
+  }
+
+  if (result.result === "recipient_missing") {
+    return c.json(emailSendRecipientMissingResponse, 422);
+  }
+
+  return c.json(
+    EmailSendSuccessSchema.parse({
+      success: true,
+      data: result.emailSend,
+    }),
+    201,
+  );
+}
+
 export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
   const routes = new Hono<AppEnv>();
   const guard = dependencies.authService
     ? createTenantGuard(dependencies.authService)
     : tenantGuard;
   const draftService = dependencies.draftService ?? createProductionDraftService();
+  const emailSendService = dependencies.emailSendService ?? createProductionEmailSendService();
 
   routes.use("*", guard);
 
@@ -254,6 +297,34 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
       parsedBody.data,
     );
     return approvalRequestResponse(c, result);
+  });
+
+  routes.post("/:id/request-send", async (c) => {
+    const draftId = parseDraftId(c.req.param("id"));
+
+    if (!draftId || hasClientWorkspaceId(c.req.query())) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const body = await readOptionalJsonBody(c);
+
+    if (hasClientWorkspaceId(body)) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const parsedBody = RequestEmailSendInputSchema.safeParse(body);
+
+    if (!parsedBody.success) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const result = await emailSendService.requestSendFromDraft(
+      getWorkspaceId(c),
+      c.get("userId"),
+      draftId,
+      parsedBody.data,
+    );
+    return emailSendRequestResponse(c, result);
   });
 
   return routes;

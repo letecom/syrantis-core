@@ -487,6 +487,8 @@ export const emailSends = pgTable(
     draftId: uuid("draft_id")
       .notNull()
       .references(() => drafts.id),
+    leadId: uuid("lead_id").references(() => leads.id),
+    contactId: uuid("contact_id").references(() => contacts.id),
     fromEmail: varchar("from_email", { length: 320 }).notNull(),
     toEmail: varchar("to_email", { length: 320 }).notNull(),
     replyToEmail: varchar("reply_to_email", { length: 320 }),
@@ -501,16 +503,22 @@ export const emailSends = pgTable(
     attemptCount: integer("attempt_count").notNull().default(1),
     lastErrorCode: varchar("last_error_code", { length: 120 }),
     lastErrorMessage: text("last_error_message"),
-    status: varchar("status", { length: 24 }).notNull().default("queued"),
+    status: varchar("status", { length: 24 }).notNull().default("pending"),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     failedAt: timestamp("failed_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
+    ...timestamps
   },
   (table) => [
-    check("email_sends_status_check", sql`${table.status} in ('queued', 'sent', 'failed', 'cancelled')`),
+    check(
+      "email_sends_status_check",
+      sql`${table.status} in ('pending', 'queued', 'sent', 'failed', 'cancelled')`
+    ),
     index("email_sends_workspace_id_idx").on(table.workspaceId),
     index("email_sends_approval_id_idx").on(table.approvalId),
     index("email_sends_draft_id_idx").on(table.draftId),
+    index("email_sends_lead_id_idx").on(table.leadId),
+    index("email_sends_contact_id_idx").on(table.contactId),
     index("email_sends_workspace_status_idx").on(table.workspaceId, table.status),
     index("email_sends_provider_idx").on(table.provider),
     index("email_sends_provider_message_id_idx").on(table.providerMessageId),
