@@ -52,6 +52,7 @@ const leadId = "00000000-0000-4000-8000-000000001101";
 const contactId = "00000000-0000-4000-8000-000000001102";
 const approvalId = "00000000-0000-4000-8000-000000001103";
 const emailSendId = "00000000-0000-4000-8000-000000001104";
+const backgroundJobId = "00000000-0000-4000-8000-000000001105";
 
 const approvedDraft: DraftOutput = {
   id: approvedDraftId,
@@ -99,6 +100,7 @@ function createMockTx() {
   const state = {
     selectResponses: [] as unknown[][],
     insertResponse: null as unknown,
+    insertResponses: [] as unknown[],
     insertValues: [] as unknown[],
   };
 
@@ -109,7 +111,13 @@ function createMockTx() {
       values: vi.fn((values: unknown) => {
         state.insertValues.push(values);
         return {
-          returning: vi.fn(async () => (state.insertResponse ? [state.insertResponse] : [])),
+          returning: vi.fn(async () => {
+            const response =
+              state.insertResponses.length > 0
+                ? state.insertResponses.shift()
+                : state.insertResponse;
+            return response ? [response] : [];
+          }),
         };
       }),
     })),
@@ -272,6 +280,27 @@ function emailSendRowFromOutput(emailSend: EmailSendOutput) {
   };
 }
 
+function backgroundJobRow() {
+  return {
+    id: backgroundJobId,
+    workspaceId: testUser.workspaceId,
+    type: "send_email",
+    payloadJson: { emailSendId },
+    status: "pending",
+    attempts: 0,
+    maxAttempts: 3,
+    runAfter: new Date("2026-05-01T12:00:00.000Z"),
+    lockedAt: null,
+    lockedBy: null,
+    completedAt: null,
+    failedAt: null,
+    lastErrorCode: null,
+    lastErrorMessage: null,
+    createdAt: new Date("2026-05-01T12:00:00.000Z"),
+    updatedAt: new Date("2026-05-01T12:00:00.000Z"),
+  };
+}
+
 describe("draft request-send route", () => {
   it("returns 401 for POST /api/drafts/:id/request-send without session", async () => {
     const app = createDraftRequestSendApp(createFakeEmailSendService());
@@ -402,13 +431,13 @@ describe("email send repository", () => {
     vi.mocked(createActivityLog).mockClear();
   });
 
-  it("stores draft, lead, contact, recipient, and body snapshots on request-send", async () => {
+  it("creates pending email send and send_email background job on request-send", async () => {
     mockTx.state.selectResponses.push(
       [draftRowFromOutput(approvedDraft)],
       [{ id: approvalId }],
       [{ id: contactId, email: "client@example.com" }],
     );
-    mockTx.state.insertResponse = emailSendRowFromOutput(pendingEmailSend);
+    mockTx.state.insertResponses.push(emailSendRowFromOutput(pendingEmailSend), backgroundJobRow());
 
     const result = await emailSendRepository.requestEmailSendFromDraft({
       workspaceId: testUser.workspaceId,
@@ -440,6 +469,13 @@ describe("email send repository", () => {
     expect(mockTx.state.insertValues[0]).toMatchObject({
       idempotencyKey: expect.stringMatching(/^request_send:/),
     });
+    expect(mockTx.state.insertValues[1]).toMatchObject({
+      workspaceId: testUser.workspaceId,
+      type: "send_email",
+      payloadJson: { emailSendId },
+      status: "pending",
+      runAfter: expect.any(Date),
+    });
   });
 
   it("accepts legacy queued email send rows in output parsing", () => {
@@ -460,7 +496,7 @@ describe("email send repository", () => {
       [{ id: approvalId }],
       [{ id: contactId, email: "client@example.com" }],
     );
-    mockTx.state.insertResponse = emailSendRowFromOutput(pendingEmailSend);
+    mockTx.state.insertResponses.push(emailSendRowFromOutput(pendingEmailSend), backgroundJobRow());
 
     await emailSendRepository.requestEmailSendFromDraft({
       workspaceId: testUser.workspaceId,
@@ -485,6 +521,21 @@ describe("email send repository", () => {
         entityId: emailSendId,
       }),
     );
+    expect(createActivityLog).toHaveBeenCalledWith(
+      mockTx,
+      expect.objectContaining({
+        action: "email_send.queued",
+        entityType: "email_send",
+        entityId: emailSendId,
+        metadataJson: expect.objectContaining({
+          draftId: approvedDraftId,
+          leadId,
+          contactId,
+          jobId: backgroundJobId,
+          status: "pending",
+        }),
+      }),
+    );
 
     for (const call of vi.mocked(createActivityLog).mock.calls) {
       const metadata = call[1].metadataJson ?? {};
@@ -492,6 +543,39 @@ describe("email send repository", () => {
       expect(metadata).not.toHaveProperty("htmlBody");
       expect(metadata).not.toHaveProperty("subject");
     }
+  });
+
+  it("returns conflict and creates no background job when draft is not approved", async () => {
+    mockTx.state.selectResponses.push([
+      draftRowFromOutput({
+        ...approvedDraft,
+        status: "draft",
+      }),
+    ]);
+
+    const result = await emailSendRepository.requestEmailSendFromDraft({
+      workspaceId: testUser.workspaceId,
+      actorUserId: testUser.id,
+      draftId: approvedDraftId,
+      data: {},
+    });
+
+    expect(result).toEqual({ result: "conflict" });
+    expect(mockTx.state.insertValues).toEqual([]);
+  });
+
+  it("returns not_found and creates no background job when draft is missing or cross-workspace", async () => {
+    mockTx.state.selectResponses.push([]);
+
+    const result = await emailSendRepository.requestEmailSendFromDraft({
+      workspaceId: testUser.workspaceId,
+      actorUserId: testUser.id,
+      draftId: approvedDraftId,
+      data: {},
+    });
+
+    expect(result).toEqual({ result: "not_found" });
+    expect(mockTx.state.insertValues).toEqual([]);
   });
 
   it("returns recipient_missing when no current-workspace contact email can be resolved", async () => {
@@ -531,8 +615,26 @@ describe("email send governance checks", () => {
     expect(implementation).toContain("without `app.current_workspace_id`, `email_sends` returns zero rows");
   });
 
-  it("does not add Resend or external HTTP calls to the 018A API code", () => {
+  it("documents RLS validation for background_jobs without app.current_workspace_id", () => {
+    const migration = readFileSync(
+      "../../packages/db/migrations/0011_background_jobs_foundation.sql",
+      "utf8",
+    );
+    const implementation = readFileSync(
+      "../../docs/implementation/019A-jobs-outbox-foundation.md",
+      "utf8",
+    );
+
+    expect(migration).toContain('ALTER TABLE "background_jobs" ENABLE ROW LEVEL SECURITY');
+    expect(migration).toContain('ALTER TABLE "background_jobs" FORCE ROW LEVEL SECURITY');
+    expect(migration).toContain("tenant_isolation_background_jobs");
+    expect(migration).toContain("app.current_workspace_id");
+    expect(implementation).toContain("without `app.current_workspace_id`, `background_jobs` returns zero rows");
+  });
+
+  it("does not add Resend or external HTTP calls to the 019A API code", () => {
     const files = [
+      "src/repositories/background-jobs.ts",
       "src/repositories/email-sends.ts",
       "src/services/email-sends.ts",
       "src/routes/email-sends.ts",

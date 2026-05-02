@@ -1,6 +1,7 @@
 export * from "./activity-logs.js";
 export * from "./approvals.js";
 export * from "./auth.js";
+export * from "./background-jobs.js";
 export * from "./contacts.js";
 export * from "./drafts.js";
 export * from "./email-sends.js";

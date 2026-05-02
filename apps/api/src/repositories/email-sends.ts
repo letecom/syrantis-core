@@ -7,6 +7,7 @@ import type { EmailSendListQuery, RequestEmailSendInput } from "@syrantis/shared
 
 import { withWorkspaceDb, type WorkspaceDbTransaction } from "../lib/db.js";
 import { createActivityLog } from "./activity-logs.js";
+import { enqueueSendEmailJob } from "./background-jobs.js";
 
 const internalSenderEmail = "no-reply@syrantis.local";
 const internalProvider = "internal";
@@ -224,6 +225,12 @@ export async function requestEmailSendFromDraft(
       throw new Error("Failed to create email send.");
     }
 
+    const job = await enqueueSendEmailJob(tx, {
+      workspaceId: input.workspaceId,
+      emailSendId: emailSend.id,
+      runAfter: new Date(),
+    });
+
     await createActivityLog(tx, {
       workspaceId: input.workspaceId,
       actorUserId: input.actorUserId,
@@ -249,6 +256,21 @@ export async function requestEmailSendFromDraft(
         leadId: draft.leadId,
         contactId: recipient.contactId,
         status: emailSend.status,
+      },
+    });
+
+    await createActivityLog(tx, {
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId,
+      action: "email_send.queued",
+      entityType: "email_send",
+      entityId: emailSend.id,
+      metadataJson: {
+        draftId: draft.id,
+        leadId: draft.leadId,
+        contactId: recipient.contactId,
+        jobId: job.id,
+        status: "pending",
       },
     });
 
