@@ -6,6 +6,9 @@ export const ActivityLogActionSchema = z.enum([
   "organization.archived",
   "contact.created",
   "contact.updated",
+  "draft.created",
+  "draft.updated",
+  "draft.archived",
   "lead.created",
   "lead.updated",
   "task.created",
@@ -27,6 +30,7 @@ export const ActivityLogActionSchema = z.enum([
 export const ActivityLogEntityTypeSchema = z.enum([
   "organization",
   "contact",
+  "draft",
   "lead",
   "task",
   "approval",
