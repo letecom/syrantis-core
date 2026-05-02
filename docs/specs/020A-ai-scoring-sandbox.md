@@ -87,6 +87,8 @@ Handler flow:
 
 On provider or parse errors, the handler updates `ai_runs.status = error`, logs `ai_run.failed`, and rethrows so the job is marked failed.
 
+Failure audit is durable: if scoring fails, the handler writes the final `ai_runs.status = error` row in a separate tenant-scoped `withWorkspaceDb` transaction before rethrowing. This preserves the audit even though the worker transaction rolls back and the background job is marked `failed`.
+
 ## Provider Boundary
 
 OpenRouter is encapsulated in `apps/api/src/services/ai/openrouter-provider.ts`.
@@ -108,6 +110,8 @@ The prompt uses only redacted lead signals:
 - organization sector/status
 
 Emails and phone numbers are masked by regex. Contact names, organization names, addresses, websites, emails, and phone numbers are not included in prompt snapshots.
+
+Provider output parsing accepts strict JSON, JSON fenced in Markdown, and a single JSON object embedded in surrounding text. Invalid JSON and invalid schema remain hard failures and do not create `lead_scores`.
 
 ## Rollback
 

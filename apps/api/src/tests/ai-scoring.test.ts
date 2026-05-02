@@ -9,7 +9,11 @@ import { SESSION_COOKIE_NAME } from "../lib/session-token.js";
 import { createActivityLog } from "../repositories/activity-logs.js";
 import { requestLeadScore } from "../repositories/lead-scoring.js";
 import { createLeadRoutes } from "../routes/leads.js";
-import { buildLeadScoringPrompt } from "../services/ai/lead-scoring-prompt.js";
+import {
+  AiOutputParseError,
+  buildLeadScoringPrompt,
+  parseLeadScoringOutput,
+} from "../services/ai/lead-scoring-prompt.js";
 import { redactLeadForScoring } from "../services/ai/pii-redaction.js";
 import type { AiProvider } from "../services/ai/providers.js";
 import { handleScoreLeadJob } from "../services/score-lead-job-handler.js";
@@ -36,6 +40,7 @@ const leadId = "00000000-0000-4000-8000-000000003001";
 const otherWorkspaceLeadId = "00000000-0000-4000-8000-000000003002";
 const jobId = "00000000-0000-4000-8000-000000003101";
 const aiRunId = "00000000-0000-4000-8000-000000003201";
+const failedAiRunId = "00000000-0000-4000-8000-000000003202";
 const leadScoreId = "00000000-0000-4000-8000-000000003301";
 
 const leadOutput: LeadOutput = {
@@ -195,6 +200,41 @@ function validScoreJson(overrides: Record<string, unknown> = {}) {
   });
 }
 
+describe("lead scoring output parser", () => {
+  it("accepts strict JSON", () => {
+    expect(parseLeadScoringOutput(validScoreJson())).toMatchObject({
+      score: 82,
+      qualification: "hot",
+    });
+  });
+
+  it("accepts JSON inside a json code fence", () => {
+    expect(parseLeadScoringOutput(`\`\`\`json\n${validScoreJson()}\n\`\`\``)).toMatchObject({
+      score: 82,
+      qualification: "hot",
+    });
+  });
+
+  it("accepts one JSON object surrounded by text", () => {
+    expect(parseLeadScoringOutput(`Here is the score:\n${validScoreJson()}\nDone.`)).toMatchObject({
+      score: 82,
+      qualification: "hot",
+    });
+  });
+
+  it("rejects invalid schema with AI_OUTPUT_INVALID_SCHEMA and safe preview", () => {
+    expect(() => parseLeadScoringOutput(validScoreJson({ score: 150 }))).toThrow(AiOutputParseError);
+
+    try {
+      parseLeadScoringOutput(validScoreJson({ score: 150 }));
+    } catch (error) {
+      expect(error).toBeInstanceOf(AiOutputParseError);
+      expect((error as AiOutputParseError).code).toBe("AI_OUTPUT_INVALID_SCHEMA");
+      expect((error as AiOutputParseError).rawPreview.length).toBeLessThanOrEqual(1000);
+    }
+  });
+});
+
 describe("AI lead scoring redaction", () => {
   it("removes raw email and phone from redacted input and prompt", () => {
     const redacted = redactLeadForScoring({
@@ -351,6 +391,7 @@ describe("lead score request repository", () => {
 describe("score_lead worker handler", () => {
   beforeEach(() => {
     vi.mocked(createActivityLog).mockClear();
+    mockDb.tx = undefined;
   });
 
   it("creates an ai_run and lead_score for valid provider JSON without mutating leads", async () => {
@@ -428,6 +469,17 @@ describe("score_lead worker handler", () => {
         },
       ],
     });
+    const durableAudit = createMockTx({
+      selectResponses: [],
+      insertResponses: [
+        {
+          id: failedAiRunId,
+          workspaceId: testUser.workspaceId,
+          status: "error",
+        },
+      ],
+    });
+    mockDb.tx = durableAudit.tx;
 
     await expect(
       handleScoreLeadJob({
@@ -441,10 +493,17 @@ describe("score_lead worker handler", () => {
     ).rejects.toThrow("AI_OUTPUT_INVALID_JSON");
 
     expect(harness.insertedValues).toHaveLength(1);
-    expect(harness.updates[0]).toMatchObject({
+    expect(harness.updates).toEqual([]);
+    expect(durableAudit.insertedValues).toHaveLength(1);
+    expect(durableAudit.insertedValues[0]).toMatchObject({
       status: "error",
       errorMessage: "AI_OUTPUT_INVALID_JSON",
+      outputText: "not json",
+      outputJson: { rawPreview: "not json" },
     });
+    expect(harness.insertedValues).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ score: expect.any(Number) })]),
+    );
   });
 
   it("marks ai_run error and does not create lead_score for out-of-range score", async () => {
@@ -458,6 +517,17 @@ describe("score_lead worker handler", () => {
         },
       ],
     });
+    const durableAudit = createMockTx({
+      selectResponses: [],
+      insertResponses: [
+        {
+          id: failedAiRunId,
+          workspaceId: testUser.workspaceId,
+          status: "error",
+        },
+      ],
+    });
+    mockDb.tx = durableAudit.tx;
 
     await expect(
       handleScoreLeadJob({
@@ -471,7 +541,9 @@ describe("score_lead worker handler", () => {
     ).rejects.toThrow("AI_OUTPUT_INVALID_SCHEMA");
 
     expect(harness.insertedValues).toHaveLength(1);
-    expect(harness.updates[0]).toMatchObject({
+    expect(harness.updates).toEqual([]);
+    expect(durableAudit.insertedValues).toHaveLength(1);
+    expect(durableAudit.insertedValues[0]).toMatchObject({
       status: "error",
       errorMessage: "AI_OUTPUT_INVALID_SCHEMA",
     });

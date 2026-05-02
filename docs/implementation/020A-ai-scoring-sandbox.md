@@ -12,6 +12,7 @@ Implemented asynchronous lead scoring through a `score_lead` background job. The
 - API route `POST /api/leads/:id/score` enqueues a pending job.
 - Worker dispatcher now handles `score_lead`.
 - AI modules include PII redaction, versioned prompt, provider interface, and OpenRouter provider.
+- 020A-FIX preserves `ai_runs.status = error` in a separate tenant-scoped transaction when provider output fails.
 
 ## Audit Decision
 
@@ -27,6 +28,7 @@ The migration adds only compatible columns needed for job audit and prompt/outpu
 - No OpenRouter call occurs in routes.
 - No mutation is made to `leads`.
 - Prompt snapshots store redacted data only.
+- Invalid provider output never creates `lead_scores`.
 - Activity logs omit prompt content, raw provider output, email, phone, raw lead content, and secrets.
 - `syrantis_worker` receives no direct grants to `ai_runs` or `lead_scores`.
 
@@ -37,6 +39,20 @@ The migration adds only compatible columns needed for job audit and prompt/outpu
 Default model: `openai/gpt-4o-mini`.
 
 Override with `AI_MODEL`.
+
+The provider request includes `response_format: { type: "json_object" }` to bias compatible OpenRouter models toward JSON output. There is still no SDK dependency and no retry logic.
+
+## JSON Recovery And Failure Audit
+
+`parseLeadScoringOutput` accepts:
+
+- strict JSON
+- Markdown fenced JSON
+- surrounding text with exactly one extractible JSON object
+
+It rejects invalid JSON as `AI_OUTPUT_INVALID_JSON` and invalid schema as `AI_OUTPUT_INVALID_SCHEMA`.
+
+On failure, the handler stores a compact, redacted output preview of at most 1000 characters in `ai_runs.output_text` and `ai_runs.output_json.rawPreview` when provider content exists. This audit write uses `withWorkspaceDb(job.workspaceId)` and remains committed even when the worker transaction rethrows and the job becomes `failed`.
 
 ## Production Validation Plan
 
