@@ -1,26 +1,33 @@
 import { z } from "zod";
 
-export const ApprovalStatusSchema = z.enum(["pending", "approved", "rejected", "expired", "revoked"]);
+export const ApprovalStatusSchema = z.enum([
+  "pending",
+  "approved",
+  "rejected",
+  "expired",
+  "revoked",
+]);
 
 export const CreateApprovalInputSchema = z.object({
   taskId: z.string().uuid(),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.unknown()).optional(),
 });
 
 export const RejectApprovalInputSchema = z.object({
-  reason: z.string().max(500).optional()
+  reason: z.string().max(500).optional(),
 });
 
 export const ApprovalListQuerySchema = z.object({
   taskId: z.string().uuid().optional(),
   status: ApprovalStatusSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
-  offset: z.coerce.number().int().min(0).default(0)
+  offset: z.coerce.number().int().min(0).default(0),
 });
 
 export const ApprovalOutputSchema = z.object({
   id: z.string().uuid(),
   workspaceId: z.string().uuid(),
+  draftId: z.string().uuid().nullable(),
   taskId: z.string().uuid().nullable(),
   status: ApprovalStatusSchema,
   approvedBy: z.string().uuid().nullable(),
@@ -30,17 +37,17 @@ export const ApprovalOutputSchema = z.object({
   rejectionReason: z.string().nullable(),
   metadata: z.record(z.unknown()),
   createdAt: z.string(),
-  updatedAt: z.string()
+  updatedAt: z.string(),
 });
 
 export const ApprovalSuccessSchema = z.object({
   success: z.literal(true),
-  data: ApprovalOutputSchema
+  data: ApprovalOutputSchema,
 });
 
 export const ApprovalListSuccessSchema = z.object({
   success: z.literal(true),
-  data: z.array(ApprovalOutputSchema)
+  data: z.array(ApprovalOutputSchema),
 });
 
 export type ApprovalStatus = z.infer<typeof ApprovalStatusSchema>;

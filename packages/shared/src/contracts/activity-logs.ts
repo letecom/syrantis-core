@@ -9,6 +9,9 @@ export const ActivityLogActionSchema = z.enum([
   "draft.created",
   "draft.updated",
   "draft.archived",
+  "draft.approval_requested",
+  "draft.approved",
+  "draft.rejected",
   "lead.created",
   "lead.updated",
   "task.created",
@@ -24,7 +27,7 @@ export const ActivityLogActionSchema = z.enum([
   "external_object_mapping.archived",
   "workspace_api_key.created",
   "workspace_api_key.revoked",
-  "public_lead.received"
+  "public_lead.received",
 ]);
 
 export const ActivityLogEntityTypeSchema = z.enum([
@@ -36,7 +39,7 @@ export const ActivityLogEntityTypeSchema = z.enum([
   "approval",
   "external_connection",
   "external_object_mapping",
-  "workspace_api_key"
+  "workspace_api_key",
 ]);
 
 export const ActivityLogQuerySchema = z.object({
@@ -44,7 +47,7 @@ export const ActivityLogQuerySchema = z.object({
   entityId: z.string().uuid().optional(),
   action: ActivityLogActionSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
-  offset: z.coerce.number().int().min(0).default(0)
+  offset: z.coerce.number().int().min(0).default(0),
 });
 
 export const ActivityLogOutputSchema = z.object({
@@ -55,12 +58,12 @@ export const ActivityLogOutputSchema = z.object({
   entityType: z.string(),
   entityId: z.string().uuid().nullable(),
   metadata: z.record(z.unknown()),
-  createdAt: z.string()
+  createdAt: z.string(),
 });
 
 export const ActivityLogListSuccessSchema = z.object({
   success: z.literal(true),
-  data: z.array(ActivityLogOutputSchema)
+  data: z.array(ActivityLogOutputSchema),
 });
 
 export type ActivityLogAction = z.infer<typeof ActivityLogActionSchema>;

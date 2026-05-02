@@ -1,17 +1,29 @@
 import { and, desc, eq, ne, type SQL } from "drizzle-orm";
 
-import { contacts, drafts, leads } from "@syrantis/db";
-import type { CreateDraftInput, DraftListQuery, UpdateDraftInput } from "@syrantis/shared";
+import { approvals, contacts, drafts, leads } from "@syrantis/db";
+import type {
+  CreateDraftInput,
+  DraftListQuery,
+  RequestDraftApprovalInput,
+  UpdateDraftInput,
+} from "@syrantis/shared";
 
 import { withWorkspaceDb, type WorkspaceDbTransaction } from "../lib/db.js";
 import { createActivityLog } from "./activity-logs.js";
 
 export type DraftRow = typeof drafts.$inferSelect;
+export type DraftApprovalRow = typeof approvals.$inferSelect;
 
 export type DraftMutationResult =
   | { result: "ok"; draft: DraftRow }
   | { result: "not_found" }
-  | { result: "invalid_relation" };
+  | { result: "invalid_relation" }
+  | { result: "conflict" };
+
+export type DraftApprovalRequestResult =
+  | { result: "ok"; draft: DraftRow; approval: DraftApprovalRow }
+  | { result: "not_found" }
+  | { result: "conflict" };
 
 export type ListDraftsRepositoryInput = {
   workspaceId: string;
@@ -43,6 +55,13 @@ export type ArchiveDraftRepositoryInput = {
   id: string;
 };
 
+export type RequestDraftApprovalRepositoryInput = {
+  workspaceId: string;
+  actorUserId: string;
+  id: string;
+  data: RequestDraftApprovalInput;
+};
+
 function resolveLimit(limit: number | undefined): number {
   return Math.min(Math.max(limit ?? 50, 1), 100);
 }
@@ -67,7 +86,7 @@ async function validateDraftRelationships(
     workspaceId: string;
     leadId: string;
     contactId?: string | undefined;
-  }
+  },
 ): Promise<Exclude<DraftMutationResult, { result: "ok" }> | { result: "ok" }> {
   const [lead] = await tx
     .select({ id: leads.id, contactId: leads.contactId })
@@ -129,7 +148,7 @@ export async function createDraft(input: CreateDraftRepositoryInput): Promise<Dr
     const relationshipValidation = await validateDraftRelationships(tx, {
       workspaceId: input.workspaceId,
       leadId: input.data.leadId,
-      contactId: input.data.contactId
+      contactId: input.data.contactId,
     });
 
     if (relationshipValidation.result !== "ok") {
@@ -145,7 +164,7 @@ export async function createDraft(input: CreateDraftRepositoryInput): Promise<Dr
       ...(input.data.subject !== undefined ? { subject: input.data.subject } : {}),
       ...(input.data.textBody !== undefined ? { textBody: input.data.textBody } : {}),
       ...(input.data.htmlBody !== undefined ? { htmlBody: input.data.htmlBody } : {}),
-      ...(input.data.metadata !== undefined ? { metadataJson: input.data.metadata } : {})
+      ...(input.data.metadata !== undefined ? { metadataJson: input.data.metadata } : {}),
     };
 
     const [draft] = await tx.insert(drafts).values(values).returning();
@@ -164,8 +183,8 @@ export async function createDraft(input: CreateDraftRepositoryInput): Promise<Dr
         status: draft.status,
         channel: draft.channel,
         leadId: draft.leadId,
-        contactId: draft.contactId
-      }
+        contactId: draft.contactId,
+      },
     });
 
     return { result: "ok", draft };
@@ -178,7 +197,7 @@ export async function updateDraft(input: UpdateDraftRepositoryInput): Promise<Dr
       ...(input.data.subject !== undefined ? { subject: input.data.subject } : {}),
       ...(input.data.textBody !== undefined ? { textBody: input.data.textBody } : {}),
       ...(input.data.htmlBody !== undefined ? { htmlBody: input.data.htmlBody } : {}),
-      ...(input.data.metadata !== undefined ? { metadataJson: input.data.metadata } : {})
+      ...(input.data.metadata !== undefined ? { metadataJson: input.data.metadata } : {}),
     };
 
     const [draft] = await tx
@@ -200,15 +219,17 @@ export async function updateDraft(input: UpdateDraftRepositoryInput): Promise<Dr
       metadataJson: {
         status: draft.status,
         channel: draft.channel,
-        leadId: draft.leadId
-      }
+        leadId: draft.leadId,
+      },
     });
 
     return { result: "ok", draft };
   });
 }
 
-export async function archiveDraft(input: ArchiveDraftRepositoryInput): Promise<DraftMutationResult> {
+export async function archiveDraft(
+  input: ArchiveDraftRepositoryInput,
+): Promise<DraftMutationResult> {
   return withWorkspaceDb(input.workspaceId, async (tx) => {
     const [draft] = await tx
       .update(drafts)
@@ -229,10 +250,107 @@ export async function archiveDraft(input: ArchiveDraftRepositoryInput): Promise<
       metadataJson: {
         status: draft.status,
         channel: draft.channel,
-        leadId: draft.leadId
-      }
+        leadId: draft.leadId,
+      },
     });
 
     return { result: "ok", draft };
+  });
+}
+
+export async function requestDraftApproval(
+  input: RequestDraftApprovalRepositoryInput,
+): Promise<DraftApprovalRequestResult> {
+  return withWorkspaceDb(input.workspaceId, async (tx) => {
+    const [existingDraft] = await tx
+      .select()
+      .from(drafts)
+      .where(and(...visibleDraftFilters({ workspaceId: input.workspaceId, id: input.id })))
+      .limit(1);
+
+    if (!existingDraft) {
+      return { result: "not_found" };
+    }
+
+    if (existingDraft.status !== "draft") {
+      return { result: "conflict" };
+    }
+
+    const [pendingApproval] = await tx
+      .select({ id: approvals.id })
+      .from(approvals)
+      .where(
+        and(
+          eq(approvals.workspaceId, input.workspaceId),
+          eq(approvals.draftId, input.id),
+          eq(approvals.status, "pending"),
+        ),
+      )
+      .limit(1);
+
+    if (pendingApproval) {
+      return { result: "conflict" };
+    }
+
+    const [draft] = await tx
+      .update(drafts)
+      .set({ status: "pending_approval" })
+      .where(
+        and(
+          eq(drafts.workspaceId, input.workspaceId),
+          eq(drafts.id, input.id),
+          eq(drafts.status, "draft"),
+        ),
+      )
+      .returning();
+
+    if (!draft) {
+      return { result: "conflict" };
+    }
+
+    const [approval] = await tx
+      .insert(approvals)
+      .values({
+        workspaceId: input.workspaceId,
+        draftId: draft.id,
+        taskId: draft.taskId,
+        entityType: "draft",
+        entityId: draft.id,
+        approvalType: "manual",
+        status: "pending",
+        requestedBy: input.actorUserId,
+        metadataJson: input.data.note ? { note: input.data.note } : {},
+      })
+      .returning();
+
+    if (!approval) {
+      throw new Error("Failed to create draft approval.");
+    }
+
+    await createActivityLog(tx, {
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId,
+      action: "draft.approval_requested",
+      entityType: "draft",
+      entityId: draft.id,
+      metadataJson: {
+        status: draft.status,
+        approvalId: approval.id,
+      },
+    });
+
+    await createActivityLog(tx, {
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId,
+      action: "approval.created",
+      entityType: "approval",
+      entityId: approval.id,
+      metadataJson: {
+        draftId: draft.id,
+        status: approval.status,
+      },
+    });
+
+    return { result: "ok", draft, approval };
   });
 }
