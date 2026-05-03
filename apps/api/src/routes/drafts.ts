@@ -8,6 +8,7 @@ import {
   DraftApprovalReadinessSuccessSchema,
   DraftApprovalRequestSuccessSchema,
   DraftSendReadinessSuccessSchema,
+  DraftSendStatusSuccessSchema,
   DraftListQuerySchema,
   DraftListSuccessSchema,
   DraftSuccessSchema,
@@ -35,6 +36,11 @@ import {
   type DraftSendReadinessService,
   type DraftSendReadinessServiceResult,
 } from "../services/draft-send-readiness.js";
+import {
+  createProductionDraftSendStatusService,
+  type DraftSendStatusService,
+  type DraftSendStatusServiceResult,
+} from "../services/draft-send-status.js";
 import {
   createProductionDraftService,
   type DraftApprovalRequestServiceResult,
@@ -114,6 +120,7 @@ export type DraftRoutesDependencies = {
   draftAiAuditService?: DraftAiAuditService;
   draftApprovalReadinessService?: DraftApprovalReadinessService;
   draftSendReadinessService?: DraftSendReadinessService;
+  draftSendStatusService?: DraftSendStatusService;
   emailSendService?: EmailSendService;
 };
 
@@ -244,6 +251,19 @@ function sendReadinessResponse(c: Context<AppEnv>, result: DraftSendReadinessSer
   );
 }
 
+function sendStatusResponse(c: Context<AppEnv>, result: DraftSendStatusServiceResult) {
+  if (result.result === "not_found") {
+    return c.json(draftNotFoundResponse, 404);
+  }
+
+  return c.json(
+    DraftSendStatusSuccessSchema.parse({
+      success: true,
+      data: result.status,
+    }),
+  );
+}
+
 export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
   const routes = new Hono<AppEnv>();
   const guard = dependencies.authService
@@ -257,6 +277,8 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
     createProductionDraftApprovalReadinessService();
   const draftSendReadinessService =
     dependencies.draftSendReadinessService ?? createProductionDraftSendReadinessService();
+  const draftSendStatusService =
+    dependencies.draftSendStatusService ?? createProductionDraftSendStatusService();
   const emailSendService = dependencies.emailSendService ?? createProductionEmailSendService();
 
   routes.use("*", guard);
@@ -346,6 +368,17 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
       draftId,
     );
     return sendReadinessResponse(c, result);
+  });
+
+  routes.get("/:id/send-status", async (c) => {
+    const draftId = parseDraftId(c.req.param("id"));
+
+    if (!draftId || hasClientWorkspaceId(c.req.query())) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const result = await draftSendStatusService.getDraftSendStatus(getWorkspaceId(c), draftId);
+    return sendStatusResponse(c, result);
   });
 
   routes.get("/:id", async (c) => {

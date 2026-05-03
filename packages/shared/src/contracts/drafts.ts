@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { ApprovalOutputSchema } from "./approvals.js";
+import { EmailSendStatusSchema } from "./email-sends.js";
 
 export const DraftStatusSchema = z.enum([
   "draft",
@@ -234,6 +235,26 @@ export const DraftSendReadinessSuccessSchema = z.object({
   data: DraftSendReadinessOutputSchema,
 });
 
+export const DraftSendStatusLatestSendSchema = z.object({
+  status: EmailSendStatusSchema,
+  requestedAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  sentAt: z.string().datetime().nullable(),
+  failedAt: z.string().datetime().nullable(),
+  errorCode: z.string().nullable(),
+});
+
+export const DraftSendStatusOutputSchema = z.object({
+  draftId: z.string().uuid(),
+  hasSend: z.boolean(),
+  latestSend: DraftSendStatusLatestSendSchema.nullable(),
+});
+
+export const DraftSendStatusSuccessSchema = z.object({
+  success: z.literal(true),
+  data: DraftSendStatusOutputSchema,
+});
+
 export const DraftApprovalRequestSuccessSchema = z.object({
   success: z.literal(true),
   data: z.object({
@@ -267,4 +288,7 @@ export type DraftSendReadinessCheckCode = z.infer<typeof DraftSendReadinessCheck
 export type DraftSendReadinessCheck = z.infer<typeof DraftSendReadinessCheckSchema>;
 export type DraftSendReadinessOutput = z.infer<typeof DraftSendReadinessOutputSchema>;
 export type DraftSendReadinessSuccess = z.infer<typeof DraftSendReadinessSuccessSchema>;
+export type DraftSendStatusLatestSend = z.infer<typeof DraftSendStatusLatestSendSchema>;
+export type DraftSendStatusOutput = z.infer<typeof DraftSendStatusOutputSchema>;
+export type DraftSendStatusSuccess = z.infer<typeof DraftSendStatusSuccessSchema>;
 export type DraftApprovalRequestSuccess = z.infer<typeof DraftApprovalRequestSuccessSchema>;
