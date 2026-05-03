@@ -7,6 +7,8 @@ import {
   DraftAiAuditSuccessSchema,
   DraftApprovalReadinessSuccessSchema,
   DraftApprovalRequestSuccessSchema,
+  DraftSendAttemptsQuerySchema,
+  DraftSendAttemptsSuccessSchema,
   DraftSendReadinessSuccessSchema,
   DraftSendStatusSuccessSchema,
   DraftListQuerySchema,
@@ -41,6 +43,11 @@ import {
   type DraftSendCancellationService,
   type DraftSendCancellationServiceResult,
 } from "../services/draft-send-cancellation.js";
+import {
+  createProductionDraftSendHistoryService,
+  type DraftSendHistoryService,
+  type DraftSendHistoryServiceResult,
+} from "../services/draft-send-history.js";
 import {
   createProductionDraftSendStatusService,
   type DraftSendStatusService,
@@ -140,6 +147,7 @@ export type DraftRoutesDependencies = {
   draftApprovalReadinessService?: DraftApprovalReadinessService;
   draftSendReadinessService?: DraftSendReadinessService;
   draftSendStatusService?: DraftSendStatusService;
+  draftSendHistoryService?: DraftSendHistoryService;
   draftSendCancellationService?: DraftSendCancellationService;
   emailSendService?: EmailSendService;
 };
@@ -284,6 +292,19 @@ function sendStatusResponse(c: Context<AppEnv>, result: DraftSendStatusServiceRe
   );
 }
 
+function sendHistoryResponse(c: Context<AppEnv>, result: DraftSendHistoryServiceResult) {
+  if (result.result === "not_found") {
+    return c.json(draftNotFoundResponse, 404);
+  }
+
+  return c.json(
+    DraftSendAttemptsSuccessSchema.parse({
+      success: true,
+      data: result.history,
+    }),
+  );
+}
+
 function cancelSendResponse(c: Context<AppEnv>, result: DraftSendCancellationServiceResult) {
   if (result.result === "not_found") {
     return c.json(draftNotFoundResponse, 404);
@@ -316,6 +337,8 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
     dependencies.draftSendReadinessService ?? createProductionDraftSendReadinessService();
   const draftSendStatusService =
     dependencies.draftSendStatusService ?? createProductionDraftSendStatusService();
+  const draftSendHistoryService =
+    dependencies.draftSendHistoryService ?? createProductionDraftSendHistoryService();
   const draftSendCancellationService =
     dependencies.draftSendCancellationService ??
     createProductionDraftSendCancellationService();
@@ -419,6 +442,28 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
 
     const result = await draftSendStatusService.getDraftSendStatus(getWorkspaceId(c), draftId);
     return sendStatusResponse(c, result);
+  });
+
+  routes.get("/:id/send-attempts", async (c) => {
+    const draftId = parseDraftId(c.req.param("id"));
+    const query = c.req.query();
+
+    if (!draftId || hasClientWorkspaceId(query)) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const parsedQuery = DraftSendAttemptsQuerySchema.safeParse(query);
+
+    if (!parsedQuery.success) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const result = await draftSendHistoryService.getDraftSendHistory(
+      getWorkspaceId(c),
+      draftId,
+      parsedQuery.data,
+    );
+    return sendHistoryResponse(c, result);
   });
 
   routes.post("/:id/cancel-send", async (c) => {

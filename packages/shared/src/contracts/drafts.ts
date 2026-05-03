@@ -255,6 +255,38 @@ export const DraftSendStatusSuccessSchema = z.object({
   data: DraftSendStatusOutputSchema,
 });
 
+export const DraftSendAttemptsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+export const DraftSendAttemptOutputSchema = z.object({
+  attemptNumber: z.number().int().min(1),
+  status: EmailSendStatusSchema,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  sentAt: z.string().datetime().nullable(),
+  failedAt: z.string().datetime().nullable(),
+  errorCode: z.string().nullable(),
+});
+
+export const DraftSendAttemptsOutputSchema = z.object({
+  draftId: z.string().uuid(),
+  attempts: z.array(DraftSendAttemptOutputSchema),
+  pagination: z.object({
+    page: z.number().int().min(1),
+    pageSize: z.number().int().min(1).max(50),
+    totalItems: z.number().int().min(0),
+    totalPages: z.number().int().min(0),
+    hasMore: z.boolean(),
+  }),
+});
+
+export const DraftSendAttemptsSuccessSchema = z.object({
+  success: z.literal(true),
+  data: DraftSendAttemptsOutputSchema,
+});
+
 export const DraftSendCancellationOutputSchema = z.object({
   draftId: z.string().uuid(),
   emailSendId: z.string().uuid(),
@@ -305,6 +337,10 @@ export type DraftSendReadinessSuccess = z.infer<typeof DraftSendReadinessSuccess
 export type DraftSendStatusLatestSend = z.infer<typeof DraftSendStatusLatestSendSchema>;
 export type DraftSendStatusOutput = z.infer<typeof DraftSendStatusOutputSchema>;
 export type DraftSendStatusSuccess = z.infer<typeof DraftSendStatusSuccessSchema>;
+export type DraftSendAttemptsQuery = z.infer<typeof DraftSendAttemptsQuerySchema>;
+export type DraftSendAttemptOutput = z.infer<typeof DraftSendAttemptOutputSchema>;
+export type DraftSendAttemptsOutput = z.infer<typeof DraftSendAttemptsOutputSchema>;
+export type DraftSendAttemptsSuccess = z.infer<typeof DraftSendAttemptsSuccessSchema>;
 export type DraftSendCancellationOutput = z.infer<typeof DraftSendCancellationOutputSchema>;
 export type DraftSendCancellationSuccess = z.infer<
   typeof DraftSendCancellationSuccessSchema
