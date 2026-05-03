@@ -255,6 +255,20 @@ export const DraftSendStatusSuccessSchema = z.object({
   data: DraftSendStatusOutputSchema,
 });
 
+export const DraftSendCancellationOutputSchema = z.object({
+  draftId: z.string().uuid(),
+  emailSendId: z.string().uuid(),
+  previousStatus: z.enum(["pending", "cancelled"]),
+  currentStatus: z.literal("cancelled"),
+  cancelled: z.boolean(),
+  cancelledAt: z.string().datetime().nullable(),
+});
+
+export const DraftSendCancellationSuccessSchema = z.object({
+  success: z.literal(true),
+  data: DraftSendCancellationOutputSchema,
+});
+
 export const DraftApprovalRequestSuccessSchema = z.object({
   success: z.literal(true),
   data: z.object({
@@ -291,4 +305,8 @@ export type DraftSendReadinessSuccess = z.infer<typeof DraftSendReadinessSuccess
 export type DraftSendStatusLatestSend = z.infer<typeof DraftSendStatusLatestSendSchema>;
 export type DraftSendStatusOutput = z.infer<typeof DraftSendStatusOutputSchema>;
 export type DraftSendStatusSuccess = z.infer<typeof DraftSendStatusSuccessSchema>;
+export type DraftSendCancellationOutput = z.infer<typeof DraftSendCancellationOutputSchema>;
+export type DraftSendCancellationSuccess = z.infer<
+  typeof DraftSendCancellationSuccessSchema
+>;
 export type DraftApprovalRequestSuccess = z.infer<typeof DraftApprovalRequestSuccessSchema>;
