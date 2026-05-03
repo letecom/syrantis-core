@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  type DraftSendReadinessOutput,
   EmailSendOutputSchema,
   type DraftOutput,
   type EmailSendOutput,
@@ -24,6 +25,10 @@ import type {
   EmailSendRequestServiceResult,
   EmailSendService,
 } from "../services/email-sends.js";
+import type {
+  DraftSendReadinessService,
+  DraftSendReadinessServiceResult,
+} from "../services/draft-send-readiness.js";
 import { createFakeAuthService, testUser, validSessionToken } from "./mocks/auth.js";
 import { otherWorkspaceId } from "./mocks/tasks.js";
 
@@ -195,9 +200,71 @@ function createFakeEmailSendService(): EmailSendService {
   };
 }
 
+function readySendReadiness(draftId: string): DraftSendReadinessOutput {
+  return {
+    draftId,
+    status: "ready",
+    canRequestSend: true,
+    blockerCount: 0,
+    warningCount: 0,
+    checks: [],
+    context: {
+      draftStatus: "approved",
+      channel: "email",
+      hasSubject: true,
+      hasBody: true,
+      hasContact: true,
+      contactHasEmail: true,
+      contactOptOut: false,
+      hasApprovedApproval: true,
+      latestEmailSendStatus: null,
+    },
+  };
+}
+
+function blockedSendReadiness(draftId: string): DraftSendReadinessOutput {
+  return {
+    ...readySendReadiness(draftId),
+    status: "blocked",
+    canRequestSend: false,
+    blockerCount: 1,
+    context: {
+      ...readySendReadiness(draftId).context,
+      draftStatus: "draft",
+    },
+    checks: [
+      {
+        code: "DRAFT_NOT_APPROVED",
+        severity: "blocker",
+        source: "draft",
+        message: "Draft must be approved before send can be requested.",
+      },
+    ],
+  };
+}
+
+function createFakeDraftSendReadinessService(): DraftSendReadinessService {
+  return {
+    computeDraftSendReadiness: vi.fn(
+      async (_workspaceId: string, draftId: string): Promise<DraftSendReadinessServiceResult> => {
+        if ([archivedDraftId, otherWorkspaceDraftId, missingDraftId].includes(draftId)) {
+          return { result: "not_found" };
+        }
+
+        if ([draftStatusDraftId, pendingApprovalDraftId, rejectedDraftId].includes(draftId)) {
+          return { result: "ok", readiness: blockedSendReadiness(draftId) };
+        }
+
+        return { result: "ok", readiness: readySendReadiness(draftId) };
+      },
+    ),
+  };
+}
+
 function createDraftRequestSendApp(
   emailSendService: EmailSendService,
   authService: AuthService = createFakeAuthService(),
+  draftSendReadinessService: DraftSendReadinessService = createFakeDraftSendReadinessService(),
 ): Hono {
   const app = new Hono();
 
@@ -206,6 +273,7 @@ function createDraftRequestSendApp(
     createDraftRoutes({
       authService,
       draftService: createUnusedDraftService(),
+      draftSendReadinessService,
       emailSendService,
     }),
   );
@@ -343,7 +411,12 @@ describe("draft request-send route", () => {
   it.each([draftStatusDraftId, pendingApprovalDraftId, rejectedDraftId])(
     "returns 409 for request-send when draft is not approved",
     async (draftId) => {
-      const app = createDraftRequestSendApp(createFakeEmailSendService());
+      mockTx = createMockTx();
+      mockDb.tx = mockTx;
+      vi.mocked(createActivityLog).mockClear();
+      const emailSendService = createFakeEmailSendService();
+      const app = createDraftRequestSendApp(emailSendService);
+      const expectedReadiness = blockedSendReadiness(draftId);
 
       const response = await app.request(`/api/drafts/${draftId}/request-send`, {
         method: "POST",
@@ -354,9 +427,16 @@ describe("draft request-send route", () => {
       expect(response.status).toBe(409);
       expect(await response.json()).toEqual({
         success: false,
-        error: "Draft cannot request email send.",
-        code: "EMAIL_SEND_CONFLICT",
+        error: "Draft send readiness blocked.",
+        code: "SEND_READINESS_BLOCKED",
+        details: {
+          readiness: expectedReadiness,
+          checks: expectedReadiness.checks,
+        },
       });
+      expect(emailSendService.requestSendFromDraft).not.toHaveBeenCalled();
+      expect(mockTx.state.insertValues).toEqual([]);
+      expect(createActivityLog).not.toHaveBeenCalled();
     },
   );
 
