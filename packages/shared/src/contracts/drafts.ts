@@ -180,6 +180,60 @@ export const DraftApprovalReadinessSuccessSchema = z.object({
   data: DraftApprovalReadinessOutputSchema,
 });
 
+export const DraftSendReadinessCheckCodeSchema = z.enum([
+  "DRAFT_NOT_APPROVED",
+  "UNSUPPORTED_CHANNEL",
+  "EMPTY_SUBJECT",
+  "EMPTY_BODY",
+  "NO_CONTACT",
+  "INVALID_CONTACT",
+  "CONTACT_NO_EMAIL",
+  "CONTACT_OPTED_OUT",
+  "APPROVAL_NOT_CONFIRMED",
+  "EMAIL_SEND_ALREADY_PENDING",
+  "EMAIL_SEND_ALREADY_QUEUED",
+  "EMAIL_ALREADY_SENT",
+  "PREVIOUS_SEND_FAILED",
+  "PREVIOUS_SEND_CANCELLED",
+  "NO_HTML_BODY",
+  "NO_TEXT_BODY",
+]);
+
+export const DraftSendReadinessCheckSchema = z.object({
+  code: DraftSendReadinessCheckCodeSchema,
+  severity: z.enum(["blocker", "warning"]),
+  source: z.enum(["draft", "contact", "approval", "email_send"]),
+  message: z.string(),
+  field: z.string().optional(),
+});
+
+export const DraftSendReadinessOutputSchema = z.object({
+  draftId: z.string().uuid(),
+  status: z.enum(["ready", "ready_with_warnings", "blocked"]),
+  canRequestSend: z.boolean(),
+  blockerCount: z.number().int().min(0),
+  warningCount: z.number().int().min(0),
+  checks: z.array(DraftSendReadinessCheckSchema),
+  context: z.object({
+    draftStatus: z.string(),
+    channel: z.string(),
+    hasSubject: z.boolean(),
+    hasBody: z.boolean(),
+    hasContact: z.boolean(),
+    contactHasEmail: z.boolean().nullable(),
+    contactOptOut: z.boolean().nullable(),
+    hasApprovedApproval: z.boolean(),
+    latestEmailSendStatus: z
+      .enum(["pending", "queued", "sent", "failed", "cancelled"])
+      .nullable(),
+  }),
+});
+
+export const DraftSendReadinessSuccessSchema = z.object({
+  success: z.literal(true),
+  data: DraftSendReadinessOutputSchema,
+});
+
 export const DraftApprovalRequestSuccessSchema = z.object({
   success: z.literal(true),
   data: z.object({
@@ -209,4 +263,8 @@ export type DraftApprovalReadinessOutput = z.infer<typeof DraftApprovalReadiness
 export type DraftApprovalReadinessSuccess = z.infer<
   typeof DraftApprovalReadinessSuccessSchema
 >;
+export type DraftSendReadinessCheckCode = z.infer<typeof DraftSendReadinessCheckCodeSchema>;
+export type DraftSendReadinessCheck = z.infer<typeof DraftSendReadinessCheckSchema>;
+export type DraftSendReadinessOutput = z.infer<typeof DraftSendReadinessOutputSchema>;
+export type DraftSendReadinessSuccess = z.infer<typeof DraftSendReadinessSuccessSchema>;
 export type DraftApprovalRequestSuccess = z.infer<typeof DraftApprovalRequestSuccessSchema>;

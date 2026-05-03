@@ -7,6 +7,7 @@ import {
   DraftAiAuditSuccessSchema,
   DraftApprovalReadinessSuccessSchema,
   DraftApprovalRequestSuccessSchema,
+  DraftSendReadinessSuccessSchema,
   DraftListQuerySchema,
   DraftListSuccessSchema,
   DraftSuccessSchema,
@@ -29,6 +30,11 @@ import {
   type DraftApprovalReadinessService,
   type DraftApprovalReadinessServiceResult,
 } from "../services/draft-approval-readiness.js";
+import {
+  createProductionDraftSendReadinessService,
+  type DraftSendReadinessService,
+  type DraftSendReadinessServiceResult,
+} from "../services/draft-send-readiness.js";
 import {
   createProductionDraftService,
   type DraftApprovalRequestServiceResult,
@@ -88,11 +94,26 @@ function draftApprovalReadinessBlockedResponse(
   };
 }
 
+function draftSendReadinessBlockedResponse(
+  result: Extract<DraftSendReadinessServiceResult, { result: "ok" }>,
+) {
+  return {
+    success: false,
+    error: "Draft send readiness blocked.",
+    code: "SEND_READINESS_BLOCKED",
+    details: {
+      readiness: result.readiness,
+      checks: result.readiness.checks,
+    },
+  };
+}
+
 export type DraftRoutesDependencies = {
   authService?: AuthService;
   draftService?: DraftService;
   draftAiAuditService?: DraftAiAuditService;
   draftApprovalReadinessService?: DraftApprovalReadinessService;
+  draftSendReadinessService?: DraftSendReadinessService;
   emailSendService?: EmailSendService;
 };
 
@@ -210,6 +231,19 @@ function approvalReadinessResponse(
   );
 }
 
+function sendReadinessResponse(c: Context<AppEnv>, result: DraftSendReadinessServiceResult) {
+  if (result.result === "not_found") {
+    return c.json(draftNotFoundResponse, 404);
+  }
+
+  return c.json(
+    DraftSendReadinessSuccessSchema.parse({
+      success: true,
+      data: result.readiness,
+    }),
+  );
+}
+
 export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
   const routes = new Hono<AppEnv>();
   const guard = dependencies.authService
@@ -221,6 +255,8 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
   const draftApprovalReadinessService =
     dependencies.draftApprovalReadinessService ??
     createProductionDraftApprovalReadinessService();
+  const draftSendReadinessService =
+    dependencies.draftSendReadinessService ?? createProductionDraftSendReadinessService();
   const emailSendService = dependencies.emailSendService ?? createProductionEmailSendService();
 
   routes.use("*", guard);
@@ -296,6 +332,20 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
       draftId,
     );
     return approvalReadinessResponse(c, result);
+  });
+
+  routes.get("/:id/send-readiness", async (c) => {
+    const draftId = parseDraftId(c.req.param("id"));
+
+    if (!draftId || hasClientWorkspaceId(c.req.query())) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const result = await draftSendReadinessService.computeDraftSendReadiness(
+      getWorkspaceId(c),
+      draftId,
+    );
+    return sendReadinessResponse(c, result);
   });
 
   routes.get("/:id", async (c) => {
@@ -416,6 +466,19 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
 
     if (!parsedBody.success) {
       return c.json(invalidRequestResponse, 400);
+    }
+
+    const readinessResult = await draftSendReadinessService.computeDraftSendReadiness(
+      getWorkspaceId(c),
+      draftId,
+    );
+
+    if (readinessResult.result === "not_found") {
+      return c.json(draftNotFoundResponse, 404);
+    }
+
+    if (!readinessResult.readiness.canRequestSend) {
+      return c.json(draftSendReadinessBlockedResponse(readinessResult), 409);
     }
 
     const result = await emailSendService.requestSendFromDraft(
