@@ -1,4 +1,4 @@
-export type MigrationId = "0015";
+export type MigrationId = "0015" | "0016";
 
 export type ColumnSchemaInvariant = {
   kind: "column";
@@ -18,7 +18,15 @@ export type IndexSchemaInvariant = {
   indexName: string;
 };
 
-export type SchemaInvariant = ColumnSchemaInvariant | IndexSchemaInvariant;
+export type CheckConstraintSchemaInvariant = {
+  kind: "check_constraint";
+  migration: MigrationId;
+  schema: string;
+  table: string;
+  constraintName: string;
+};
+
+export type SchemaInvariant = ColumnSchemaInvariant | IndexSchemaInvariant | CheckConstraintSchemaInvariant;
 
 export type ColumnCatalogRow = {
   dataType: string;
@@ -32,6 +40,7 @@ export type SchemaCatalog = {
     column: string;
   }) => Promise<ColumnCatalogRow | null>;
   hasIndex: (input: { schema: string; table: string; indexName: string }) => Promise<boolean>;
+  hasCheckConstraint: (input: { schema: string; table: string; constraintName: string }) => Promise<boolean>;
 };
 
 export type SchemaInvariantFailureReason = "missing" | "data_type_mismatch" | "nullability_mismatch";
