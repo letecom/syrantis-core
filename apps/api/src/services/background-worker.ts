@@ -12,7 +12,10 @@ import {
   failBackgroundJob,
   type BackgroundJobRow,
 } from "../repositories/background-jobs.js";
-import { handleSendEmailJob } from "./send-email-job-handler.js";
+import {
+  handleSendEmailJob,
+  SendEmailRetryScheduledError,
+} from "./send-email-job-handler.js";
 import { handleGenerateAiDraftJob } from "./generate-ai-draft-job-handler.js";
 import { handleScoreLeadJob } from "./score-lead-job-handler.js";
 
@@ -23,6 +26,7 @@ export type ProcessNextBackgroundJobInput = {
 export type ProcessNextBackgroundJobResult =
   | { status: "idle" }
   | { status: "completed"; job: BackgroundJobRow }
+  | { status: "retried"; job: BackgroundJobRow }
   | { status: "failed"; job: BackgroundJobRow; errorCode: string };
 
 function resolveErrorCode(error: unknown): string {
@@ -193,6 +197,8 @@ export async function processNextBackgroundJob(
       workspaceId: job.workspaceId,
       jobId: job.id,
       payload,
+      attempts: job.attempts,
+      maxAttempts: job.maxAttempts,
     });
 
     const completedJob = await withWorkspaceDb(job.workspaceId, async (tx) => {
@@ -222,6 +228,10 @@ export async function processNextBackgroundJob(
 
     return { status: "completed", job: completedJob };
   } catch (error) {
+    if (error instanceof SendEmailRetryScheduledError) {
+      return { status: "retried", job: error.job };
+    }
+
     const errorCode = resolveErrorCode(error);
     const errorMessage = resolveErrorMessage(error);
 

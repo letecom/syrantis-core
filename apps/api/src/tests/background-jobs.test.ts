@@ -20,6 +20,7 @@ type RawBackgroundJobRow = {
   attempts: number;
   max_attempts: number;
   run_after: Date;
+  scheduled_at: Date | null;
   locked_at: Date | null;
   locked_by: string | null;
   completed_at: Date | null;
@@ -40,6 +41,7 @@ function rawJob(overrides: Partial<RawBackgroundJobRow> = {}): RawBackgroundJobR
     attempts: 0,
     max_attempts: 3,
     run_after: new Date("2026-05-01T12:00:00.000Z"),
+    scheduled_at: null,
     locked_at: null,
     locked_by: null,
     completed_at: null,
@@ -62,6 +64,7 @@ function jobRow(overrides: Partial<BackgroundJobRow> = {}): BackgroundJobRow {
     attempts: 1,
     maxAttempts: 3,
     runAfter: new Date("2026-05-01T12:00:00.000Z"),
+    scheduledAt: null,
     lockedAt: new Date("2026-05-01T12:01:00.000Z"),
     lockedBy: workerId,
     completedAt: null,
@@ -83,7 +86,10 @@ function createClaimHarness(initialJobs: RawBackgroundJobRow[]) {
     execute: vi.fn(async () => {
       const candidate = jobs
         .filter((job) => {
-          const isDuePending = job.status === "pending" && job.run_after <= now;
+          const isDuePending =
+            job.status === "pending" &&
+            job.run_after <= now &&
+            (job.type !== "send_email" || job.scheduled_at === null || job.scheduled_at <= now);
           const isStaleRunning =
             job.status === "running" && job.locked_at !== null && job.locked_at < staleBefore;
           return isDuePending || isStaleRunning;
@@ -190,7 +196,13 @@ function createEmailSendTx(initialStatus: string) {
     workspaceId: testUser.workspaceId,
     status: "approved",
   };
+  const job = jobRow({
+    status: "running",
+    attempts: 1,
+    payloadJson: { emailSendId },
+  });
   const updates: Record<string, unknown>[] = [];
+  const insertedEmailSends: Array<typeof emailSend> = [];
   const selectResponses = [[emailSend], [draft], [emailSend], [draft]];
 
   const tx = {
@@ -198,17 +210,39 @@ function createEmailSendTx(initialStatus: string) {
     update: vi.fn(() =>
       createUpdateBuilder((values) => {
         updates.push(values);
+        if ("payloadJson" in values || "scheduledAt" in values) {
+          Object.assign(job, values);
+          return job;
+        }
+
         Object.assign(emailSend, values);
         return emailSend;
       }),
     ),
+    insert: vi.fn(() => ({
+      values: vi.fn((values: Record<string, unknown>) => ({
+        returning: vi.fn(async () => {
+          const retryEmailSend = {
+            ...emailSend,
+            ...values,
+            id: "00000000-0000-4000-8000-000000002103",
+            createdAt: new Date("2026-05-01T12:01:00.000Z"),
+            updatedAt: new Date("2026-05-01T12:01:00.000Z"),
+          };
+          insertedEmailSends.push(retryEmailSend);
+          return [retryEmailSend];
+        }),
+      })),
+    })),
   };
 
   return {
     tx,
     emailSend,
     draft,
+    job,
     updates,
+    insertedEmailSends,
   };
 }
 
@@ -406,6 +440,54 @@ describe("Resend email provider", () => {
   });
 });
 
+describe("send_email retry config", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  it("uses max attempts 3 and exponential backoff defaults", async () => {
+    const { computeSendBackoffMs, resolveSendRetryConfig } = await import("../services/send-retry-config.js");
+    const config = resolveSendRetryConfig({});
+
+    expect(config).toEqual({
+      maxAttempts: 3,
+      baseBackoffMs: 1000,
+      multiplier: 2,
+    });
+    expect(computeSendBackoffMs({ attempt: 1, config })).toBe(1000);
+    expect(computeSendBackoffMs({ attempt: 2, config })).toBe(2000);
+  });
+
+  it.each([429, 500, 502, 503, 504])("classifies HTTP %s as retryable", async (statusCode) => {
+    const { isRetryableSendError } = await import("../services/send-retry-config.js");
+    const error = Object.assign(new Error("EMAIL_PROVIDER_HTTP_ERROR"), {
+      code: "EMAIL_PROVIDER_HTTP_ERROR",
+      statusCode,
+    });
+
+    expect(isRetryableSendError(error)).toBe(true);
+  });
+
+  it.each([400, 401, 403, 404, 422])("classifies HTTP %s as permanent", async (statusCode) => {
+    const { isPermanentSendHttpStatus, isRetryableSendError } = await import("../services/send-retry-config.js");
+    const error = Object.assign(new Error("EMAIL_PROVIDER_HTTP_ERROR"), {
+      code: "EMAIL_PROVIDER_HTTP_ERROR",
+      statusCode,
+    });
+
+    expect(isPermanentSendHttpStatus(statusCode)).toBe(true);
+    expect(isRetryableSendError(error)).toBe(false);
+  });
+
+  it("classifies network and timeout provider errors as retryable", async () => {
+    const { isRetryableSendError } = await import("../services/send-retry-config.js");
+
+    expect(isRetryableSendError(Object.assign(new Error("timeout"), { code: "EMAIL_PROVIDER_TIMEOUT" }))).toBe(true);
+    expect(isRetryableSendError(Object.assign(new Error("network"), { code: "EMAIL_PROVIDER_NETWORK_ERROR" }))).toBe(true);
+  });
+});
+
 describe("background job claim repository", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -434,6 +516,53 @@ describe("background job claim repository", () => {
       payloadJson: { emailSendId },
     });
     expect(job?.lockedAt).toBeInstanceOf(Date);
+  });
+
+  it("claimNext ignores pending send_email job with scheduled_at in the future", async () => {
+    const harness = createClaimHarness([
+      rawJob({
+        scheduled_at: new Date("2026-05-01T12:11:00.000Z"),
+      }),
+    ]);
+    const { claimNextBackgroundJob } = await importBackgroundJobsRepositoryWithClaimHarness(harness);
+
+    await expect(claimNextBackgroundJob({ workerId })).resolves.toBeNull();
+  });
+
+  it("claimNext processes pending send_email job with scheduled_at null", async () => {
+    const harness = createClaimHarness([rawJob({ scheduled_at: null })]);
+    const { claimNextBackgroundJob } = await importBackgroundJobsRepositoryWithClaimHarness(harness);
+
+    await expect(claimNextBackgroundJob({ workerId })).resolves.toMatchObject({
+      id: jobId,
+      status: "running",
+    });
+  });
+
+  it("claimNext processes pending send_email job with scheduled_at in the past", async () => {
+    const harness = createClaimHarness([
+      rawJob({
+        scheduled_at: new Date("2026-05-01T12:09:00.000Z"),
+      }),
+    ]);
+    const { claimNextBackgroundJob } = await importBackgroundJobsRepositoryWithClaimHarness(harness);
+
+    await expect(claimNextBackgroundJob({ workerId })).resolves.toMatchObject({
+      id: jobId,
+      status: "running",
+    });
+  });
+
+  it("claimNext does not process cancelled scheduled retry jobs", async () => {
+    const harness = createClaimHarness([
+      rawJob({
+        status: "cancelled",
+        scheduled_at: new Date("2026-05-01T12:09:00.000Z"),
+      }),
+    ]);
+    const { claimNextBackgroundJob } = await importBackgroundJobsRepositoryWithClaimHarness(harness);
+
+    await expect(claimNextBackgroundJob({ workerId })).resolves.toBeNull();
   });
 
   it("claimNext ignores a fresh running job", async () => {
@@ -495,6 +624,24 @@ describe("send_email job handler", () => {
     expect(harness.emailSend.providerMessageId).toBeNull();
     expect(harness.updates).toEqual([{ status: "queued" }]);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("handler.send_email.internal_regression creates no retry row", async () => {
+    process.env.SEND_EMAIL_PROVIDER = "internal";
+    const harness = createEmailSendTx("pending");
+    const { handleSendEmailJob } = await importSendEmailHandlerWithTx(harness);
+
+    await handleSendEmailJob({
+      workspaceId: testUser.workspaceId,
+      jobId,
+      payload: { emailSendId },
+      attempts: 1,
+      maxAttempts: 3,
+    });
+
+    expect(harness.emailSend.status).toBe("queued");
+    expect(harness.insertedEmailSends).toEqual([]);
+    expect(harness.job.status).toBe("running");
   });
 
   it("handler.send_email.resend_success marks email_send sent and writes compact activity log", async () => {
@@ -677,6 +824,123 @@ describe("send_email job handler", () => {
     expect(serializedLogs).not.toContain("Stored snapshot");
     expect(serializedLogs).not.toContain("Stored body");
     expect(serializedLogs).not.toContain("raw");
+  });
+
+  it("handler.send_email.retryable_failure_before_max_attempts schedules retry on same job", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-01T12:00:00.000Z"));
+    const harness = createEmailSendTx("pending");
+    const error = Object.assign(new Error("EMAIL_PROVIDER_HTTP_ERROR"), {
+      code: "EMAIL_PROVIDER_HTTP_ERROR",
+      statusCode: 500,
+    });
+    const provider = {
+      mode: "resend" as const,
+      send: vi.fn(async () => {
+        throw error;
+      }),
+    };
+    const { SendEmailRetryScheduledError, activityLogs, handleSendEmailJob } =
+      await importSendEmailHandlerWithTx(harness);
+
+    await expect(
+      handleSendEmailJob({
+        workspaceId: testUser.workspaceId,
+        jobId,
+        payload: { emailSendId },
+        provider,
+        attempts: 1,
+        maxAttempts: 3,
+      }),
+    ).rejects.toThrow(SendEmailRetryScheduledError);
+
+    expect(provider.send).toHaveBeenCalledTimes(1);
+    expect(harness.emailSend.status).toBe("failed");
+    expect(harness.insertedEmailSends).toHaveLength(1);
+    expect(harness.insertedEmailSends[0]).toMatchObject({
+      status: "pending",
+      draftId: harness.emailSend.draftId,
+      contactId: harness.emailSend.contactId,
+      subject: harness.emailSend.subject,
+      textBody: harness.emailSend.textBody,
+      htmlBody: harness.emailSend.htmlBody,
+      attemptCount: 1,
+    });
+    expect(harness.job).toMatchObject({
+      id: jobId,
+      status: "pending",
+      payloadJson: { emailSendId: "00000000-0000-4000-8000-000000002103" },
+      scheduledAt: new Date("2026-05-01T12:00:01.000Z"),
+      lastErrorCode: "EMAIL_PROVIDER_HTTP_ERROR",
+      lastErrorMessage: "EMAIL_PROVIDER_HTTP_ERROR",
+    });
+    expect(activityLogs).toEqual([]);
+    vi.useRealTimers();
+  });
+
+  it("handler.send_email.retryable_failure_at_max_attempts dead-letters without retry row", async () => {
+    const harness = createEmailSendTx("pending");
+    const error = Object.assign(new Error("EMAIL_PROVIDER_HTTP_ERROR"), {
+      code: "EMAIL_PROVIDER_HTTP_ERROR",
+      statusCode: 500,
+    });
+    const provider = {
+      mode: "resend" as const,
+      send: vi.fn(async () => {
+        throw error;
+      }),
+    };
+    const { activityLogs, handleSendEmailJob } = await importSendEmailHandlerWithTx(harness);
+
+    await expect(
+      handleSendEmailJob({
+        workspaceId: testUser.workspaceId,
+        jobId,
+        payload: { emailSendId },
+        provider,
+        attempts: 3,
+        maxAttempts: 3,
+      }),
+    ).rejects.toThrow("EMAIL_PROVIDER_HTTP_ERROR");
+
+    expect(harness.emailSend.status).toBe("failed");
+    expect(harness.insertedEmailSends).toEqual([]);
+    expect(harness.job.status).toBe("running");
+    expect(activityLogs).toEqual([
+      expect.objectContaining({
+        action: "email_send.failed",
+      }),
+    ]);
+  });
+
+  it("handler.send_email.permanent_failure dead-letters without retry row", async () => {
+    const harness = createEmailSendTx("pending");
+    const error = Object.assign(new Error("EMAIL_PROVIDER_HTTP_ERROR"), {
+      code: "EMAIL_PROVIDER_HTTP_ERROR",
+      statusCode: 400,
+    });
+    const provider = {
+      mode: "resend" as const,
+      send: vi.fn(async () => {
+        throw error;
+      }),
+    };
+    const { handleSendEmailJob } = await importSendEmailHandlerWithTx(harness);
+
+    await expect(
+      handleSendEmailJob({
+        workspaceId: testUser.workspaceId,
+        jobId,
+        payload: { emailSendId },
+        provider,
+        attempts: 1,
+        maxAttempts: 3,
+      }),
+    ).rejects.toThrow("EMAIL_PROVIDER_HTTP_ERROR");
+
+    expect(harness.emailSend.status).toBe("failed");
+    expect(harness.insertedEmailSends).toEqual([]);
+    expect(harness.job.status).toBe("running");
   });
 
   it("handler.send_email.resend_failure sanitizes arbitrary provider errors", async () => {

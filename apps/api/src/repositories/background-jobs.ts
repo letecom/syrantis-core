@@ -51,6 +51,15 @@ export type FailBackgroundJobInput = {
   errorMessage: string;
 };
 
+export type RescheduleSendEmailJobInput = {
+  workspaceId: string;
+  jobId: string;
+  emailSendId: string;
+  scheduledAt: Date;
+  errorCode: string;
+  errorMessage: string;
+};
+
 type RawBackgroundJobRow = {
   id: string;
   workspace_id: string;
@@ -60,6 +69,7 @@ type RawBackgroundJobRow = {
   attempts: number;
   max_attempts: number;
   run_after: Date;
+  scheduled_at: Date | null;
   locked_at: Date | null;
   locked_by: string | null;
   completed_at: Date | null;
@@ -84,6 +94,7 @@ function mapRawBackgroundJobRow(row: RawBackgroundJobRow): BackgroundJobRow {
     attempts: row.attempts,
     maxAttempts: row.max_attempts,
     runAfter: row.run_after,
+    scheduledAt: row.scheduled_at,
     lockedAt: row.locked_at,
     lockedBy: row.locked_by,
     completedAt: row.completed_at,
@@ -112,9 +123,10 @@ export async function enqueueSendEmailJob(
     .values({
       workspaceId: input.workspaceId,
       type: "send_email",
-      payloadJson: payload,
-      status: "pending",
-      runAfter: input.runAfter ?? new Date(),
+        payloadJson: payload,
+        status: "pending",
+        runAfter: input.runAfter ?? new Date(),
+        scheduledAt: null,
     })
     .returning();
 
@@ -138,9 +150,10 @@ export async function enqueueScoreLeadJob(
     .values({
       workspaceId: input.workspaceId,
       type: "score_lead",
-      payloadJson: payload,
-      status: "pending",
-      runAfter: input.runAfter ?? new Date(),
+        payloadJson: payload,
+        status: "pending",
+        runAfter: input.runAfter ?? new Date(),
+        scheduledAt: null,
     })
     .returning();
 
@@ -184,9 +197,10 @@ export async function enqueueGenerateAiDraftJob(
     .values({
       workspaceId: input.workspaceId,
       type: "generate_ai_draft",
-      payloadJson: payload,
-      status: "pending",
-      runAfter: input.runAfter ?? new Date(),
+        payloadJson: payload,
+        status: "pending",
+        runAfter: input.runAfter ?? new Date(),
+        scheduledAt: null,
     })
     .returning();
 
@@ -211,12 +225,17 @@ export async function claimNextBackgroundJob(
           (
             status = 'pending'
             AND run_after <= now()
+            AND (
+              type <> 'send_email'
+              OR scheduled_at IS NULL
+              OR scheduled_at <= now()
+            )
           )
           OR (
             status = 'running'
             AND locked_at < now() - interval '5 minutes'
           )
-        ORDER BY run_after ASC, created_at ASC
+        ORDER BY COALESCE(scheduled_at, run_after) ASC, created_at ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
       )
@@ -226,6 +245,7 @@ export async function claimNextBackgroundJob(
         locked_at = now(),
         locked_by = ${input.workerId},
         attempts = attempts + 1,
+        scheduled_at = NULL,
         updated_at = now()
       FROM candidate
       WHERE background_jobs.id = candidate.id
@@ -238,6 +258,7 @@ export async function claimNextBackgroundJob(
         background_jobs.attempts,
         background_jobs.max_attempts,
         background_jobs.run_after,
+        background_jobs.scheduled_at,
         background_jobs.locked_at,
         background_jobs.locked_by,
         background_jobs.completed_at,
@@ -263,6 +284,7 @@ export async function completeBackgroundJob(
       status: "completed",
       completedAt: new Date(),
       failedAt: null,
+      scheduledAt: null,
       lastErrorCode: null,
       lastErrorMessage: null,
     })
@@ -285,10 +307,47 @@ export async function failBackgroundJob(
     .set({
       status: "failed",
       failedAt: new Date(),
+      scheduledAt: null,
       lastErrorCode: input.errorCode,
       lastErrorMessage: compactErrorMessage(input.errorMessage),
     })
     .where(and(eq(backgroundJobs.id, input.jobId), eq(backgroundJobs.workspaceId, input.workspaceId)))
+    .returning();
+
+  if (!job) {
+    throw new Error("BACKGROUND_JOB_NOT_FOUND");
+  }
+
+  return job;
+}
+
+export async function rescheduleSendEmailJob(
+  tx: WorkspaceDbTransaction,
+  input: RescheduleSendEmailJobInput,
+): Promise<BackgroundJobRow> {
+  const payload: SendEmailJobPayload = {
+    emailSendId: input.emailSendId,
+  };
+
+  const [job] = await tx
+    .update(backgroundJobs)
+    .set({
+      status: "pending",
+      payloadJson: payload,
+      scheduledAt: input.scheduledAt,
+      lockedAt: null,
+      lockedBy: null,
+      failedAt: null,
+      lastErrorCode: input.errorCode,
+      lastErrorMessage: compactErrorMessage(input.errorMessage),
+    })
+    .where(
+      and(
+        eq(backgroundJobs.id, input.jobId),
+        eq(backgroundJobs.workspaceId, input.workspaceId),
+        eq(backgroundJobs.type, "send_email"),
+      ),
+    )
     .returning();
 
   if (!job) {
