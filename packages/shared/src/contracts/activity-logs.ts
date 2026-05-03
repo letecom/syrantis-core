@@ -20,6 +20,7 @@ export const ActivityLogActionSchema = z.enum([
   "email_send.queued",
   "email_send.sent",
   "email_send.failed",
+  "email_send.cancelled",
   "lead.created",
   "lead.updated",
   "lead.score_requested",

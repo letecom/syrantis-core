@@ -37,6 +37,11 @@ import {
   type DraftSendReadinessServiceResult,
 } from "../services/draft-send-readiness.js";
 import {
+  createProductionDraftSendCancellationService,
+  type DraftSendCancellationService,
+  type DraftSendCancellationServiceResult,
+} from "../services/draft-send-cancellation.js";
+import {
   createProductionDraftSendStatusService,
   type DraftSendStatusService,
   type DraftSendStatusServiceResult,
@@ -86,6 +91,20 @@ const emailSendRecipientMissingResponse = ApiErrorSchema.parse({
   code: "EMAIL_SEND_RECIPIENT_MISSING",
 });
 
+function cancelSendNotAllowedResponse(
+  result: Extract<DraftSendCancellationServiceResult, { result: "not_allowed" }>,
+) {
+  return {
+    success: false,
+    error: "Draft send cancellation not allowed.",
+    code: "CANCEL_SEND_NOT_ALLOWED",
+    details: {
+      reason: result.reason,
+      currentStatus: result.currentStatus,
+    },
+  };
+}
+
 function draftApprovalReadinessBlockedResponse(
   result: Extract<DraftApprovalReadinessServiceResult, { result: "ok" }>,
 ) {
@@ -121,6 +140,7 @@ export type DraftRoutesDependencies = {
   draftApprovalReadinessService?: DraftApprovalReadinessService;
   draftSendReadinessService?: DraftSendReadinessService;
   draftSendStatusService?: DraftSendStatusService;
+  draftSendCancellationService?: DraftSendCancellationService;
   emailSendService?: EmailSendService;
 };
 
@@ -264,6 +284,23 @@ function sendStatusResponse(c: Context<AppEnv>, result: DraftSendStatusServiceRe
   );
 }
 
+function cancelSendResponse(c: Context<AppEnv>, result: DraftSendCancellationServiceResult) {
+  if (result.result === "not_found") {
+    return c.json(draftNotFoundResponse, 404);
+  }
+
+  if (result.result === "not_allowed") {
+    return c.json(cancelSendNotAllowedResponse(result), 409);
+  }
+
+  return c.json(
+    {
+      success: true,
+      data: result.cancellation,
+    },
+  );
+}
+
 export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
   const routes = new Hono<AppEnv>();
   const guard = dependencies.authService
@@ -279,6 +316,9 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
     dependencies.draftSendReadinessService ?? createProductionDraftSendReadinessService();
   const draftSendStatusService =
     dependencies.draftSendStatusService ?? createProductionDraftSendStatusService();
+  const draftSendCancellationService =
+    dependencies.draftSendCancellationService ??
+    createProductionDraftSendCancellationService();
   const emailSendService = dependencies.emailSendService ?? createProductionEmailSendService();
 
   routes.use("*", guard);
@@ -379,6 +419,27 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
 
     const result = await draftSendStatusService.getDraftSendStatus(getWorkspaceId(c), draftId);
     return sendStatusResponse(c, result);
+  });
+
+  routes.post("/:id/cancel-send", async (c) => {
+    const draftId = parseDraftId(c.req.param("id"));
+
+    if (!draftId || hasClientWorkspaceId(c.req.query())) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const body = await readOptionalJsonBody(c);
+
+    if (hasClientWorkspaceId(body)) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const result = await draftSendCancellationService.cancelLatestDraftSend(
+      getWorkspaceId(c),
+      c.get("userId"),
+      draftId,
+    );
+    return cancelSendResponse(c, result);
   });
 
   routes.get("/:id", async (c) => {
