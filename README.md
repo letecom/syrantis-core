@@ -8,7 +8,7 @@ It is a controlled action layer above CRMs, forms, sheets, and business tools.
 
 Client CRM = commercial source of truth.
 
-Syrantis = intake, canonical lead context, AI scoring, AI drafts, approval readiness, human approval, send readiness, worker execution, DB proof, future CRM push-back.
+Syrantis = intake, canonical lead context, AI scoring, AI drafts, AI audit read model, approval readiness, human approval, send readiness, request-send, send status, cancel-send, worker retry/backoff/dead-letter, DB proof, future CRM push-back.
 
 ```txt
 Client CRM / form / sheet
@@ -31,9 +31,11 @@ Send readiness
         ↓
 request-send
         ↓
+optional cancel-send while pending
+        ↓
 Worker execution
         ↓
-Activity log / DB proof
+send status / DB proof
         ↓
 Future CRM update
 ```
@@ -61,8 +63,9 @@ lead received
   → approval
   → send readiness
   → request-send
-  → worker
-  → log / DB proof
+  → optional cancel-send while pending
+  → worker execution
+  → send status / DB proof
   → future CRM update
 ```
 
@@ -108,9 +111,12 @@ Current backend baseline:
 
 - prod default `SEND_EMAIL_PROVIDER=internal`
 - current AI model `mistralai/mistral-small-2603`
-- latest validated test baseline after 021E: 22 test files, 326 tests
+- latest validated test baseline after 021H: 24 test files, 384 tests
 - API import safety passes
-- 021E added no migration
+- 021H added migration `0015_background_jobs_scheduled_at.sql`
+- production validation exposed migration drift: `drizzle.__drizzle_migrations` showed 0015 applied while the real schema initially missed `background_jobs.scheduled_at` and `background_jobs_pending_send_email_scheduled_at_idx`
+- manual idempotent DDL patch fixed production
+- next issue should address migration integrity / drift guard
 
 ## Stack
 
@@ -126,8 +132,8 @@ Auth              opaque session cookie
 Tenant model      tenantGuard + RLS
 Transactions      withWorkspaceDb
 Audit             activity_logs
-Async             background_jobs
-Worker            worker CLI
+Async             background_jobs, background_jobs.scheduled_at
+Worker            worker CLI, retry/backoff/dead-letter
 AI Provider       OpenRouter through hardened provider boundary
 Email Provider    internal default; Resend behind explicit config
 ```
@@ -219,6 +225,14 @@ Hard rules:
 - public read models do not expose prompt/output/payload/cost/token fields
 - `send_email` worker reads and writes `email_sends` by `id` + `workspaceId`
 - internal email provider is the safe default
+- migration journal is not sufficient proof
+- migration validation must verify real schema objects
+- new migrations require explicit prod verification commands
+- schema drift must block further migration-heavy issues
+- send retries must not mutate terminal `email_sends` rows
+- retry creates new `email_sends` rows
+- same `background_jobs` row is reused for send retries
+- scheduled retry jobs must remain cancellable before execution
 
 Forbidden by default:
 
@@ -268,6 +282,8 @@ Implemented:
 - 021B Draft AI Audit Read Model
 - 021C Draft Approval Readiness / Request-Approval Hardening
 - 021D Draft Send Readiness / Request-Send Hardening
+- 021F Draft Send Status Read Model
+- 021G Draft Send Cancellation
 
 Implemented routes:
 
@@ -286,11 +302,28 @@ Implemented routes:
 - `/api/drafts/:id/request-approval`
 - `/api/drafts/:id/send-readiness`
 - `/api/drafts/:id/request-send`
+- `/api/drafts/:id/send-status`
+- `/api/drafts/:id/cancel-send`
 - `/api/email-sends`
 - `/api/email-sends/:id`
 - `/api/integrations`
 - `/api/workspace-api-keys`
 - `/api/public/leads`
+
+Draft send status behavior:
+
+- `GET /api/drafts/:id/send-status` returns latest `email_sends` proof for a draft
+- safe DTO only: `draftId`, `hasSend`, `latestSend.status`, `requestedAt`, `updatedAt`, `sentAt`, `failedAt`, `errorCode`
+- no provider, `provider_message_id`, subject/body, recipient/contact PII, `payload_json`, or AI fields
+- read-only; no activity logs, jobs, or mutations
+
+Draft send cancellation behavior:
+
+- `POST /api/drafts/:id/cancel-send` cancels only the latest pending `email_sends` when the linked `send_email` job is pending
+- updates `email_sends.status` and `background_jobs.status` to `cancelled` in one transaction
+- creates one compact `email_send.cancelled` activity log on first cancellation only
+- already-cancelled returns idempotent 200 with no duplicate log
+- queued, sent, failed, and no-send states are blocked safely
 
 ### Integration Foundation
 
@@ -330,6 +363,7 @@ Behavior:
 - 019B Worker Execution Foundation
 - 019C Worker Ops Hardening
 - 021E Worker Send Execution Hardening
+- 021H Worker Retry / Backoff / Dead Letter
 
 Worker commands:
 
@@ -344,10 +378,23 @@ pnpm --filter @syrantis/api worker:run
 Current `send_email` worker behavior:
 
 - processes `background_jobs.send_email`
+- claims only pending `send_email` jobs where `scheduled_at` is null or `scheduled_at <= now()`
+- future scheduled `send_email` jobs are ignored
 - executes provider path only when `email_sends.status = pending`
 - `queued`, `sent`, `failed`, and `cancelled` are idempotent no-op states
 - internal provider moves `pending` to `queued` and completes the job
 - internal provider does not send real email
+- internal provider creates no retry row
+- retryable provider failures schedule retry with backoff
+- current `email_sends` row moves to `failed` before retry
+- retry creates a new `email_sends.pending` row
+- the same `background_jobs` row is reused and rescheduled with `payload_json.emailSendId` updated to the retry send
+- no intermediate activity log spam during retry scheduling
+- retryable failure at max attempts dead-letters
+- permanent provider failure fails without retry
+- send-status returns the newest retry row
+- cancel-send works for pending scheduled retry attempts
+- cancelled scheduled retry jobs are not claimed
 - Resend path exists only with explicit `SEND_EMAIL_PROVIDER=resend`
 
 ### AI
@@ -420,6 +467,27 @@ Direct runtime select without workspace context must return zero rows.
 `lead_scores` and `ai_runs` are tenant-protected.
 
 `syrantis_worker` has no direct grants to `ai_runs` or `lead_scores`.
+
+## Migration Integrity Status
+
+021H exposed a migration drift risk.
+
+`drizzle.__drizzle_migrations` showed migration 0015 applied.
+
+The real schema initially lacked:
+
+- `background_jobs.scheduled_at`
+- `background_jobs_pending_send_email_scheduled_at_idx`
+
+Manual idempotent DDL patch fixed production.
+
+Next issue:
+
+```txt
+021I Migration Integrity / Drift Guard
+```
+
+Hard rule: migration journal is not enough; production validation must verify real schema objects.
 
 ## Operational Lanes
 
@@ -508,11 +576,29 @@ email_sends.pending
   ↓
 background_jobs.send_email
   ↓
-worker
+optional POST /api/drafts/:id/cancel-send while pending
+  ↓
+worker execution
   ↓
 internal provider: email_sends.queued, job completed, no real email
   ↓
-resend provider when explicitly configured: external provider path
+GET /api/drafts/:id/send-status
+  ↓
+DB proof
+```
+
+Retry branch:
+
+```txt
+retryable provider failure
+  ↓
+current email_sends.failed
+  ↓
+new email_sends.pending retry row
+  ↓
+same background_jobs row rescheduled with scheduled_at
+  ↓
+worker retry after backoff
 ```
 
 Status:
@@ -521,6 +607,7 @@ Status:
 - no real external email by default
 - Resend provider exists behind explicit env config
 - send worker is idempotent for non-pending `email_sends`
+- scheduled retry attempts remain cancellable while pending
 
 ### 5. Async Worker Lane
 
@@ -529,11 +616,13 @@ background_jobs.pending
   ↓
 claim with FOR UPDATE SKIP LOCKED
   ↓
+ignore future scheduled_at send_email jobs
+  ↓
 running
   ↓
 handler
   ↓
-completed / failed
+completed / failed / cancelled / rescheduled
 ```
 
 Worker ops are exposed through CLI, not HTTP.
@@ -655,58 +744,46 @@ Not implemented yet.
 | 021C | Draft Approval Readiness / Request-Approval Hardening | done |
 | 021D | Draft Send Readiness / Request-Send Hardening | done |
 | 021E | Worker Send Execution Hardening | done |
-| 021F | Draft Send Status Read Model | next |
-| 021G | Worker Retry / Backoff / Dead Letter | planned |
-| 021H | Resend Real Send Smoke / Ops Guardrails | planned |
+| 021F | Draft Send Status Read Model | done |
+| 021G | Draft Send Cancellation | done |
+| 021H | Worker Retry / Backoff / Dead Letter | done |
+| 021I | Migration Integrity / Drift Guard | next |
+| 021J | Send Proof Hardening | planned |
+| 021K | Send Attempt History Read Model | planned |
+| 021L | Resend Real Send Smoke / Ops Guardrails | planned |
+| 021M | Resend Webhook Foundation | planned |
+| 021N | CRM Proof Push-back v1 | planned |
 | 022A | Pipeline UI Read Layer | planned |
-| 022B | Email Delivery Events / Webhooks | planned |
-| 022C | CRM Proof Push-back | planned |
 
 ## Current Execution Focus
 
-021F Draft Send Status Read Model
+021I Migration Integrity / Drift Guard
 
 Goal:
 
-Expose safe read-only send execution status from `email_sends` through a draft-scoped route.
+Ensure migration journal, real schema, Drizzle schema, and production validation cannot drift silently.
 
-Expected route:
+Expected scope:
 
-```txt
-GET /api/drafts/:id/send-status
-```
+- verify migration files are present and ordered
+- verify `drizzle.__drizzle_migrations` is not trusted alone
+- add validation commands or scripts for real schema objects
+- add prod checklist for columns, indexes, constraints, RLS, policies
+- document 021H `scheduled_at` drift incident
 
 Allowed:
 
-- latest send status for draft
-- `hasSend` boolean
-- latest email send status
-- createdAt / updatedAt
-- queued/sent/failed/cancelled timestamps when safe and existing
-- compact failure code when safe
-- cross-workspace 404
-- no-send behavior
-- DTO contracts
-- tests
 - docs
+- validation helpers
+- prod checklist improvements
+- migration integrity checks
 
 Forbidden:
 
-- provider call
-- worker execution
-- request-send mutation
-- retry/backoff
-- dead-letter
-- migration unless absolutely required
-- contact email exposure
-- subject/textBody/htmlBody exposure
-- `provider_message_id` exposure unless explicitly justified
-- raw provider response exposure
-- raw error exposure
-- public route
-- public `/api/email-sends/:id/status` unless strongly justified
-- activity_logs on GET
+- product behavior changes
 - UI
+- worker behavior changes unless validation helper needs it
+- new business routes
 
 ## Development Workflow
 
@@ -728,7 +805,7 @@ git status --short
 Create feature branch:
 
 ```bash
-BRANCH_NAME="feat/021f-draft-send-status-read-model"
+BRANCH_NAME="feat/021i-migration-integrity-drift-guard"
 
 if git show-ref --verify --quiet "refs/heads/${BRANCH_NAME}"; then
   git checkout "${BRANCH_NAME}"
@@ -818,7 +895,9 @@ Run migrations only when the issue explicitly adds a migration:
 bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter @syrantis/db migrate'
 ```
 
-Most read-model and worker-hardening issues after 020C/021E have not required migrations, but verify per PR.
+021I may have no product migration, but it should add migration/schema validation discipline.
+
+Issues with migrations must include real schema verification commands, not only a migration journal check.
 
 Import safety:
 
@@ -840,6 +919,33 @@ Migration history:
 docker exec syrantis-postgres psql -U syrantis -d syrantis -c \
 "select * from drizzle.__drizzle_migrations order by id asc;"
 ```
+
+021H real schema verification:
+
+```bash
+echo "== VERIFY 021H scheduled_at COLUMN =="
+docker exec syrantis-postgres psql -U syrantis -d syrantis -c "
+select column_name, data_type, is_nullable
+from information_schema.columns
+where table_schema = 'public'
+  and table_name = 'background_jobs'
+  and column_name = 'scheduled_at';
+"
+
+echo "== VERIFY 021H scheduled_at INDEX =="
+docker exec syrantis-postgres psql -U syrantis -d syrantis -c "
+select indexname, indexdef
+from pg_indexes
+where schemaname = 'public'
+  and tablename = 'background_jobs'
+  and indexname = 'background_jobs_pending_send_email_scheduled_at_idx';
+"
+```
+
+Expected:
+
+- `scheduled_at` exists as timestamp with time zone, nullable
+- `background_jobs_pending_send_email_scheduled_at_idx` exists
 
 RLS status:
 
@@ -927,7 +1033,7 @@ limit 10;
 Latest send_email jobs:
 
 ```sql
-select id, workspace_id, type, status, attempts, completed_at, failed_at, last_error_code, created_at
+select id, workspace_id, type, status, attempts, scheduled_at, completed_at, failed_at, last_error_code, created_at
 from background_jobs
 where type = 'send_email'
 order by created_at desc
@@ -937,7 +1043,7 @@ limit 10;
 Pending/running jobs:
 
 ```sql
-select id, workspace_id, type, status, attempts, run_after, locked_at, locked_by, created_at
+select id, workspace_id, type, status, attempts, run_after, scheduled_at, locked_at, locked_by, created_at
 from background_jobs
 where status in ('pending', 'running')
 order by created_at asc
@@ -1059,7 +1165,9 @@ Verify:
 8. Human approves through approvals route.
 9. `GET /api/drafts/:id/send-readiness`.
 10. `POST /api/drafts/:id/request-send`.
-11. Run worker once.
+11. Optionally `POST /api/drafts/:id/cancel-send` while pending.
+12. Run worker once.
+13. `GET /api/drafts/:id/send-status`.
 
 Internal provider verify:
 
@@ -1177,12 +1285,13 @@ grep -R "update(leads)\|set({.*score\|scoreReason" \
 
 Near-term:
 
-- 021F Draft Send Status Read Model
-- 021G Worker Retry / Backoff / Dead Letter
-- 021H Resend Real Send Smoke / Ops Guardrails
+- 021I Migration Integrity / Drift Guard
+- 021J Send Proof Hardening
+- 021K Send Attempt History Read Model
+- 021L Resend Real Send Smoke / Ops Guardrails
+- 021M Resend Webhook Foundation
+- 021N CRM Proof Push-back v1
 - 022A Pipeline UI Read Layer
-- 022B Email Delivery Events / Webhooks
-- 022C CRM Proof Push-back
 
 MVP v1:
 
@@ -1207,7 +1316,9 @@ request-send
   ↓
 worker execution
   ↓
-logs + future CRM push-back
+send status / DB proof
+  ↓
+future CRM push-back
 ```
 
 Later:
