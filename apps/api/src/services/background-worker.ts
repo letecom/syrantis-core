@@ -1,4 +1,8 @@
-import { ScoreLeadJobPayloadSchema, SendEmailJobPayloadSchema } from "@syrantis/shared";
+import {
+  GenerateAiDraftJobPayloadSchema,
+  ScoreLeadJobPayloadSchema,
+  SendEmailJobPayloadSchema,
+} from "@syrantis/shared";
 
 import { withWorkspaceDb } from "../lib/db.js";
 import { createActivityLog } from "../repositories/activity-logs.js";
@@ -9,6 +13,7 @@ import {
   type BackgroundJobRow,
 } from "../repositories/background-jobs.js";
 import { handleSendEmailJob } from "./send-email-job-handler.js";
+import { handleGenerateAiDraftJob } from "./generate-ai-draft-job-handler.js";
 import { handleScoreLeadJob } from "./score-lead-job-handler.js";
 
 export type ProcessNextBackgroundJobInput = {
@@ -93,6 +98,57 @@ export async function processNextBackgroundJob(
             jobId: job.id,
             type: job.type,
             workerId: input.workerId,
+          },
+        });
+
+        return completed;
+      });
+
+      return { status: "completed", job: completedJob };
+    }
+
+    if (job.type === "generate_ai_draft") {
+      const payload = GenerateAiDraftJobPayloadSchema.parse(job.payloadJson);
+
+      await withWorkspaceDb(job.workspaceId, async (tx) => {
+        await createActivityLog(tx, {
+          workspaceId: job.workspaceId,
+          actorUserId: null,
+          action: "background_job.claimed",
+          entityType: "background_job",
+          entityId: job.id,
+          metadataJson: {
+            jobId: job.id,
+            type: job.type,
+            workerId: input.workerId,
+            attempts: job.attempts,
+          },
+        });
+      });
+
+      await handleGenerateAiDraftJob({
+        workspaceId: job.workspaceId,
+        jobId: job.id,
+        payload,
+      });
+
+      const completedJob = await withWorkspaceDb(job.workspaceId, async (tx) => {
+        const completed = await completeBackgroundJob(tx, {
+          workspaceId: job.workspaceId,
+          jobId: job.id,
+        });
+
+        await createActivityLog(tx, {
+          workspaceId: job.workspaceId,
+          actorUserId: null,
+          action: "background_job.completed",
+          entityType: "background_job",
+          entityId: job.id,
+          metadataJson: {
+            jobId: job.id,
+            type: job.type,
+            workerId: input.workerId,
+            leadId: payload.leadId,
           },
         });
 

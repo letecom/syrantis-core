@@ -555,7 +555,7 @@ export const backgroundJobs = pgTable(
       "background_jobs_status_check",
       sql`${table.status} in ('pending', 'running', 'completed', 'failed', 'cancelled')`
     ),
-    check("background_jobs_type_check", sql`${table.type} in ('send_email', 'score_lead')`),
+    check("background_jobs_type_check", sql`${table.type} in ('send_email', 'score_lead', 'generate_ai_draft')`),
     check("background_jobs_attempts_check", sql`${table.attempts} >= 0`),
     check("background_jobs_max_attempts_check", sql`${table.maxAttempts} >= 1`),
     index("background_jobs_workspace_id_idx").on(table.workspaceId),

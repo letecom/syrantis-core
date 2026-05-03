@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   ApiErrorSchema,
   CreateLeadInputSchema,
+  LeadDraftGenerationRequestSuccessSchema,
   LeadListQuerySchema,
   LeadListSuccessSchema,
   LeadScoreRequestSuccessSchema,
@@ -19,6 +20,10 @@ import {
   createProductionLeadScoreService,
   type LeadScoreService
 } from "../services/lead-scores.js";
+import {
+  createProductionLeadDraftGenerationService,
+  type LeadDraftGenerationService
+} from "../services/lead-draft-generation.js";
 import {
   createProductionLeadService,
   type LeadService,
@@ -56,6 +61,7 @@ export type LeadRoutesDependencies = {
   authService?: AuthService;
   leadService?: LeadService;
   leadScoreService?: LeadScoreService;
+  leadDraftGenerationService?: LeadDraftGenerationService;
 };
 
 function hasClientWorkspaceId(value: unknown): boolean {
@@ -110,6 +116,8 @@ export function createLeadRoutes(dependencies: LeadRoutesDependencies = {}) {
   const guard = dependencies.authService ? createTenantGuard(dependencies.authService) : tenantGuard;
   const leadService = dependencies.leadService ?? createProductionLeadService();
   const leadScoreService = dependencies.leadScoreService ?? createProductionLeadScoreService();
+  const leadDraftGenerationService =
+    dependencies.leadDraftGenerationService ?? createProductionLeadDraftGenerationService();
 
   routes.use("*", guard);
 
@@ -172,6 +180,49 @@ export function createLeadRoutes(dependencies: LeadRoutesDependencies = {}) {
 
     return c.json(
       LeadScoreRequestSuccessSchema.parse({
+        success: true,
+        data: {
+          jobId: result.jobId,
+          leadId: result.leadId
+        }
+      }),
+      202
+    );
+  });
+
+  routes.post("/:id/generate-draft", async (c) => {
+    const leadId = parseId(c.req.param("id"));
+
+    if (!leadId) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    if (hasClientWorkspaceId(c.req.query())) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const body = await readJsonBody(c);
+
+    if (hasClientWorkspaceId(body)) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    if (body && typeof body === "object" && Object.keys(body).length > 0) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const result = await leadDraftGenerationService.requestLeadDraftGeneration(
+      getWorkspaceId(c),
+      c.get("userId"),
+      leadId
+    );
+
+    if (result.result === "not_found") {
+      return c.json(leadNotFoundResponse, 404);
+    }
+
+    return c.json(
+      LeadDraftGenerationRequestSuccessSchema.parse({
         success: true,
         data: {
           jobId: result.jobId,
