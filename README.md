@@ -1,6 +1,6 @@
 # Syrantis Core
 
-Syrantis Core is a backend-first B2B AI orchestration layer.
+Syrantis Core is a backend-first B2B AI orchestration and controlled execution layer.
 
 It is not a CRM.
 
@@ -8,7 +8,7 @@ It is a controlled action layer above CRMs, forms, sheets, and business tools.
 
 Client CRM = commercial source of truth.
 
-Syrantis = intake, canonical lead context, AI scoring, drafts, approval, worker execution, audit logs, future send/pushback.
+Syrantis = intake, canonical lead context, AI scoring, AI drafts, approval readiness, human approval, send readiness, worker execution, DB proof, future CRM push-back.
 
 ```txt
 Client CRM / form / sheet
@@ -19,13 +19,21 @@ Canonical lead context
         ↓
 AI scoring
         ↓
-Task / draft
+AI draft generation
+        ↓
+AI audit read model
+        ↓
+Approval readiness
         ↓
 Human approval
         ↓
-Controlled send / worker execution
+Send readiness
         ↓
-Activity log
+request-send
+        ↓
+Worker execution
+        ↓
+Activity log / DB proof
         ↓
 Future CRM update
 ```
@@ -47,11 +55,15 @@ The first sellable loop is:
 lead received
   → normalized
   → scored
-  → task / draft
+  → AI draft
+  → AI audit
+  → approval readiness
   → approval
-  → send
-  → log
-  → CRM update
+  → send readiness
+  → request-send
+  → worker
+  → log / DB proof
+  → future CRM update
 ```
 
 No chatbot.
@@ -92,6 +104,14 @@ Rules:
 - agents never merge
 - agents never edit prod env
 
+Current backend baseline:
+
+- prod default `SEND_EMAIL_PROVIDER=internal`
+- current AI model `mistralai/mistral-small-2603`
+- latest validated test baseline after 021E: 22 test files, 326 tests
+- API import safety passes
+- 021E added no migration
+
 ## Stack
 
 ```txt
@@ -109,6 +129,7 @@ Audit             activity_logs
 Async             background_jobs
 Worker            worker CLI
 AI Provider       OpenRouter through hardened provider boundary
+Email Provider    internal default; Resend behind explicit config
 ```
 
 ## Security Model
@@ -190,9 +211,14 @@ Hard rules:
 - agents never deploy
 - future jobs use PostgreSQL SKIP LOCKED before Redis/Kafka
 - no provider external calls from routes
+- worker execution must be idempotent
 - no prompt client input
 - no raw prompt/output in activity_logs
+- no raw PII in read models or worker logs
 - no AI mutation of source leads
+- public read models do not expose prompt/output/payload/cost/token fields
+- `send_email` worker reads and writes `email_sends` by `id` + `workspaceId`
+- internal email provider is the safe default
 
 Forbidden by default:
 
@@ -203,6 +229,7 @@ Forbidden by default:
 - secret-like payloads in metadata
 - API keys or hashes in DTOs
 - provider call from route
+- prompt/output/payload/cost/token fields in public read models
 - Resend before approval/send outbox
 - AI output applied directly to source lead
 
@@ -236,6 +263,11 @@ Implemented:
 - 017A Drafts Foundation
 - 017B Draft Approval Handoff
 - 018A Email Sends Foundation
+- 020C AI Scoring Read Model
+- 021A AI Draft Generation Foundation
+- 021B Draft AI Audit Read Model
+- 021C Draft Approval Readiness / Request-Approval Hardening
+- 021D Draft Send Readiness / Request-Send Hardening
 
 Implemented routes:
 
@@ -246,10 +278,16 @@ Implemented routes:
 - `/api/contacts`
 - `/api/leads`
 - `/api/leads/:id/score`
+- `/api/leads/:id/scores`
+- `/api/leads/:id/generate-draft`
 - `/api/drafts`
+- `/api/drafts/:id/ai-audit`
+- `/api/drafts/:id/approval-readiness`
 - `/api/drafts/:id/request-approval`
+- `/api/drafts/:id/send-readiness`
 - `/api/drafts/:id/request-send`
 - `/api/email-sends`
+- `/api/email-sends/:id`
 - `/api/integrations`
 - `/api/workspace-api-keys`
 - `/api/public/leads`
@@ -291,6 +329,7 @@ Behavior:
 - 019A Background Jobs Outbox Foundation
 - 019B Worker Execution Foundation
 - 019C Worker Ops Hardening
+- 021E Worker Send Execution Hardening
 
 Worker commands:
 
@@ -302,14 +341,26 @@ pnpm --filter @syrantis/api worker:once
 pnpm --filter @syrantis/api worker:run
 ```
 
+Current `send_email` worker behavior:
+
+- processes `background_jobs.send_email`
+- executes provider path only when `email_sends.status = pending`
+- `queued`, `sent`, `failed`, and `cancelled` are idempotent no-op states
+- internal provider moves `pending` to `queued` and completes the job
+- internal provider does not send real email
+- Resend path exists only with explicit `SEND_EMAIL_PROVIDER=resend`
+
 ### AI
 
 - 020A AI Scoring Sandbox
 - 020A-FIX AI scoring schema/token budget fix
 - 020B AI Provider Hardening
 - 020B-FIX prompt/schema/token budget validation
+- 020C AI Scoring Read Model
+- 021A AI Draft Generation Foundation
+- 021B Draft AI Audit Read Model
 
-Current AI scoring model:
+Current AI model:
 
 ```txt
 mistralai/mistral-small-2603
@@ -325,6 +376,10 @@ Current AI guarantees:
 - no mutation of `leads`
 - result stored in `lead_scores`
 - provider audit stored in `ai_runs`
+- draft generation creates `drafts.status = draft`
+- AI audit route is read-only and safe
+- manual drafts return null audit
+- no `email_sends` or `send_email` job from AI draft generation
 - cost tracked in `cost_estimate_micro_usd`
 
 ## Database Security Status
@@ -427,7 +482,11 @@ lead
   ↓
 draft
   ↓
-approval request
+GET /api/drafts/:id/ai-audit
+  ↓
+GET /api/drafts/:id/approval-readiness
+  ↓
+POST /api/drafts/:id/request-approval
   ↓
 human decision
   ↓
@@ -441,19 +500,27 @@ activity_logs
 ```txt
 approved draft
   ↓
-request-send
+GET /api/drafts/:id/send-readiness
+  ↓
+POST /api/drafts/:id/request-send
   ↓
 email_sends.pending
   ↓
 background_jobs.send_email
   ↓
-worker mock queues email_send
+worker
+  ↓
+internal provider: email_sends.queued, job completed, no real email
+  ↓
+resend provider when explicitly configured: external provider path
 ```
 
 Status:
 
-- send_email provider is still mock/internal
-- no Resend real send yet
+- default provider is internal
+- no real external email by default
+- Resend provider exists behind explicit env config
+- send worker is idempotent for non-pending `email_sends`
 
 ### 5. Async Worker Lane
 
@@ -506,7 +573,33 @@ Status:
 - no prompt/output in activity_logs
 - cost tracking in `cost_estimate_micro_usd`
 
-### 7. Future CRM Push-back Lane
+### 7. AI Draft Lane
+
+```txt
+lead
+  ↓
+POST /api/leads/:id/generate-draft
+  ↓
+background_jobs.generate_ai_draft
+  ↓
+worker
+  ↓
+redacted prompt
+  ↓
+OpenRouter
+  ↓
+ai_runs
+  ↓
+drafts.status = draft
+```
+
+Status:
+
+- no email send or approval from AI draft generation
+- no prompt/output in activity_logs
+- manual drafts return null AI audit
+
+### 8. Future CRM Push-back Lane
 
 ```txt
 email sent / task done / approval accepted
@@ -555,34 +648,44 @@ Not implemented yet.
 | 020A-FIX | AI Scoring Prompt/Schema Fix | done |
 | 020B | AI Provider Hardening | done |
 | 020B-FIX | AI Scoring Prompt/Token Budget Fix | done |
-| 020C | AI Scoring Read Model | next |
-| 020D | Resend Provider | planned |
-| 020E | CRM Push-back v1 | planned |
-| 021+ | Native CRM connectors | planned |
+| 020C | AI Scoring Read Model | done |
+| 020D | Resend Provider Integration | done |
+| 021A | AI Draft Generation Foundation | done |
+| 021B | Draft AI Audit Read Model | done |
+| 021C | Draft Approval Readiness / Request-Approval Hardening | done |
+| 021D | Draft Send Readiness / Request-Send Hardening | done |
+| 021E | Worker Send Execution Hardening | done |
+| 021F | Draft Send Status Read Model | next |
+| 021G | Worker Retry / Backoff / Dead Letter | planned |
+| 021H | Resend Real Send Smoke / Ops Guardrails | planned |
+| 022A | Pipeline UI Read Layer | planned |
+| 022B | Email Delivery Events / Webhooks | planned |
+| 022C | CRM Proof Push-back | planned |
 
 ## Current Execution Focus
 
-020C AI Scoring Read Model
+021F Draft Send Status Read Model
 
 Goal:
 
-Expose read-only scoring results through tenant-protected APIs.
+Expose safe read-only send execution status from `email_sends` through a draft-scoped route.
 
-Expected routes:
+Expected route:
 
 ```txt
-GET /api/leads/:id/score
-GET /api/leads/:id/scores
+GET /api/drafts/:id/send-status
 ```
 
 Allowed:
 
-- latest lead score read model
-- lead score history
-- compact ai_run metadata
-- pagination
-- no-score behavior
+- latest send status for draft
+- `hasSend` boolean
+- latest email send status
+- createdAt / updatedAt
+- queued/sent/failed/cancelled timestamps when safe and existing
+- compact failure code when safe
 - cross-workspace 404
+- no-send behavior
 - DTO contracts
 - tests
 - docs
@@ -590,17 +693,20 @@ Allowed:
 Forbidden:
 
 - provider call
-- OpenRouter call
-- scoring trigger
-- mutation of leads
-- prompt_json exposure
-- input_payload/output_payload exposure
-- raw error/output exposure
+- worker execution
+- request-send mutation
+- retry/backoff
+- dead-letter
+- migration unless absolutely required
+- contact email exposure
+- subject/textBody/htmlBody exposure
+- `provider_message_id` exposure unless explicitly justified
+- raw provider response exposure
+- raw error exposure
 - public route
+- public `/api/email-sends/:id/status` unless strongly justified
+- activity_logs on GET
 - UI
-- new worker behavior
-- Resend
-- auto-scoring
 
 ## Development Workflow
 
@@ -622,7 +728,7 @@ git status --short
 Create feature branch:
 
 ```bash
-BRANCH_NAME="feat/020c-ai-scoring-read-model"
+BRANCH_NAME="feat/021f-draft-send-status-read-model"
 
 if git show-ref --verify --quiet "refs/heads/${BRANCH_NAME}"; then
   git checkout "${BRANCH_NAME}"
@@ -706,13 +812,13 @@ pnpm lint
 pnpm build
 ```
 
-Run migrations when the issue has a migration:
+Run migrations only when the issue explicitly adds a migration:
 
 ```bash
 bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter @syrantis/db migrate'
 ```
 
-020C likely has no migration unless implementation needs one.
+Most read-model and worker-hardening issues after 020C/021E have not required migrations, but verify per PR.
 
 Import safety:
 
@@ -809,6 +915,46 @@ order by created_at desc
 limit 10;
 ```
 
+Latest email sends:
+
+```sql
+select id, workspace_id, draft_id, status, provider, created_at, updated_at, sent_at, failed_at
+from email_sends
+order by created_at desc
+limit 10;
+```
+
+Latest send_email jobs:
+
+```sql
+select id, workspace_id, type, status, attempts, completed_at, failed_at, last_error_code, created_at
+from background_jobs
+where type = 'send_email'
+order by created_at desc
+limit 10;
+```
+
+Pending/running jobs:
+
+```sql
+select id, workspace_id, type, status, attempts, run_after, locked_at, locked_by, created_at
+from background_jobs
+where status in ('pending', 'running')
+order by created_at asc
+limit 20;
+```
+
+Send activity log leak check:
+
+```sql
+select id, type
+from activity_logs
+where entity_type = 'email_send'
+  and metadata_json::text ~* '(subject|textBody|htmlBody|provider_message_id|raw|response|@)'
+order by created_at desc
+limit 10;
+```
+
 PII leak check in `prompt_json`:
 
 ```sql
@@ -901,6 +1047,27 @@ Verify:
 - no raw PII in `prompt_json`
 - activity logs compact
 
+## AI Draft / Send Example
+
+1. Login.
+2. Create lead.
+3. `POST /api/leads/:id/generate-draft`.
+4. Run worker once.
+5. `GET /api/drafts/:id/ai-audit`.
+6. `GET /api/drafts/:id/approval-readiness`.
+7. `POST /api/drafts/:id/request-approval`.
+8. Human approves through approvals route.
+9. `GET /api/drafts/:id/send-readiness`.
+10. `POST /api/drafts/:id/request-send`.
+11. Run worker once.
+
+Internal provider verify:
+
+- `email_sends.status = queued`
+- `background_jobs.status = completed`
+- no real external email by default
+- `sent_at` and `provider_message_id` remain null for internal provider
+
 ## Safety Checks
 
 No hard business delete:
@@ -956,7 +1123,7 @@ grep -R "fetch(" apps/api/src --exclude-dir=dist --exclude-dir=node_modules || t
 No provider call in routes:
 
 ```bash
-grep -R "OpenRouterProvider\|fetch(" apps/api/src/routes apps/api/src/services/leads.ts 2>/dev/null || true
+grep -R "OpenRouterProvider\|Resend\|sendEmail\|provider.send\|fetch(" apps/api/src/routes 2>/dev/null || true
 ```
 
 No prompt/output logging:
@@ -968,12 +1135,33 @@ grep -R "console.*prompt\|console.*output\|console.*content\|console.*OPENROUTER
   2>/dev/null || true
 ```
 
+No raw email body logging in worker:
+
+```bash
+grep -R "console.*subject\|console.*textBody\|console.*htmlBody\|console.*toEmail\|console.*fromEmail" \
+  apps/api/src/services/background-worker.ts \
+  apps/api/src/services/email \
+  2>/dev/null || true
+```
+
 No client model/prompt control:
 
 ```bash
 grep -R "prompt.*req\|prompt.*body\|model.*req\|model.*body\|temperature.*req\|maxTokens.*req\|max_tokens.*req" \
   apps/api/src \
   2>/dev/null || true
+```
+
+No public ai-runs route:
+
+```bash
+grep -R "ai-runs\|ai_runs" apps/api/src/routes packages/shared/src/contracts 2>/dev/null || true
+```
+
+No route reading workspaceId from body/query:
+
+```bash
+grep -R "workspaceId.*body\|workspaceId.*query\|workspaceId.*req" apps/api/src/routes 2>/dev/null || true
 ```
 
 No leads mutation in AI modules:
@@ -989,10 +1177,12 @@ grep -R "update(leads)\|set({.*score\|scoreReason" \
 
 Near-term:
 
-- 020C AI Scoring Read Model
-- 020D Resend Provider Integration
-- 020E Email event/webhook hardening
-- 020F CRM Push-back v1
+- 021F Draft Send Status Read Model
+- 021G Worker Retry / Backoff / Dead Letter
+- 021H Resend Real Send Smoke / Ops Guardrails
+- 022A Pipeline UI Read Layer
+- 022B Email Delivery Events / Webhooks
+- 022C CRM Proof Push-back
 
 MVP v1:
 
@@ -1003,13 +1193,21 @@ lead/contact/org normalization
   ↓
 AI scoring
   ↓
-task/draft
+AI draft
   ↓
-approval
+AI audit
   ↓
-send
+approval readiness
   ↓
-logs + CRM push-back
+human approval
+  ↓
+send readiness
+  ↓
+request-send
+  ↓
+worker execution
+  ↓
+logs + future CRM push-back
 ```
 
 Later:
@@ -1146,6 +1344,7 @@ Checks:
 - read models do not expose `prompt_json`
 - read models do not expose `input_payload`
 - read models do not expose raw `output_payload`
+- send readiness/status read models do not expose email bodies or provider raw data
 - error previews are compact
 - PII is not surfaced through DTOs
 
