@@ -18,6 +18,10 @@ import { createDraftRoutes } from "../routes/drafts.js";
 import type { ApprovalService, ApprovalServiceMutationResult } from "../services/approvals.js";
 import type { AuthService } from "../services/auth.js";
 import type {
+  DraftApprovalReadinessService,
+  DraftApprovalReadinessServiceResult,
+} from "../services/draft-approval-readiness.js";
+import type {
   DraftApprovalRequestServiceResult,
   DraftService,
   DraftServiceMutationResult,
@@ -150,11 +154,40 @@ function createTestApp(
     createDraftRoutes({
       authService,
       draftService,
+      draftApprovalReadinessService: createAlwaysReadyDraftApprovalReadinessService(),
     }),
   );
   app.route("/auth", createAuthRoutes({ authService }));
 
   return app;
+}
+
+function createAlwaysReadyDraftApprovalReadinessService(): DraftApprovalReadinessService {
+  return {
+    computeDraftApprovalReadiness: vi.fn(
+      async (_workspaceId: string, draftId: string): Promise<DraftApprovalReadinessServiceResult> => ({
+        result: "ok",
+        readiness: {
+          draftId,
+          status: "ready",
+          canRequestApproval: true,
+          blockerCount: 0,
+          warningCount: 0,
+          checks: [],
+          context: {
+            draftStatus: "draft",
+            channel: "email",
+            hasLead: true,
+            hasSubject: true,
+            hasBody: true,
+            hasContact: true,
+            contactHasEmail: true,
+            isAIGenerated: false,
+          },
+        },
+      }),
+    ),
+  };
 }
 
 function createDraftApprovalTestApp(

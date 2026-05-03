@@ -5,6 +5,7 @@ import {
   ApiErrorSchema,
   CreateDraftInputSchema,
   DraftAiAuditSuccessSchema,
+  DraftApprovalReadinessSuccessSchema,
   DraftApprovalRequestSuccessSchema,
   DraftListQuerySchema,
   DraftListSuccessSchema,
@@ -23,6 +24,11 @@ import {
   type DraftAiAuditService,
   type DraftAiAuditServiceResult,
 } from "../services/draft-ai-audit.js";
+import {
+  createProductionDraftApprovalReadinessService,
+  type DraftApprovalReadinessService,
+  type DraftApprovalReadinessServiceResult,
+} from "../services/draft-approval-readiness.js";
 import {
   createProductionDraftService,
   type DraftApprovalRequestServiceResult,
@@ -68,10 +74,25 @@ const emailSendRecipientMissingResponse = ApiErrorSchema.parse({
   code: "EMAIL_SEND_RECIPIENT_MISSING",
 });
 
+function draftApprovalReadinessBlockedResponse(
+  result: Extract<DraftApprovalReadinessServiceResult, { result: "ok" }>,
+) {
+  return {
+    success: false,
+    error: "Draft approval readiness blocked.",
+    code: "APPROVAL_READINESS_BLOCKED",
+    details: {
+      readiness: result.readiness,
+      checks: result.readiness.checks,
+    },
+  };
+}
+
 export type DraftRoutesDependencies = {
   authService?: AuthService;
   draftService?: DraftService;
   draftAiAuditService?: DraftAiAuditService;
+  draftApprovalReadinessService?: DraftApprovalReadinessService;
   emailSendService?: EmailSendService;
 };
 
@@ -173,6 +194,22 @@ function aiAuditResponse(c: Context<AppEnv>, result: DraftAiAuditServiceResult) 
   );
 }
 
+function approvalReadinessResponse(
+  c: Context<AppEnv>,
+  result: DraftApprovalReadinessServiceResult,
+) {
+  if (result.result === "not_found") {
+    return c.json(draftNotFoundResponse, 404);
+  }
+
+  return c.json(
+    DraftApprovalReadinessSuccessSchema.parse({
+      success: true,
+      data: result.readiness,
+    }),
+  );
+}
+
 export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
   const routes = new Hono<AppEnv>();
   const guard = dependencies.authService
@@ -181,6 +218,9 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
   const draftService = dependencies.draftService ?? createProductionDraftService();
   const draftAiAuditService =
     dependencies.draftAiAuditService ?? createProductionDraftAiAuditService();
+  const draftApprovalReadinessService =
+    dependencies.draftApprovalReadinessService ??
+    createProductionDraftApprovalReadinessService();
   const emailSendService = dependencies.emailSendService ?? createProductionEmailSendService();
 
   routes.use("*", guard);
@@ -242,6 +282,20 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
 
     const result = await draftAiAuditService.getDraftAiAudit(getWorkspaceId(c), draftId);
     return aiAuditResponse(c, result);
+  });
+
+  routes.get("/:id/approval-readiness", async (c) => {
+    const draftId = parseDraftId(c.req.param("id"));
+
+    if (!draftId || hasClientWorkspaceId(c.req.query())) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const result = await draftApprovalReadinessService.computeDraftApprovalReadiness(
+      getWorkspaceId(c),
+      draftId,
+    );
+    return approvalReadinessResponse(c, result);
   });
 
   routes.get("/:id", async (c) => {
@@ -321,6 +375,19 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
 
     if (!parsedBody.success) {
       return c.json(invalidRequestResponse, 400);
+    }
+
+    const readinessResult = await draftApprovalReadinessService.computeDraftApprovalReadiness(
+      getWorkspaceId(c),
+      draftId,
+    );
+
+    if (readinessResult.result === "not_found") {
+      return c.json(draftNotFoundResponse, 404);
+    }
+
+    if (!readinessResult.readiness.canRequestApproval) {
+      return c.json(draftApprovalReadinessBlockedResponse(readinessResult), 409);
     }
 
     const result = await draftService.requestApproval(

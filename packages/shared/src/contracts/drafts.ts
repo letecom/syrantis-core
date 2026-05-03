@@ -131,6 +131,55 @@ export const DraftAiAuditSuccessSchema = z.object({
   data: DraftAiAuditOutputSchema.nullable(),
 });
 
+export const DraftApprovalReadinessCheckCodeSchema = z.enum([
+  "DRAFT_NOT_IN_DRAFT_STATE",
+  "UNSUPPORTED_CHANNEL",
+  "MISSING_LEAD",
+  "EMPTY_SUBJECT",
+  "EMPTY_BODY",
+  "INVALID_CONTACT",
+  "APPROVAL_ALREADY_PENDING",
+  "NO_CONTACT_RECIPIENT",
+  "CONTACT_NO_EMAIL",
+  "AI_RUN_NOT_FOUND",
+  "AI_RUN_INVALID",
+  "SOURCE_SCORE_NOT_FOUND",
+  "AI_DRAFT_METADATA_INVALID",
+  "AI_RUN_FINISH_REASON_WARNING",
+]);
+
+export const DraftApprovalReadinessCheckSchema = z.object({
+  code: DraftApprovalReadinessCheckCodeSchema,
+  severity: z.enum(["blocker", "warning"]),
+  source: z.enum(["draft", "lead", "contact", "ai_audit", "approval"]),
+  message: z.string(),
+  field: z.string().optional(),
+});
+
+export const DraftApprovalReadinessOutputSchema = z.object({
+  draftId: z.string().uuid(),
+  status: z.enum(["ready", "ready_with_warnings", "blocked"]),
+  canRequestApproval: z.boolean(),
+  blockerCount: z.number().int().min(0),
+  warningCount: z.number().int().min(0),
+  checks: z.array(DraftApprovalReadinessCheckSchema),
+  context: z.object({
+    draftStatus: z.string(),
+    channel: z.string(),
+    hasLead: z.boolean(),
+    hasSubject: z.boolean(),
+    hasBody: z.boolean(),
+    hasContact: z.boolean(),
+    contactHasEmail: z.boolean().nullable(),
+    isAIGenerated: z.boolean(),
+  }),
+});
+
+export const DraftApprovalReadinessSuccessSchema = z.object({
+  success: z.literal(true),
+  data: DraftApprovalReadinessOutputSchema,
+});
+
 export const DraftApprovalRequestSuccessSchema = z.object({
   success: z.literal(true),
   data: z.object({
@@ -152,4 +201,12 @@ export type DraftAiAuditWarning = z.infer<typeof DraftAiAuditWarningSchema>;
 export type DraftAiAuditFinishReason = z.infer<typeof DraftAiAuditFinishReasonSchema>;
 export type DraftAiAuditOutput = z.infer<typeof DraftAiAuditOutputSchema>;
 export type DraftAiAuditSuccess = z.infer<typeof DraftAiAuditSuccessSchema>;
+export type DraftApprovalReadinessCheckCode = z.infer<
+  typeof DraftApprovalReadinessCheckCodeSchema
+>;
+export type DraftApprovalReadinessCheck = z.infer<typeof DraftApprovalReadinessCheckSchema>;
+export type DraftApprovalReadinessOutput = z.infer<typeof DraftApprovalReadinessOutputSchema>;
+export type DraftApprovalReadinessSuccess = z.infer<
+  typeof DraftApprovalReadinessSuccessSchema
+>;
 export type DraftApprovalRequestSuccess = z.infer<typeof DraftApprovalRequestSuccessSchema>;
