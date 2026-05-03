@@ -12,9 +12,10 @@
   "scripts": {
     "generate": "drizzle-kit generate --config=drizzle.config.ts",
     "migrate": "tsx src/migrate-cli.ts",
+    "verify-migration-files": "tsx src/verify-migration-files/cli.ts",
     "verify-schema": "tsx src/verify/cli.ts",
     "health": "tsx src/health-cli.ts",
-    "test": "tsx --test src/verify/verifier.test.ts",
+    "test": "tsx --test src/verify/verifier.test.ts src/verify-migration-files/verifier.test.ts src/migrate-cli.test.ts",
     "seed": "echo \"Seed is intentionally a placeholder for Issue 002.\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.json"
