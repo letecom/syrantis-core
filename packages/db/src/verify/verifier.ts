@@ -67,6 +67,34 @@ export async function verifySchemaInvariants(
       continue;
     }
 
+    if (invariant.kind === "check_constraint") {
+      const object = getInvariantObject(invariant);
+      const constraintExists = await catalog.hasCheckConstraint({
+        schema: invariant.schema,
+        table: invariant.table,
+        constraintName: invariant.constraintName
+      });
+
+      if (!constraintExists) {
+        failed.push({
+          migration: invariant.migration,
+          kind: invariant.kind,
+          object,
+          reason: "missing",
+          expected: true,
+          actual: false
+        });
+        continue;
+      }
+
+      passed.push({
+        migration: invariant.migration,
+        kind: invariant.kind,
+        object
+      });
+      continue;
+    }
+
     const object = getInvariantObject(invariant);
     const indexExists = await catalog.hasIndex({
       schema: invariant.schema,
