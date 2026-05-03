@@ -82,6 +82,55 @@ export const DraftListSuccessSchema = z.object({
   data: z.array(DraftOutputSchema),
 });
 
+export const DraftAiAuditWarningSchema = z.enum([
+  "AI_RUN_NOT_FOUND",
+  "AI_RUN_INVALID",
+  "SOURCE_SCORE_NOT_FOUND",
+  "AI_DRAFT_METADATA_INVALID",
+  "AI_RUN_FINISH_REASON_WARNING",
+]);
+
+export const DraftAiAuditFinishReasonSchema = z.enum([
+  "completed",
+  "truncated",
+  "filtered",
+  "unknown",
+]);
+
+export const DraftAiAuditOutputSchema = z.object({
+  draftId: z.string().uuid(),
+  leadId: z.string().uuid(),
+  origin: z.literal("ai_draft_generation"),
+  generatedAt: z.string().datetime(),
+  promptTemplateId: z.string().nullable(),
+  aiRun: z
+    .object({
+      id: z.string().uuid(),
+      status: z.enum(["running", "success", "error", "pending", "cached", "fallback"]),
+      provider: z.string().nullable(),
+      model: z.string().nullable(),
+      finishReason: DraftAiAuditFinishReasonSchema,
+      latencyMs: z.number().int().nullable(),
+      completedAt: z.string().datetime().nullable(),
+    })
+    .nullable(),
+  sourceScore: z
+    .object({
+      id: z.string().uuid(),
+      score: z.number().int().min(0).max(100),
+      qualification: z.enum(["cold", "warm", "hot"]),
+      confidence: z.number().int().min(0).max(100),
+      scoredAt: z.string().datetime(),
+    })
+    .nullable(),
+  warnings: z.array(DraftAiAuditWarningSchema),
+});
+
+export const DraftAiAuditSuccessSchema = z.object({
+  success: z.literal(true),
+  data: DraftAiAuditOutputSchema.nullable(),
+});
+
 export const DraftApprovalRequestSuccessSchema = z.object({
   success: z.literal(true),
   data: z.object({
@@ -99,4 +148,8 @@ export type RequestDraftApprovalInput = z.infer<typeof RequestDraftApprovalInput
 export type DraftOutput = z.infer<typeof DraftOutputSchema>;
 export type DraftSuccess = z.infer<typeof DraftSuccessSchema>;
 export type DraftListSuccess = z.infer<typeof DraftListSuccessSchema>;
+export type DraftAiAuditWarning = z.infer<typeof DraftAiAuditWarningSchema>;
+export type DraftAiAuditFinishReason = z.infer<typeof DraftAiAuditFinishReasonSchema>;
+export type DraftAiAuditOutput = z.infer<typeof DraftAiAuditOutputSchema>;
+export type DraftAiAuditSuccess = z.infer<typeof DraftAiAuditSuccessSchema>;
 export type DraftApprovalRequestSuccess = z.infer<typeof DraftApprovalRequestSuccessSchema>;
