@@ -448,6 +448,38 @@ describe("POST /api/drafts/:id/cancel-send", () => {
     expect(tx.insert).not.toHaveBeenCalled();
   });
 
+  it("cancels a pending retry attempt and pending background job scheduled in the future", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { response, tx } = await requestCancelSend(
+      [
+        [draftRow()],
+        [sendRow("pending", { id: emailSendId, createdAt: new Date("2026-05-01T12:02:00.000Z") })],
+        [jobRow("pending", { scheduledAt: new Date("2026-05-01T12:05:00.000Z") })],
+      ],
+      {
+        updateResponses: [
+          [{ id: emailSendId, updatedAt: new Date("2026-05-01T12:03:00.000Z") }],
+          [{ id: jobId }],
+        ],
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      success: true,
+      data: {
+        emailSendId,
+        previousStatus: "pending",
+        currentStatus: "cancelled",
+        cancelled: true,
+      },
+    });
+    expect(tx.state.updateSets).toEqual([{ status: "cancelled" }, { status: "cancelled" }]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("GET send-status reflects latestSend.status=cancelled after successful cancellation", async () => {
     const tx = createMockTx(
       [

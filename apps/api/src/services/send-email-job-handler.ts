@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { and, eq } from "drizzle-orm";
 
 import { drafts, emailSends } from "@syrantis/db";
@@ -5,14 +7,24 @@ import type { SendEmailJobPayload } from "@syrantis/shared";
 
 import { withWorkspaceDb, type WorkspaceDbTransaction } from "../lib/db.js";
 import { createActivityLog } from "../repositories/activity-logs.js";
+import { rescheduleSendEmailJob, type BackgroundJobRow } from "../repositories/background-jobs.js";
 import { createEmailProvider, type EmailProvider } from "./email/email-provider.js";
 import type { SendEmailProviderInput } from "./email/resend-provider.js";
+import {
+  computeSendBackoffMs,
+  isRetryableSendError,
+  resolveSendRetryConfig,
+  type SendRetryConfig,
+} from "./send-retry-config.js";
 
 export type SendEmailJobHandlerInput = {
   workspaceId: string;
   jobId: string;
   payload: SendEmailJobPayload;
   provider?: EmailProvider;
+  attempts?: number;
+  maxAttempts?: number;
+  retryConfig?: SendRetryConfig;
 };
 
 type PreparedSendEmail =
@@ -25,8 +37,24 @@ type PreparedSendEmail =
   | {
       result: "send";
       emailSendId: string;
+      emailSend: typeof emailSends.$inferSelect;
       providerInput: SendEmailProviderInput;
     };
+
+export type SendEmailJobHandlerResult =
+  | { result: "completed" }
+  | { result: "retry_scheduled"; job: BackgroundJobRow; emailSendId: string };
+
+export class SendEmailRetryScheduledError extends Error {
+  code = "SEND_EMAIL_RETRY_SCHEDULED" as const;
+
+  constructor(
+    public readonly job: BackgroundJobRow,
+    public readonly emailSendId: string,
+  ) {
+    super("SEND_EMAIL_RETRY_SCHEDULED");
+  }
+}
 
 class EmailSendProcessError extends Error {
   constructor(
@@ -153,6 +181,7 @@ async function prepareSendEmail(
   return {
     result: "send",
     emailSendId: emailSend.id,
+    emailSend,
     providerInput: {
       emailSendId: emailSend.id,
       to: emailSend.toEmail,
@@ -218,6 +247,7 @@ async function persistSendFailure(input: {
   emailSendId: string;
   provider: "resend";
   error: unknown;
+  createLog: boolean;
 }): Promise<boolean> {
   const errorType = resolveProviderErrorCode(input.error);
   const statusCode = resolveProviderStatusCode(input.error);
@@ -245,27 +275,118 @@ async function persistSendFailure(input: {
       return false;
     }
 
-    await createActivityLog(tx, {
-      workspaceId: input.workspaceId,
-      actorUserId: null,
-      action: "email_send.failed",
-      entityType: "email_send",
-      entityId: input.emailSendId,
-      metadataJson: {
-        emailSendId: input.emailSendId,
-        provider: input.provider,
-        errorType,
-        ...(statusCode ? { statusCode } : {}),
-      },
-    });
+    if (input.createLog) {
+      await createActivityLog(tx, {
+        workspaceId: input.workspaceId,
+        actorUserId: null,
+        action: "email_send.failed",
+        entityType: "email_send",
+        entityId: input.emailSendId,
+        metadataJson: {
+          emailSendId: input.emailSendId,
+          provider: input.provider,
+          errorType,
+          ...(statusCode ? { statusCode } : {}),
+        },
+      });
+    }
 
     return true;
   });
 }
 
-export async function handleSendEmailJob(input: SendEmailJobHandlerInput): Promise<void> {
+async function persistRetryableFailureAndScheduleRetry(input: {
+  workspaceId: string;
+  jobId: string;
+  attempts: number;
+  currentEmailSend: typeof emailSends.$inferSelect;
+  provider: "resend";
+  error: unknown;
+  retryConfig: SendRetryConfig;
+}): Promise<{ job: BackgroundJobRow; emailSendId: string }> {
+  const errorType = resolveProviderErrorCode(input.error);
+  const backoffMs = computeSendBackoffMs({
+    attempt: input.attempts,
+    config: input.retryConfig,
+  });
+  const scheduledAt = new Date(Date.now() + backoffMs);
+
+  return withWorkspaceDb(input.workspaceId, async (tx) => {
+    const [failedEmailSend] = await tx
+      .update(emailSends)
+      .set({
+        status: "failed",
+        provider: input.provider,
+        failedAt: new Date(),
+        lastErrorCode: errorType,
+        lastErrorMessage: errorType,
+      })
+      .where(
+        and(
+          eq(emailSends.id, input.currentEmailSend.id),
+          eq(emailSends.workspaceId, input.workspaceId),
+          eq(emailSends.status, "pending"),
+        ),
+      )
+      .returning();
+
+    if (!failedEmailSend) {
+      throw new Error("EMAIL_SEND_NOT_FOUND");
+    }
+
+    const [retryEmailSend] = await tx
+      .insert(emailSends)
+      .values({
+        workspaceId: input.currentEmailSend.workspaceId,
+        approvalId: input.currentEmailSend.approvalId,
+        draftId: input.currentEmailSend.draftId,
+        leadId: input.currentEmailSend.leadId,
+        contactId: input.currentEmailSend.contactId,
+        fromEmail: input.currentEmailSend.fromEmail,
+        toEmail: input.currentEmailSend.toEmail,
+        replyToEmail: input.currentEmailSend.replyToEmail,
+        subject: input.currentEmailSend.subject,
+        textBody: input.currentEmailSend.textBody,
+        htmlBody: input.currentEmailSend.htmlBody,
+        provider: input.currentEmailSend.provider,
+        idempotencyKey: `retry_send:${input.currentEmailSend.id}:${randomUUID()}`,
+        approvalCheckedAt: input.currentEmailSend.approvalCheckedAt,
+        suppressionCheckedAt: input.currentEmailSend.suppressionCheckedAt,
+        attemptCount: input.currentEmailSend.attemptCount + 1,
+        status: "pending",
+        metadataJson: {
+          ...input.currentEmailSend.metadataJson,
+          retryOfEmailSendId: input.currentEmailSend.id,
+          retryAttempt: input.attempts + 1,
+        },
+      })
+      .returning();
+
+    if (!retryEmailSend) {
+      throw new Error("EMAIL_SEND_RETRY_CREATE_FAILED");
+    }
+
+    const job = await rescheduleSendEmailJob(tx, {
+      workspaceId: input.workspaceId,
+      jobId: input.jobId,
+      emailSendId: retryEmailSend.id,
+      scheduledAt,
+      errorCode: errorType,
+      errorMessage: errorType,
+    });
+
+    return { job, emailSendId: retryEmailSend.id };
+  });
+}
+
+export async function handleSendEmailJob(
+  input: SendEmailJobHandlerInput,
+): Promise<SendEmailJobHandlerResult> {
   const provider = input.provider ?? createEmailProvider();
   let prepared: PreparedSendEmail | null = null;
+  const retryConfig = input.retryConfig ?? resolveSendRetryConfig();
+  const attempts = input.attempts ?? 1;
+  const maxAttempts = input.maxAttempts ?? 1;
 
   try {
     prepared = await withWorkspaceDb(input.workspaceId, async (tx) =>
@@ -277,7 +398,7 @@ export async function handleSendEmailJob(input: SendEmailJobHandlerInput): Promi
     );
 
     if (prepared.result !== "send") {
-      return;
+      return { result: "completed" };
     }
 
     const result = await provider.send(prepared.providerInput);
@@ -288,13 +409,29 @@ export async function handleSendEmailJob(input: SendEmailJobHandlerInput): Promi
       provider: result.provider,
       messageId: result.messageId,
     });
+    return { result: "completed" };
   } catch (error) {
     if (prepared?.result === "send" && provider.mode === "resend") {
+      if (isRetryableSendError(error) && attempts < Math.min(maxAttempts, retryConfig.maxAttempts)) {
+        const scheduled = await persistRetryableFailureAndScheduleRetry({
+          workspaceId: input.workspaceId,
+          jobId: input.jobId,
+          attempts,
+          currentEmailSend: prepared.emailSend,
+          provider: "resend",
+          error,
+          retryConfig,
+        });
+
+        throw new SendEmailRetryScheduledError(scheduled.job, scheduled.emailSendId);
+      }
+
       await persistSendFailure({
         workspaceId: input.workspaceId,
         emailSendId: prepared.emailSendId,
         provider: "resend",
         error,
+        createLog: true,
       });
 
       throw new Error(resolveProviderErrorCode(error));
@@ -304,6 +441,7 @@ export async function handleSendEmailJob(input: SendEmailJobHandlerInput): Promi
         emailSendId: error.emailSendId,
         provider: "resend",
         error,
+        createLog: true,
       });
     }
 

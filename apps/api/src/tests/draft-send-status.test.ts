@@ -250,6 +250,37 @@ describe("GET /api/drafts/:id/send-status", () => {
     expect(tx.state.orderByCalls.at(-1)).toHaveLength(2);
   });
 
+  it("returns the newest retry email send row after retry scheduling", async () => {
+    const failedAttempt = sendRow("failed", {
+      id: "00000000-0000-4000-8000-000000021f36",
+      createdAt: new Date("2026-05-01T12:00:00.000Z"),
+      updatedAt: new Date("2026-05-01T12:00:05.000Z"),
+      failedAt: new Date("2026-05-01T12:00:05.000Z"),
+      lastErrorCode: "EMAIL_PROVIDER_HTTP_ERROR",
+    });
+    const retryAttempt = sendRow("pending", {
+      id: "00000000-0000-4000-8000-000000021f37",
+      createdAt: new Date("2026-05-01T12:00:06.000Z"),
+      updatedAt: new Date("2026-05-01T12:00:06.000Z"),
+    });
+    const { response } = await requestSendStatus([[draftRow()], [retryAttempt, failedAttempt]]);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      success: true,
+      data: {
+        draftId,
+        hasSend: true,
+        latestSend: {
+          status: "pending",
+          requestedAt: "2026-05-01T12:00:06.000Z",
+          updatedAt: "2026-05-01T12:00:06.000Z",
+          errorCode: null,
+        },
+      },
+    });
+  });
+
   it("returns 404 for a non-existent draft", async () => {
     const { response, tx } = await requestSendStatus([[]], missingDraftId);
 

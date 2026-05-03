@@ -542,6 +542,7 @@ export const backgroundJobs = pgTable(
     attempts: integer("attempts").notNull().default(0),
     maxAttempts: integer("max_attempts").notNull().default(3),
     runAfter: timestamp("run_after", { withTimezone: true }).notNull().defaultNow(),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
     lockedAt: timestamp("locked_at", { withTimezone: true }),
     lockedBy: varchar("locked_by", { length: 255 }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -563,6 +564,9 @@ export const backgroundJobs = pgTable(
     index("background_jobs_type_idx").on(table.type),
     index("background_jobs_run_after_idx").on(table.runAfter),
     index("background_jobs_poll_idx").on(table.status, table.runAfter, table.lockedAt),
+    index("background_jobs_pending_send_email_scheduled_at_idx")
+      .on(table.type, table.scheduledAt, table.createdAt)
+      .where(sql`${table.status} = 'pending' AND ${table.type} = 'send_email'`),
     index("background_jobs_created_at_idx").on(table.createdAt)
   ]
 );

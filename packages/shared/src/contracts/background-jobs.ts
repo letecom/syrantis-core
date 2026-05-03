@@ -31,6 +31,7 @@ export const BackgroundJobOutputSchema = z.object({
   attempts: z.number().int().min(0),
   maxAttempts: z.number().int().min(1),
   runAfter: z.string(),
+  scheduledAt: z.string().nullable(),
   lockedAt: z.string().nullable(),
   lockedBy: z.string().nullable(),
   completedAt: z.string().nullable(),
