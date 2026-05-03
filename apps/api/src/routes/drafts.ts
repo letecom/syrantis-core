@@ -4,6 +4,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
   ApiErrorSchema,
   CreateDraftInputSchema,
+  DraftAiAuditSuccessSchema,
   DraftApprovalRequestSuccessSchema,
   DraftListQuerySchema,
   DraftListSuccessSchema,
@@ -17,6 +18,11 @@ import {
 import { getWorkspaceId } from "../lib/tenant.js";
 import { createTenantGuard, tenantGuard } from "../middleware/tenant.js";
 import type { AuthService } from "../services/auth.js";
+import {
+  createProductionDraftAiAuditService,
+  type DraftAiAuditService,
+  type DraftAiAuditServiceResult,
+} from "../services/draft-ai-audit.js";
 import {
   createProductionDraftService,
   type DraftApprovalRequestServiceResult,
@@ -65,6 +71,7 @@ const emailSendRecipientMissingResponse = ApiErrorSchema.parse({
 export type DraftRoutesDependencies = {
   authService?: AuthService;
   draftService?: DraftService;
+  draftAiAuditService?: DraftAiAuditService;
   emailSendService?: EmailSendService;
 };
 
@@ -153,12 +160,27 @@ function emailSendRequestResponse(c: Context<AppEnv>, result: EmailSendRequestSe
   );
 }
 
+function aiAuditResponse(c: Context<AppEnv>, result: DraftAiAuditServiceResult) {
+  if (result.result === "not_found") {
+    return c.json(draftNotFoundResponse, 404);
+  }
+
+  return c.json(
+    DraftAiAuditSuccessSchema.parse({
+      success: true,
+      data: result.audit,
+    }),
+  );
+}
+
 export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
   const routes = new Hono<AppEnv>();
   const guard = dependencies.authService
     ? createTenantGuard(dependencies.authService)
     : tenantGuard;
   const draftService = dependencies.draftService ?? createProductionDraftService();
+  const draftAiAuditService =
+    dependencies.draftAiAuditService ?? createProductionDraftAiAuditService();
   const emailSendService = dependencies.emailSendService ?? createProductionEmailSendService();
 
   routes.use("*", guard);
@@ -209,6 +231,17 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
       parsedBody.data,
     );
     return mutationResponse(c, result, 201);
+  });
+
+  routes.get("/:id/ai-audit", async (c) => {
+    const draftId = parseDraftId(c.req.param("id"));
+
+    if (!draftId || hasClientWorkspaceId(c.req.query())) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const result = await draftAiAuditService.getDraftAiAudit(getWorkspaceId(c), draftId);
+    return aiAuditResponse(c, result);
   });
 
   routes.get("/:id", async (c) => {
