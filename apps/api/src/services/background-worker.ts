@@ -30,19 +30,28 @@ function resolveErrorCode(error: unknown): string {
     return "INVALID_JOB_PAYLOAD";
   }
 
+  if (
+    error instanceof Error &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    /^[A-Z0-9_:-]+$/.test(error.code.trim())
+  ) {
+    return error.code.trim().slice(0, 120) || "BACKGROUND_JOB_FAILED";
+  }
+
   if (error instanceof Error && error.message) {
-    return error.message.trim().slice(0, 120) || "BACKGROUND_JOB_FAILED";
+    const message = error.message.trim();
+
+    if (/^[A-Z0-9_:-]+$/.test(message)) {
+      return message.slice(0, 120) || "BACKGROUND_JOB_FAILED";
+    }
   }
 
   return "BACKGROUND_JOB_FAILED";
 }
 
 function resolveErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) {
-    return error.message.trim().slice(0, 500);
-  }
-
-  return "Background job failed.";
+  return resolveErrorCode(error);
 }
 
 export async function processNextBackgroundJob(

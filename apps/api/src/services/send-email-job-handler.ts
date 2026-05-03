@@ -16,7 +16,11 @@ export type SendEmailJobHandlerInput = {
 };
 
 type PreparedSendEmail =
-  | { result: "already_sent"; emailSendId: string }
+  | {
+      result: "noop";
+      emailSendId: string;
+      status: "queued" | "sent" | "failed" | "cancelled";
+    }
   | { result: "internal_queued"; emailSendId: string }
   | {
       result: "send";
@@ -34,12 +38,13 @@ class EmailSendProcessError extends Error {
 }
 
 function resolveProviderErrorCode(error: unknown): string {
-  if (error instanceof Error && "code" in error && typeof error.code === "string") {
+  if (
+    error instanceof Error &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    /^[A-Z0-9_:-]+$/.test(error.code.trim())
+  ) {
     return error.code.trim().slice(0, 120) || "EMAIL_SEND_FAILED";
-  }
-
-  if (error instanceof Error && error.message) {
-    return error.message.trim().slice(0, 120) || "EMAIL_SEND_FAILED";
   }
 
   return "EMAIL_SEND_FAILED";
@@ -96,15 +101,16 @@ async function prepareSendEmail(
     throw new Error("EMAIL_SEND_NOT_FOUND");
   }
 
-  if (emailSend.status === "sent") {
-    return { result: "already_sent", emailSendId: emailSend.id };
+  if (
+    emailSend.status === "queued" ||
+    emailSend.status === "sent" ||
+    emailSend.status === "failed" ||
+    emailSend.status === "cancelled"
+  ) {
+    return { result: "noop", emailSendId: emailSend.id, status: emailSend.status };
   }
 
-  if (emailSend.status === "failed") {
-    throw new Error("EMAIL_SEND_ALREADY_FAILED");
-  }
-
-  if (emailSend.status !== "pending" && emailSend.status !== "queued") {
+  if (emailSend.status !== "pending") {
     throw new EmailSendProcessError("EMAIL_SEND_INVALID_STATUS", emailSend.id);
   }
 
@@ -125,11 +131,17 @@ async function prepareSendEmail(
         .set({
           status: "queued",
         })
-        .where(and(eq(emailSends.id, emailSend.id), eq(emailSends.workspaceId, input.workspaceId)))
+        .where(
+          and(
+            eq(emailSends.id, emailSend.id),
+            eq(emailSends.workspaceId, input.workspaceId),
+            eq(emailSends.status, "pending"),
+          ),
+        )
         .returning();
 
       if (!updatedEmailSend) {
-        throw new Error("EMAIL_SEND_NOT_FOUND");
+        return { result: "noop", emailSendId: emailSend.id, status: "queued" };
       }
     }
 
@@ -158,8 +170,8 @@ async function persistSendSuccess(input: {
   emailSendId: string;
   provider: "resend";
   messageId: string;
-}) {
-  await withWorkspaceDb(input.workspaceId, async (tx) => {
+}): Promise<boolean> {
+  return withWorkspaceDb(input.workspaceId, async (tx) => {
     const [updatedEmailSend] = await tx
       .update(emailSends)
       .set({
@@ -171,11 +183,17 @@ async function persistSendSuccess(input: {
         lastErrorCode: null,
         lastErrorMessage: null,
       })
-      .where(and(eq(emailSends.id, input.emailSendId), eq(emailSends.workspaceId, input.workspaceId)))
+      .where(
+        and(
+          eq(emailSends.id, input.emailSendId),
+          eq(emailSends.workspaceId, input.workspaceId),
+          eq(emailSends.status, "pending"),
+        ),
+      )
       .returning();
 
     if (!updatedEmailSend) {
-      throw new Error("EMAIL_SEND_NOT_FOUND");
+      return false;
     }
 
     await createActivityLog(tx, {
@@ -190,6 +208,8 @@ async function persistSendSuccess(input: {
         messageId: input.messageId,
       },
     });
+
+    return true;
   });
 }
 
@@ -198,11 +218,11 @@ async function persistSendFailure(input: {
   emailSendId: string;
   provider: "resend";
   error: unknown;
-}) {
+}): Promise<boolean> {
   const errorType = resolveProviderErrorCode(input.error);
   const statusCode = resolveProviderStatusCode(input.error);
 
-  await withWorkspaceDb(input.workspaceId, async (tx) => {
+  return withWorkspaceDb(input.workspaceId, async (tx) => {
     const [updatedEmailSend] = await tx
       .update(emailSends)
       .set({
@@ -212,11 +232,17 @@ async function persistSendFailure(input: {
         lastErrorCode: errorType,
         lastErrorMessage: errorType,
       })
-      .where(and(eq(emailSends.id, input.emailSendId), eq(emailSends.workspaceId, input.workspaceId)))
+      .where(
+        and(
+          eq(emailSends.id, input.emailSendId),
+          eq(emailSends.workspaceId, input.workspaceId),
+          eq(emailSends.status, "pending"),
+        ),
+      )
       .returning();
 
     if (!updatedEmailSend) {
-      throw new Error("EMAIL_SEND_NOT_FOUND");
+      return false;
     }
 
     await createActivityLog(tx, {
@@ -232,6 +258,8 @@ async function persistSendFailure(input: {
         ...(statusCode ? { statusCode } : {}),
       },
     });
+
+    return true;
   });
 }
 
@@ -268,6 +296,8 @@ export async function handleSendEmailJob(input: SendEmailJobHandlerInput): Promi
         provider: "resend",
         error,
       });
+
+      throw new Error(resolveProviderErrorCode(error));
     } else if (error instanceof EmailSendProcessError && provider.mode === "resend") {
       await persistSendFailure({
         workspaceId: input.workspaceId,

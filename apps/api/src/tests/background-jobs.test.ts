@@ -191,7 +191,7 @@ function createEmailSendTx(initialStatus: string) {
     status: "approved",
   };
   const updates: Record<string, unknown>[] = [];
-  const selectResponses = [[emailSend], [draft]];
+  const selectResponses = [[emailSend], [draft], [emailSend], [draft]];
 
   const tx = {
     select: vi.fn(() => createSelectBuilder(selectResponses.shift() ?? [])),
@@ -548,7 +548,7 @@ describe("send_email job handler", () => {
       mode: "resend" as const,
       send: vi.fn(),
     };
-    const { handleSendEmailJob } = await importSendEmailHandlerWithTx(harness);
+    const { activityLogs, handleSendEmailJob } = await importSendEmailHandlerWithTx(harness);
 
     await handleSendEmailJob({
       workspaceId: testUser.workspaceId,
@@ -559,6 +559,59 @@ describe("send_email job handler", () => {
 
     expect(provider.send).not.toHaveBeenCalled();
     expect(harness.updates).toEqual([]);
+    expect(activityLogs).toEqual([]);
+  });
+
+  it.each(["queued", "failed", "cancelled"] as const)(
+    "handler.send_email.%s completes without calling provider or logging",
+    async (status) => {
+      const harness = createEmailSendTx(status);
+      const provider = {
+        mode: "resend" as const,
+        send: vi.fn(),
+      };
+      const { activityLogs, handleSendEmailJob } = await importSendEmailHandlerWithTx(harness);
+
+      await handleSendEmailJob({
+        workspaceId: testUser.workspaceId,
+        jobId,
+        payload: { emailSendId },
+        provider,
+      });
+
+      expect(provider.send).not.toHaveBeenCalled();
+      expect(harness.emailSend.status).toBe(status);
+      expect(harness.updates).toEqual([]);
+      expect(activityLogs).toEqual([]);
+    },
+  );
+
+  it("handler.send_email.resend_idempotent_second_run does not call provider twice or duplicate logs", async () => {
+    const harness = createEmailSendTx("pending");
+    const provider = {
+      mode: "resend" as const,
+      send: vi.fn(async () => ({
+        provider: "resend" as const,
+        messageId: "resend-message-1",
+      })),
+    };
+    const { activityLogs, handleSendEmailJob } = await importSendEmailHandlerWithTx(harness);
+
+    await handleSendEmailJob({
+      workspaceId: testUser.workspaceId,
+      jobId,
+      payload: { emailSendId },
+      provider,
+    });
+    await handleSendEmailJob({
+      workspaceId: testUser.workspaceId,
+      jobId,
+      payload: { emailSendId },
+      provider,
+    });
+
+    expect(provider.send).toHaveBeenCalledTimes(1);
+    expect(activityLogs.filter((log) => log.action === "email_send.sent")).toHaveLength(1);
   });
 
   it("handler.send_email.draft_unapproved fails before provider call", async () => {
@@ -619,8 +672,40 @@ describe("send_email job handler", () => {
         },
       }),
     ]);
+    const serializedLogs = JSON.stringify(activityLogs);
+    expect(serializedLogs).not.toContain("client@example.com");
+    expect(serializedLogs).not.toContain("Stored snapshot");
+    expect(serializedLogs).not.toContain("Stored body");
+    expect(serializedLogs).not.toContain("raw");
+  });
+
+  it("handler.send_email.resend_failure sanitizes arbitrary provider errors", async () => {
+    const harness = createEmailSendTx("pending");
+    const provider = {
+      mode: "resend" as const,
+      send: vi.fn(async () => {
+        throw new Error("client@example.com Stored snapshot Stored body RESEND_API_KEY");
+      }),
+    };
+    const { activityLogs, handleSendEmailJob } = await importSendEmailHandlerWithTx(harness);
+
+    await expect(
+      handleSendEmailJob({
+        workspaceId: testUser.workspaceId,
+        jobId,
+        payload: { emailSendId },
+        provider,
+      }),
+    ).rejects.toThrow("EMAIL_SEND_FAILED");
+
+    expect(harness.emailSend.status).toBe("failed");
+    expect(harness.emailSend.lastErrorCode).toBe("EMAIL_SEND_FAILED");
+    expect(harness.emailSend.lastErrorMessage).toBe("EMAIL_SEND_FAILED");
+    expect(JSON.stringify(activityLogs)).toContain("EMAIL_SEND_FAILED");
+    expect(JSON.stringify(activityLogs)).not.toContain("client@example.com");
     expect(JSON.stringify(activityLogs)).not.toContain("Stored snapshot");
     expect(JSON.stringify(activityLogs)).not.toContain("Stored body");
+    expect(JSON.stringify(activityLogs)).not.toContain("RESEND_API_KEY");
   });
 });
 
@@ -773,6 +858,27 @@ describe("background worker service", () => {
       worker.emailTx.tx,
       expect.objectContaining({
         errorCode: "AI_OUTPUT_INVALID_JSON",
+      }),
+    );
+  });
+
+  it("processNext sanitizes arbitrary handler failure messages", async () => {
+    const worker = await importWorkerWithMocks({
+      claimedJob: jobRow({
+        type: "score_lead",
+        payloadJson: { leadId },
+      }),
+      scoreHandlerError: "client@example.com Stored snapshot Stored body RESEND_API_KEY",
+    });
+
+    const result = await worker.processNextBackgroundJob({ workerId });
+
+    expect(result).toMatchObject({ status: "failed", errorCode: "BACKGROUND_JOB_FAILED" });
+    expect(worker.failBackgroundJob).toHaveBeenCalledWith(
+      worker.emailTx.tx,
+      expect.objectContaining({
+        errorCode: "BACKGROUND_JOB_FAILED",
+        errorMessage: "BACKGROUND_JOB_FAILED",
       }),
     );
   });
