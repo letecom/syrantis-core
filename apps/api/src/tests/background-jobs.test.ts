@@ -285,6 +285,14 @@ describe("Resend email provider", () => {
     vi.resetModules();
   });
 
+  it("resend.provider.test_environment_isolation clears ambient email provider env", () => {
+    expect(process.env.SEND_EMAIL_PROVIDER).toBeUndefined();
+    expect(process.env.RESEND_API_KEY).toBeUndefined();
+    expect(process.env.RESEND_TO_ALLOWLIST).toBeUndefined();
+    expect(process.env.RESEND_FROM_EMAIL).toBeUndefined();
+    expect(process.env.RESEND_REPLY_TO).toBeUndefined();
+  });
+
   it("resend.provider.success returns messageId", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => resendResponse()));
     const { ResendProvider } = await import("../services/email/resend-provider.js");
@@ -427,6 +435,27 @@ describe("Resend email provider", () => {
       new ResendProvider({
         apiKey: "test-key",
         allowlist: "allowed@example.com",
+        retryDelayMs: { rateLimit: 0, server: 0 },
+      }).send({
+        emailSendId,
+        to: "client@example.com",
+        from: "Syrantis <noreply@send.syrantis.fr>",
+        subject: "Subject",
+        text: "Body",
+      }),
+    ).rejects.toThrow(EmailRecipientNotAllowedError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("resend.allowlist.env_reject still works when intentionally configured", async () => {
+    vi.stubEnv("RESEND_TO_ALLOWLIST", "allowed@example.test");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { EmailRecipientNotAllowedError, ResendProvider } = await import("../services/email/resend-provider.js");
+
+    await expect(
+      new ResendProvider({
+        apiKey: "test-key",
         retryDelayMs: { rateLimit: 0, server: 0 },
       }).send({
         emailSendId,
