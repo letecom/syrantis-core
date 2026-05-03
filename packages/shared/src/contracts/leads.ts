@@ -93,6 +93,14 @@ export const LeadScoreRequestSuccessSchema = z.object({
   })
 });
 
+export const LeadDraftGenerationRequestSuccessSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    jobId: z.string().uuid(),
+    leadId: z.string().uuid()
+  })
+});
+
 export type LeadStatus = z.infer<typeof LeadStatusSchema>;
 export type LeadSource = z.infer<typeof LeadSourceSchema>;
 export type CreateLeadInput = z.infer<typeof CreateLeadInputSchema>;
@@ -102,3 +110,4 @@ export type LeadOutput = z.infer<typeof LeadOutputSchema>;
 export type LeadSuccess = z.infer<typeof LeadSuccessSchema>;
 export type LeadListSuccess = z.infer<typeof LeadListSuccessSchema>;
 export type LeadScoreRequestSuccess = z.infer<typeof LeadScoreRequestSuccessSchema>;
+export type LeadDraftGenerationRequestSuccess = z.infer<typeof LeadDraftGenerationRequestSuccessSchema>;

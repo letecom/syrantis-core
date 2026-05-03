@@ -1,7 +1,11 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { backgroundJobs } from "@syrantis/db";
-import type { ScoreLeadJobPayload, SendEmailJobPayload } from "@syrantis/shared";
+import type {
+  GenerateAiDraftJobPayload,
+  ScoreLeadJobPayload,
+  SendEmailJobPayload,
+} from "@syrantis/shared";
 
 import type { WorkspaceDbTransaction } from "../lib/db.js";
 import { getWorkerDbClient } from "../lib/worker-db.js";
@@ -18,6 +22,17 @@ export type EnqueueScoreLeadJobInput = {
   workspaceId: string;
   leadId: string;
   runAfter?: Date;
+};
+
+export type EnqueueGenerateAiDraftJobInput = {
+  workspaceId: string;
+  leadId: string;
+  runAfter?: Date;
+};
+
+export type FindActiveGenerateAiDraftJobInput = {
+  workspaceId: string;
+  leadId: string;
 };
 
 export type ClaimNextBackgroundJobInput = {
@@ -131,6 +146,52 @@ export async function enqueueScoreLeadJob(
 
   if (!job) {
     throw new Error("Failed to enqueue score_lead job.");
+  }
+
+  return job;
+}
+
+export async function findActiveGenerateAiDraftJob(
+  tx: WorkspaceDbTransaction,
+  input: FindActiveGenerateAiDraftJobInput,
+): Promise<BackgroundJobRow | null> {
+  const [job] = await tx
+    .select()
+    .from(backgroundJobs)
+    .where(
+      and(
+        eq(backgroundJobs.workspaceId, input.workspaceId),
+        eq(backgroundJobs.type, "generate_ai_draft"),
+        inArray(backgroundJobs.status, ["pending", "running"]),
+        sql`${backgroundJobs.payloadJson}->>'leadId' = ${input.leadId}`,
+      ),
+    )
+    .limit(1);
+
+  return job ?? null;
+}
+
+export async function enqueueGenerateAiDraftJob(
+  tx: WorkspaceDbTransaction,
+  input: EnqueueGenerateAiDraftJobInput,
+): Promise<BackgroundJobRow> {
+  const payload: GenerateAiDraftJobPayload = {
+    leadId: input.leadId,
+  };
+
+  const [job] = await tx
+    .insert(backgroundJobs)
+    .values({
+      workspaceId: input.workspaceId,
+      type: "generate_ai_draft",
+      payloadJson: payload,
+      status: "pending",
+      runAfter: input.runAfter ?? new Date(),
+    })
+    .returning();
+
+  if (!job) {
+    throw new Error("Failed to enqueue generate_ai_draft job.");
   }
 
   return job;

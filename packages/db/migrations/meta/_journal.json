@@ -99,6 +99,13 @@
       "when": 1778068800000,
       "tag": "0013_ai_provider_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1778155200000,
+      "tag": "0014_generate_ai_draft_job_type",
+      "breakpoints": true
     }
   ]
 }

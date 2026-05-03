@@ -2,6 +2,7 @@ export type AiCompletionInput = {
   model: string;
   messages: Array<{ role: "system" | "user"; content: string }>;
   maxTokens: number;
+  lengthRetryMaxTokens?: number;
   temperature: number;
   timeoutMs: number;
 };

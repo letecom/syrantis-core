@@ -8,7 +8,7 @@ import {
 import type { AiCompletionInput, AiCompletionOutput, AiProvider } from "./providers.js";
 
 const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
-const PROVIDER_TIMEOUT_MS = 15_000;
+const DEFAULT_PROVIDER_TIMEOUT_MS = 15_000;
 const MAX_RETRYABLE_ATTEMPTS = 2;
 
 const OpenRouterResponseSchema = z.object({
@@ -74,9 +74,10 @@ async function executeOpenRouterRequest(input: {
   messages: AiCompletionInput["messages"];
   maxTokens: number;
   temperature: number;
+  timeoutMs: number;
 }): Promise<Response> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
 
   try {
     return await fetch(OPENROUTER_ENDPOINT, {
@@ -113,6 +114,7 @@ async function requestWithRetry(input: {
   messages: AiCompletionInput["messages"];
   maxTokens: number;
   temperature: number;
+  timeoutMs: number;
 }): Promise<Response> {
   let lastError: unknown = null;
 
@@ -188,6 +190,7 @@ export class OpenRouterProvider implements AiProvider {
       messages: input.messages,
       maxTokens: input.maxTokens,
       temperature: input.temperature,
+      timeoutMs: input.timeoutMs || DEFAULT_PROVIDER_TIMEOUT_MS,
     });
 
     if (!firstResponse.ok) {
@@ -202,8 +205,9 @@ export class OpenRouterProvider implements AiProvider {
         apiKey,
         model,
         messages: input.messages,
-        maxTokens: input.maxTokens * 2,
+        maxTokens: input.lengthRetryMaxTokens ?? input.maxTokens * 2,
         temperature: input.temperature,
+        timeoutMs: input.timeoutMs || DEFAULT_PROVIDER_TIMEOUT_MS,
       });
 
       if (!secondResponse.ok) {
