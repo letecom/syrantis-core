@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "create-founder": "tsx src/cli/create-founder.ts",
+    "verify:sheets-sandbox": "tsx src/scripts/verify-sheets-sandbox.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
@@ -22,6 +23,7 @@
     "@syrantis/shared": "workspace:*",
     "bcryptjs": "^2.4.3",
     "drizzle-orm": "^0.36.4",
+    "google-auth-library": "^10.6.2",
     "hono": "^4.6.10",
     "svix": "^1.92.2",
     "zod": "^3.23.8"
