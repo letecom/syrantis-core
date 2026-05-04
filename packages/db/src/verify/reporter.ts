@@ -39,5 +39,17 @@ function formatFailure(failure: SchemaInvariantFailure): string {
     return `column type mismatch: ${failure.object} expected=${failure.expected} actual=${failure.actual}`;
   }
 
-  return `column nullability mismatch: ${failure.object} expected=${failure.expected} actual=${failure.actual}`;
+  if (failure.reason === "nullability_mismatch") {
+    return `column nullability mismatch: ${failure.object} expected=${failure.expected} actual=${failure.actual}`;
+  }
+
+  if (failure.reason === "rls_disabled") {
+    return `RLS disabled: ${failure.object}`;
+  }
+
+  if (failure.reason === "rls_force_disabled") {
+    return `FORCE RLS disabled: ${failure.object}`;
+  }
+
+  return `missing RLS policy: ${failure.object} expected=${failure.expected}`;
 }
