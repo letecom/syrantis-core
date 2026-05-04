@@ -2,7 +2,32 @@ import type { MigrationId, SchemaInvariant } from "./types.js";
 
 const defaultSchema = "public";
 
+const rlsTenantInvariants = [
+  ["0005", "organizations", "tenant_isolation_organizations"],
+  ["0005", "contacts", "tenant_isolation_contacts"],
+  ["0005", "leads", "tenant_isolation_leads"],
+  ["0005", "tasks", "tenant_isolation_tasks"],
+  ["0005", "approvals", "tenant_isolation_approvals"],
+  ["0005", "activity_logs", "tenant_isolation_activity_logs"],
+  ["0006", "external_connections", "tenant_isolation_external_connections"],
+  ["0006", "external_object_mappings", "tenant_isolation_external_object_mappings"],
+  ["0006", "integration_events", "tenant_isolation_integration_events"],
+  ["0007", "workspace_api_keys", "tenant_isolation_workspace_api_keys"],
+  ["0009", "drafts", "tenant_isolation_drafts"],
+  ["0010", "email_sends", "tenant_isolation_email_sends"],
+  ["0011", "background_jobs", "tenant_isolation_background_jobs"],
+  ["0012", "ai_runs", "tenant_isolation_ai_runs"],
+  ["0012", "lead_scores", "tenant_isolation_lead_scores"]
+] as const satisfies readonly (readonly [MigrationId, string, string])[];
+
 export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
+  ...rlsTenantInvariants.map(([migration, table, policyName]) => ({
+    kind: "rls" as const,
+    migration,
+    schema: defaultSchema,
+    table,
+    policyName
+  })),
   {
     kind: "column",
     migration: "0015",
@@ -54,6 +79,10 @@ export function getInvariantObject(invariant: SchemaInvariant): string {
     return `${invariant.table}.${invariant.column}`;
   }
 
+  if (invariant.kind === "rls") {
+    return `${invariant.table}.${invariant.policyName}`;
+  }
+
   if (invariant.kind === "check_constraint") {
     return invariant.constraintName;
   }
@@ -64,6 +93,10 @@ export function getInvariantObject(invariant: SchemaInvariant): string {
 export function getInvariantKey(invariant: SchemaInvariant): string {
   if (invariant.kind === "column") {
     return `${invariant.migration}:${invariant.kind}:${invariant.schema}.${invariant.table}.${invariant.column}`;
+  }
+
+  if (invariant.kind === "rls") {
+    return `${invariant.migration}:${invariant.kind}:${invariant.schema}.${invariant.table}.${invariant.policyName}`;
   }
 
   if (invariant.kind === "check_constraint") {

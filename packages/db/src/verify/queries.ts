@@ -1,5 +1,5 @@
 import type { PgPool } from "../client.js";
-import type { ColumnCatalogRow, SchemaCatalog } from "./types.js";
+import type { ColumnCatalogRow, RlsCatalogRow, SchemaCatalog } from "./types.js";
 
 type InformationSchemaColumnRow = {
   data_type: string;
@@ -12,6 +12,15 @@ type PgIndexRow = {
 
 type PgConstraintRow = {
   conname: string;
+};
+
+type PgRlsRow = {
+  relrowsecurity: boolean;
+  relforcerowsecurity: boolean;
+};
+
+type PgPolicyRow = {
+  polname: string;
 };
 
 export const columnInvariantSql = `
@@ -44,6 +53,27 @@ where n.nspname = $1
 limit 1
 `;
 
+export const rlsInvariantSql = `
+select c.relrowsecurity, c.relforcerowsecurity
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = $1
+  and c.relname = $2
+  and c.relkind = 'r'
+limit 1
+`;
+
+export const policyInvariantSql = `
+select p.polname
+from pg_policy p
+join pg_class c on c.oid = p.polrelid
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = $1
+  and c.relname = $2
+  and p.polname = $3
+limit 1
+`;
+
 export function buildPgSchemaCatalog(pool: PgPool): SchemaCatalog {
   return {
     async findColumn(input): Promise<ColumnCatalogRow | null> {
@@ -72,6 +102,27 @@ export function buildPgSchemaCatalog(pool: PgPool): SchemaCatalog {
         input.schema,
         input.table,
         input.constraintName
+      ]);
+      return result.rows.length > 0;
+    },
+    async findRlsTable(input): Promise<RlsCatalogRow | null> {
+      const result = await pool.query<PgRlsRow>(rlsInvariantSql, [input.schema, input.table]);
+      const row = result.rows[0];
+
+      if (!row) {
+        return null;
+      }
+
+      return {
+        rlsEnabled: row.relrowsecurity,
+        rlsForced: row.relforcerowsecurity
+      };
+    },
+    async hasPolicy(input): Promise<boolean> {
+      const result = await pool.query<PgPolicyRow>(policyInvariantSql, [
+        input.schema,
+        input.table,
+        input.policyName
       ]);
       return result.rows.length > 0;
     }

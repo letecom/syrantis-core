@@ -61,7 +61,17 @@ function parseCliOptions(args: readonly string[]): CliOptions {
 }
 
 function isMigrationId(value: string | undefined): value is MigrationId {
-  return value === "0015";
+  return (
+    value === "0005" ||
+    value === "0006" ||
+    value === "0007" ||
+    value === "0009" ||
+    value === "0010" ||
+    value === "0011" ||
+    value === "0012" ||
+    value === "0015" ||
+    value === "0016"
+  );
 }
 
 export async function runVerifySchemaCli(args: readonly string[] = process.argv.slice(2)): Promise<number> {

@@ -95,6 +95,75 @@ export async function verifySchemaInvariants(
       continue;
     }
 
+    if (invariant.kind === "rls") {
+      const object = getInvariantObject(invariant);
+      const rlsTable = await catalog.findRlsTable({
+        schema: invariant.schema,
+        table: invariant.table
+      });
+
+      if (!rlsTable) {
+        failed.push({
+          migration: invariant.migration,
+          kind: invariant.kind,
+          object,
+          reason: "missing",
+          expected: true,
+          actual: null
+        });
+        continue;
+      }
+
+      if (!rlsTable.rlsEnabled) {
+        failed.push({
+          migration: invariant.migration,
+          kind: invariant.kind,
+          object,
+          reason: "rls_disabled",
+          expected: true,
+          actual: false
+        });
+        continue;
+      }
+
+      if (!rlsTable.rlsForced) {
+        failed.push({
+          migration: invariant.migration,
+          kind: invariant.kind,
+          object,
+          reason: "rls_force_disabled",
+          expected: true,
+          actual: false
+        });
+        continue;
+      }
+
+      const policyExists = await catalog.hasPolicy({
+        schema: invariant.schema,
+        table: invariant.table,
+        policyName: invariant.policyName
+      });
+
+      if (!policyExists) {
+        failed.push({
+          migration: invariant.migration,
+          kind: invariant.kind,
+          object,
+          reason: "policy_missing",
+          expected: invariant.policyName,
+          actual: false
+        });
+        continue;
+      }
+
+      passed.push({
+        migration: invariant.migration,
+        kind: invariant.kind,
+        object
+      });
+      continue;
+    }
+
     const object = getInvariantObject(invariant);
     const indexExists = await catalog.hasIndex({
       schema: invariant.schema,

@@ -1,4 +1,4 @@
-export type MigrationId = "0015" | "0016";
+export type MigrationId = "0005" | "0006" | "0007" | "0009" | "0010" | "0011" | "0012" | "0015" | "0016";
 
 export type ColumnSchemaInvariant = {
   kind: "column";
@@ -26,11 +26,28 @@ export type CheckConstraintSchemaInvariant = {
   constraintName: string;
 };
 
-export type SchemaInvariant = ColumnSchemaInvariant | IndexSchemaInvariant | CheckConstraintSchemaInvariant;
+export type RlsSchemaInvariant = {
+  kind: "rls";
+  migration: MigrationId;
+  schema: string;
+  table: string;
+  policyName: string;
+};
+
+export type SchemaInvariant =
+  | ColumnSchemaInvariant
+  | IndexSchemaInvariant
+  | CheckConstraintSchemaInvariant
+  | RlsSchemaInvariant;
 
 export type ColumnCatalogRow = {
   dataType: string;
   isNullable: boolean;
+};
+
+export type RlsCatalogRow = {
+  rlsEnabled: boolean;
+  rlsForced: boolean;
 };
 
 export type SchemaCatalog = {
@@ -41,9 +58,17 @@ export type SchemaCatalog = {
   }) => Promise<ColumnCatalogRow | null>;
   hasIndex: (input: { schema: string; table: string; indexName: string }) => Promise<boolean>;
   hasCheckConstraint: (input: { schema: string; table: string; constraintName: string }) => Promise<boolean>;
+  findRlsTable: (input: { schema: string; table: string }) => Promise<RlsCatalogRow | null>;
+  hasPolicy: (input: { schema: string; table: string; policyName: string }) => Promise<boolean>;
 };
 
-export type SchemaInvariantFailureReason = "missing" | "data_type_mismatch" | "nullability_mismatch";
+export type SchemaInvariantFailureReason =
+  | "missing"
+  | "data_type_mismatch"
+  | "nullability_mismatch"
+  | "rls_disabled"
+  | "rls_force_disabled"
+  | "policy_missing";
 
 export type SchemaInvariantFailure = {
   migration: MigrationId;
