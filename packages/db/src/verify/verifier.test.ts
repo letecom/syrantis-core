@@ -17,15 +17,31 @@ function isRlsCatalogRow(value: RlsCatalogRow | Record<string, RlsCatalogRow | n
   return "rlsEnabled" in value;
 }
 
+function isColumnCatalogRow(
+  value: ColumnCatalogRow | Record<string, ColumnCatalogRow | null>
+): value is ColumnCatalogRow {
+  return "dataType" in value;
+}
+
 function buildCatalog(input: {
-  column?: ColumnCatalogRow | null;
+  column?: ColumnCatalogRow | null | Record<string, ColumnCatalogRow | null>;
   index?: boolean | Record<string, boolean>;
   checkConstraint?: boolean | Record<string, boolean>;
   rls?: RlsCatalogRow | null | Record<string, RlsCatalogRow | null>;
   policy?: boolean | Record<string, boolean>;
 }): SchemaCatalog {
   return {
-    findColumn: async () => input.column ?? null,
+    findColumn: async ({ column }) => {
+      if (input.column === null || input.column === undefined) {
+        return null;
+      }
+
+      if (!isColumnCatalogRow(input.column)) {
+        return input.column[column] ?? null;
+      }
+
+      return input.column;
+    },
     hasIndex: async ({ indexName }) =>
       typeof input.index === "object" ? (input.index[indexName] ?? false) : (input.index ?? false),
     hasCheckConstraint: async ({ constraintName }) =>
@@ -48,10 +64,35 @@ function buildCatalog(input: {
   };
 }
 
-const allCheckConstraints = {
+const emailSendProofCheckConstraints = {
   email_sends_sent_requires_sent_at: true,
   email_sends_failed_requires_failed_at: true,
   email_sends_failed_requires_last_error_code: true
+};
+
+const allCheckConstraints = {
+  ...emailSendProofCheckConstraints,
+  email_sends_delivery_status_check: true,
+  email_sends_delivered_requires_delivered_at: true,
+  email_sends_bounced_requires_bounced_at: true,
+  email_sends_complained_requires_complained_at: true
+};
+
+const deliveryColumns = [
+  ["delivery_status", "text"],
+  ["delivered_at", "timestamp with time zone"],
+  ["bounced_at", "timestamp with time zone"],
+  ["complained_at", "timestamp with time zone"],
+  ["delivery_error_code", "text"]
+] as const;
+
+const allColumns = {
+  scheduled_at: { dataType: "timestamp with time zone", isNullable: true },
+  delivery_status: { dataType: "text", isNullable: true },
+  delivered_at: { dataType: "timestamp with time zone", isNullable: true },
+  bounced_at: { dataType: "timestamp with time zone", isNullable: true },
+  complained_at: { dataType: "timestamp with time zone", isNullable: true },
+  delivery_error_code: { dataType: "text", isNullable: true }
 };
 
 const expectedRlsTables = [
@@ -115,7 +156,7 @@ describe("schema invariant registry", () => {
       )
     );
 
-    for (const constraintName of Object.keys(allCheckConstraints)) {
+    for (const constraintName of Object.keys(emailSendProofCheckConstraints)) {
       assert.ok(
         schemaInvariantRegistry.some(
           (invariant) =>
@@ -129,15 +170,66 @@ describe("schema invariant registry", () => {
     }
   });
 
+  it("includes all 0017 delivery proof invariants", () => {
+    for (const [column, dataType] of deliveryColumns) {
+      assert.ok(
+        schemaInvariantRegistry.some(
+          (invariant) =>
+            invariant.kind === "column" &&
+            invariant.migration === "0017" &&
+            invariant.table === "email_sends" &&
+            invariant.column === column &&
+            invariant.dataType === dataType &&
+            invariant.isNullable
+        ),
+        `missing registry entry for ${column}`
+      );
+    }
+
+    for (const constraintName of [
+      "email_sends_delivery_status_check",
+      "email_sends_delivered_requires_delivered_at",
+      "email_sends_bounced_requires_bounced_at",
+      "email_sends_complained_requires_complained_at"
+    ]) {
+      assert.ok(
+        schemaInvariantRegistry.some(
+          (invariant) =>
+            invariant.kind === "check_constraint" &&
+            invariant.migration === "0017" &&
+            invariant.table === "email_sends" &&
+            invariant.constraintName === constraintName
+        ),
+        `missing registry entry for ${constraintName}`
+      );
+    }
+
+    assert.ok(
+      schemaInvariantRegistry.some(
+        (invariant) =>
+          invariant.kind === "rls" &&
+          invariant.migration === "0017" &&
+          invariant.table === "email_sends" &&
+          invariant.policyName === "email_sends_provider_message_lookup"
+      )
+    );
+  });
+
   it("includes RLS tenant isolation invariants for expected tenant tables", () => {
-    const rlsInvariants = schemaInvariantRegistry.filter((invariant) => invariant.kind === "rls");
+    const rlsInvariants = schemaInvariantRegistry.filter(
+      (invariant) =>
+        invariant.kind === "rls" && invariant.policyName.startsWith("tenant_isolation_")
+    );
 
     assert.equal(rlsInvariants.length, expectedRlsTables.length);
 
     for (const table of expectedRlsTables) {
       assert.ok(
         rlsInvariants.some(
-          (invariant) => invariant.table === table && invariant.policyName === `tenant_isolation_${table}`
+          (invariant) =>
+            invariant.kind === "rls" &&
+            invariant.table === table &&
+            invariant.policyName === `tenant_isolation_${table}`
         ),
         `missing RLS registry entry for ${table}`
       );
@@ -149,7 +241,7 @@ describe("schema invariant verifier", () => {
   it("passes when catalog responses match", async () => {
     const result = await verifySchemaInvariants(
       buildCatalog({
-        column: { dataType: "timestamp with time zone", isNullable: true },
+        column: allColumns,
         index: true,
         checkConstraint: true
       }),
@@ -157,8 +249,8 @@ describe("schema invariant verifier", () => {
     );
 
     assert.equal(result.success, true);
-    assert.equal(result.checked, 21);
-    assert.equal(result.passed.length, 21);
+    assert.equal(result.checked, 31);
+    assert.equal(result.passed.length, 31);
     assert.equal(result.failed.length, 0);
   });
 
@@ -174,8 +266,8 @@ describe("schema invariant verifier", () => {
     );
 
     assert.equal(result.success, true);
-    assert.equal(result.checked, expectedRlsTables.length);
-    assert.equal(result.passed.length, expectedRlsTables.length);
+    assert.equal(result.checked, rlsInvariants.length);
+    assert.equal(result.passed.length, rlsInvariants.length);
     assert.equal(result.failed.length, 0);
   });
 
@@ -325,7 +417,7 @@ describe("schema invariant verifier", () => {
   it("reports drift when the index is absent", async () => {
     const result = await verifySchemaInvariants(
       buildCatalog({
-        column: { dataType: "timestamp with time zone", isNullable: true },
+        column: allColumns,
         index: false,
         checkConstraint: true
       }),
@@ -346,7 +438,7 @@ describe("schema invariant verifier", () => {
   it("reports drift when the 0016 provider_message_id unique index is absent", async () => {
     const result = await verifySchemaInvariants(
       buildCatalog({
-        column: { dataType: "timestamp with time zone", isNullable: true },
+        column: allColumns,
         index: {
           background_jobs_pending_send_email_scheduled_at_idx: true,
           email_sends_provider_message_id_unique_idx: false
@@ -371,7 +463,7 @@ describe("schema invariant verifier", () => {
     it(`reports drift when ${constraintName} is absent`, async () => {
       const result = await verifySchemaInvariants(
         buildCatalog({
-          column: { dataType: "timestamp with time zone", isNullable: true },
+          column: allColumns,
           index: true,
           checkConstraint: {
             ...allCheckConstraints,
@@ -382,8 +474,13 @@ describe("schema invariant verifier", () => {
       );
 
       assert.equal(result.success, false);
+      const invariant = schemaInvariantRegistry.find(
+        (entry) => entry.kind === "check_constraint" && entry.constraintName === constraintName
+      );
+      assert.ok(invariant);
+
       assert.deepEqual(result.failed[0], {
-        migration: "0016",
+        migration: invariant.migration,
         kind: "check_constraint",
         object: constraintName,
         reason: "missing",
@@ -392,6 +489,96 @@ describe("schema invariant verifier", () => {
       });
     });
   }
+
+  it("reports drift when a 0017 delivery column is absent", async () => {
+    const [deliveryColumnInvariant] = schemaInvariantRegistry.filter(
+      (invariant) =>
+        invariant.kind === "column" &&
+        invariant.migration === "0017" &&
+        invariant.table === "email_sends"
+    );
+    assert.ok(deliveryColumnInvariant?.kind === "column");
+
+    const result = await verifySchemaInvariants(
+      buildCatalog({
+        column: null,
+        index: true,
+        checkConstraint: true,
+        rls: { rlsEnabled: true, rlsForced: true },
+        policy: true
+      }),
+      [deliveryColumnInvariant]
+    );
+
+    assert.equal(result.success, false);
+    assert.deepEqual(result.failed[0], {
+      migration: "0017",
+      kind: "column",
+      object: `email_sends.${deliveryColumnInvariant.column}`,
+      reason: "missing",
+      expected: deliveryColumnInvariant.dataType,
+      actual: null
+    });
+  });
+
+  it("reports drift when a 0017 delivery check constraint is absent", async () => {
+    const [deliveryConstraintInvariant] = schemaInvariantRegistry.filter(
+      (invariant) =>
+        invariant.kind === "check_constraint" &&
+        invariant.migration === "0017" &&
+        invariant.table === "email_sends"
+    );
+    assert.ok(deliveryConstraintInvariant?.kind === "check_constraint");
+
+    const result = await verifySchemaInvariants(
+      buildCatalog({
+        column: { dataType: "text", isNullable: true },
+        index: true,
+        checkConstraint: false,
+        rls: { rlsEnabled: true, rlsForced: true },
+        policy: true
+      }),
+      [deliveryConstraintInvariant]
+    );
+
+    assert.equal(result.success, false);
+    assert.deepEqual(result.failed[0], {
+      migration: "0017",
+      kind: "check_constraint",
+      object: deliveryConstraintInvariant.constraintName,
+      reason: "missing",
+      expected: true,
+      actual: false
+    });
+  });
+
+  it("reports drift when the 0017 provider-message lookup policy is absent", async () => {
+    const [lookupPolicyInvariant] = schemaInvariantRegistry.filter(
+      (invariant) =>
+        invariant.kind === "rls" &&
+        invariant.migration === "0017" &&
+        invariant.table === "email_sends"
+    );
+    assert.ok(lookupPolicyInvariant);
+
+    const result = await verifySchemaInvariants(
+      buildCatalog({
+        rls: { rlsEnabled: true, rlsForced: true },
+        policy: false
+      }),
+      [lookupPolicyInvariant]
+    );
+
+    assert.equal(result.success, false);
+    assert.deepEqual(result.failed[0], {
+      migration: "0017",
+      kind: "rls",
+      object: "email_sends.email_sends_provider_message_lookup",
+      reason: "policy_missing",
+      expected: "email_sends_provider_message_lookup",
+      actual: false
+    });
+  });
 
   it("returns a failing process summary on drift", async () => {
     const result = await verifySchemaInvariants(
@@ -404,8 +591,8 @@ describe("schema invariant verifier", () => {
     );
 
     assert.equal(getSchemaVerifyExitCode(result), 1);
-    assert.equal(result.checked, 21);
-    assert.equal(result.failed.length, 6);
+    assert.equal(result.checked, 31);
+    assert.equal(result.failed.length, 15);
   });
 
   it("keeps verification SQL limited to PostgreSQL catalog metadata", () => {
@@ -427,7 +614,7 @@ describe("schema invariant verifier", () => {
   it("keeps JSON output compatible", async () => {
     const result = await verifySchemaInvariants(
       buildCatalog({
-        column: { dataType: "timestamp with time zone", isNullable: true },
+        column: allColumns,
         index: true,
         checkConstraint: true,
         rls: { rlsEnabled: true, rlsForced: true },
@@ -444,8 +631,8 @@ describe("schema invariant verifier", () => {
     };
 
     assert.equal(parsed.success, true);
-    assert.equal(parsed.checked, 21);
-    assert.equal(parsed.passed, 21);
+    assert.equal(parsed.checked, 31);
+    assert.equal(parsed.passed, 31);
     assert.deepEqual(parsed.failed, []);
   });
 });

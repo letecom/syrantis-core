@@ -12,6 +12,11 @@ export type DraftSendStatusLatestSendRow = {
   sentAt: Date | null;
   failedAt: Date | null;
   lastErrorCode: string | null;
+  deliveryStatus: "delivered" | "bounced" | "complained" | null;
+  deliveredAt: Date | null;
+  bouncedAt: Date | null;
+  complainedAt: Date | null;
+  deliveryErrorCode: string | null;
 };
 
 export type DraftSendStatusRecord = {
@@ -54,6 +59,11 @@ export async function findDraftSendStatusRecord(
         sentAt: emailSends.sentAt,
         failedAt: emailSends.failedAt,
         lastErrorCode: emailSends.lastErrorCode,
+        deliveryStatus: emailSends.deliveryStatus,
+        deliveredAt: emailSends.deliveredAt,
+        bouncedAt: emailSends.bouncedAt,
+        complainedAt: emailSends.complainedAt,
+        deliveryErrorCode: emailSends.deliveryErrorCode,
       })
       .from(emailSends)
       .where(and(eq(emailSends.workspaceId, input.workspaceId), eq(emailSends.draftId, input.draftId)))
@@ -66,6 +76,7 @@ export async function findDraftSendStatusRecord(
         ? {
             ...latestSend,
             status: latestSend.status as EmailSendStatus,
+            deliveryStatus: latestSend.deliveryStatus as DraftSendStatusLatestSendRow["deliveryStatus"],
           }
         : null,
     };

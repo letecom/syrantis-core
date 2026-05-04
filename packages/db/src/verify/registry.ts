@@ -20,6 +20,21 @@ const rlsTenantInvariants = [
   ["0012", "lead_scores", "tenant_isolation_lead_scores"]
 ] as const satisfies readonly (readonly [MigrationId, string, string])[];
 
+const emailSendDeliveryColumns = [
+  ["delivery_status", "text", true],
+  ["delivered_at", "timestamp with time zone", true],
+  ["bounced_at", "timestamp with time zone", true],
+  ["complained_at", "timestamp with time zone", true],
+  ["delivery_error_code", "text", true]
+] as const satisfies readonly (readonly [string, string, boolean])[];
+
+const emailSendDeliveryConstraints = [
+  "email_sends_delivery_status_check",
+  "email_sends_delivered_requires_delivered_at",
+  "email_sends_bounced_requires_bounced_at",
+  "email_sends_complained_requires_complained_at"
+] as const;
+
 export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
   ...rlsTenantInvariants.map(([migration, table, policyName]) => ({
     kind: "rls" as const,
@@ -71,6 +86,29 @@ export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
     schema: defaultSchema,
     table: "email_sends",
     constraintName: "email_sends_failed_requires_last_error_code"
+  },
+  ...emailSendDeliveryColumns.map(([column, dataType, isNullable]) => ({
+    kind: "column" as const,
+    migration: "0017" as const,
+    schema: defaultSchema,
+    table: "email_sends",
+    column,
+    dataType,
+    isNullable
+  })),
+  ...emailSendDeliveryConstraints.map((constraintName) => ({
+    kind: "check_constraint" as const,
+    migration: "0017" as const,
+    schema: defaultSchema,
+    table: "email_sends",
+    constraintName
+  })),
+  {
+    kind: "rls",
+    migration: "0017",
+    schema: defaultSchema,
+    table: "email_sends",
+    policyName: "email_sends_provider_message_lookup"
   }
 ] as const;
 

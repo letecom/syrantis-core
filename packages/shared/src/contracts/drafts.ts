@@ -242,6 +242,11 @@ export const DraftSendStatusLatestSendSchema = z.object({
   sentAt: z.string().datetime().nullable(),
   failedAt: z.string().datetime().nullable(),
   errorCode: z.string().nullable(),
+  deliveryStatus: z.enum(["delivered", "bounced", "complained"]).nullable(),
+  deliveredAt: z.string().datetime().nullable(),
+  bouncedAt: z.string().datetime().nullable(),
+  complainedAt: z.string().datetime().nullable(),
+  deliveryErrorCode: z.string().nullable(),
 });
 
 export const DraftSendStatusOutputSchema = z.object({
@@ -268,6 +273,11 @@ export const DraftSendAttemptOutputSchema = z.object({
   sentAt: z.string().datetime().nullable(),
   failedAt: z.string().datetime().nullable(),
   errorCode: z.string().nullable(),
+  deliveryStatus: z.enum(["delivered", "bounced", "complained"]).nullable(),
+  deliveredAt: z.string().datetime().nullable(),
+  bouncedAt: z.string().datetime().nullable(),
+  complainedAt: z.string().datetime().nullable(),
+  deliveryErrorCode: z.string().nullable(),
 });
 
 export const DraftSendAttemptsOutputSchema = z.object({

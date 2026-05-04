@@ -131,6 +131,11 @@ function sendRow(status: "pending" | "queued" | "sent" | "failed" | "cancelled",
     failedAt: status === "failed" ? new Date(new Date(createdAt).getTime() + 10000) : null,
     lastErrorCode: status === "failed" ? "EMAIL_PROVIDER_HTTP_ERROR" : null,
     lastErrorMessage: "Private provider error details",
+    deliveryStatus: null,
+    deliveredAt: null,
+    bouncedAt: null,
+    complainedAt: null,
+    deliveryErrorCode: null,
     metadataJson: { hidden: true },
     payloadJson: { hidden: true },
     promptJson: { hidden: true },
@@ -267,6 +272,11 @@ describe("GET /api/drafts/:id/send-attempts", () => {
             sentAt: null,
             failedAt: null,
             errorCode: null,
+            deliveryStatus: null,
+            deliveredAt: null,
+            bouncedAt: null,
+            complainedAt: null,
+            deliveryErrorCode: null,
           },
         ],
         pagination: {
@@ -302,6 +312,28 @@ describe("GET /api/drafts/:id/send-attempts", () => {
       "pending",
     ]);
     expect(body.data.attempts[0].errorCode).toBe("EMAIL_PROVIDER_HTTP_ERROR");
+  });
+
+  it("returns safe delivery proof fields for attempts", async () => {
+    const complained = {
+      ...sendRow("sent", "2026-05-01T12:00:00.000Z"),
+      deliveryStatus: "complained",
+      deliveredAt: new Date("2026-05-01T12:01:00.000Z"),
+      complainedAt: new Date("2026-05-01T12:02:00.000Z"),
+      deliveryErrorCode: "RESEND_COMPLAINED",
+    };
+    const { response } = await requestSendAttempts([[draftRow()], [{ totalItems: 1 }], [complained]]);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.attempts[0]).toMatchObject({
+      deliveryStatus: "complained",
+      deliveredAt: "2026-05-01T12:01:00.000Z",
+      bouncedAt: null,
+      complainedAt: "2026-05-01T12:02:00.000Z",
+      deliveryErrorCode: "RESEND_COMPLAINED",
+    });
+    expectNoForbiddenFields(JSON.stringify(body));
   });
 
   it("returns failed, failed, queued attempts with stable attempt numbers", async () => {
