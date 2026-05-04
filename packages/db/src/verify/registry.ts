@@ -109,6 +109,20 @@ export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
     schema: defaultSchema,
     table: "email_sends",
     policyName: "email_sends_provider_message_lookup"
+  },
+  {
+    kind: "trigger_function",
+    migration: "0018",
+    schema: defaultSchema,
+    functionName: "enforce_email_sends_terminal_delivery_immutability"
+  },
+  {
+    kind: "trigger",
+    migration: "0018",
+    schema: defaultSchema,
+    table: "email_sends",
+    triggerName: "email_sends_terminal_delivery_immutability_trg",
+    functionName: "enforce_email_sends_terminal_delivery_immutability"
   }
 ] as const;
 
@@ -125,6 +139,14 @@ export function getInvariantObject(invariant: SchemaInvariant): string {
     return invariant.constraintName;
   }
 
+  if (invariant.kind === "trigger_function") {
+    return invariant.functionName;
+  }
+
+  if (invariant.kind === "trigger") {
+    return `${invariant.table}.${invariant.triggerName}`;
+  }
+
   return invariant.indexName;
 }
 
@@ -139,6 +161,14 @@ export function getInvariantKey(invariant: SchemaInvariant): string {
 
   if (invariant.kind === "check_constraint") {
     return `${invariant.migration}:${invariant.kind}:${invariant.schema}.${invariant.table}.${invariant.constraintName}`;
+  }
+
+  if (invariant.kind === "trigger_function") {
+    return `${invariant.migration}:${invariant.kind}:${invariant.schema}.${invariant.functionName}`;
+  }
+
+  if (invariant.kind === "trigger") {
+    return `${invariant.migration}:${invariant.kind}:${invariant.schema}.${invariant.table}.${invariant.triggerName}`;
   }
 
   return `${invariant.migration}:${invariant.kind}:${invariant.schema}.${invariant.table}.${invariant.indexName}`;

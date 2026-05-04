@@ -8,7 +8,8 @@ export type MigrationId =
   | "0012"
   | "0015"
   | "0016"
-  | "0017";
+  | "0017"
+  | "0018";
 
 export type ColumnSchemaInvariant = {
   kind: "column";
@@ -44,11 +45,29 @@ export type RlsSchemaInvariant = {
   policyName: string;
 };
 
+export type TriggerFunctionSchemaInvariant = {
+  kind: "trigger_function";
+  migration: MigrationId;
+  schema: string;
+  functionName: string;
+};
+
+export type TriggerSchemaInvariant = {
+  kind: "trigger";
+  migration: MigrationId;
+  schema: string;
+  table: string;
+  triggerName: string;
+  functionName: string;
+};
+
 export type SchemaInvariant =
   | ColumnSchemaInvariant
   | IndexSchemaInvariant
   | CheckConstraintSchemaInvariant
-  | RlsSchemaInvariant;
+  | RlsSchemaInvariant
+  | TriggerFunctionSchemaInvariant
+  | TriggerSchemaInvariant;
 
 export type ColumnCatalogRow = {
   dataType: string;
@@ -58,6 +77,11 @@ export type ColumnCatalogRow = {
 export type RlsCatalogRow = {
   rlsEnabled: boolean;
   rlsForced: boolean;
+};
+
+export type TriggerCatalogRow = {
+  enabled: boolean;
+  functionName: string;
 };
 
 export type SchemaCatalog = {
@@ -70,6 +94,8 @@ export type SchemaCatalog = {
   hasCheckConstraint: (input: { schema: string; table: string; constraintName: string }) => Promise<boolean>;
   findRlsTable: (input: { schema: string; table: string }) => Promise<RlsCatalogRow | null>;
   hasPolicy: (input: { schema: string; table: string; policyName: string }) => Promise<boolean>;
+  hasTriggerFunction: (input: { schema: string; functionName: string }) => Promise<boolean>;
+  findTrigger: (input: { schema: string; table: string; triggerName: string }) => Promise<TriggerCatalogRow | null>;
 };
 
 export type SchemaInvariantFailureReason =
@@ -78,7 +104,9 @@ export type SchemaInvariantFailureReason =
   | "nullability_mismatch"
   | "rls_disabled"
   | "rls_force_disabled"
-  | "policy_missing";
+  | "policy_missing"
+  | "trigger_disabled"
+  | "trigger_function_mismatch";
 
 export type SchemaInvariantFailure = {
   migration: MigrationId;

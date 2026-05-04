@@ -164,6 +164,85 @@ export async function verifySchemaInvariants(
       continue;
     }
 
+    if (invariant.kind === "trigger_function") {
+      const object = getInvariantObject(invariant);
+      const functionExists = await catalog.hasTriggerFunction({
+        schema: invariant.schema,
+        functionName: invariant.functionName
+      });
+
+      if (!functionExists) {
+        failed.push({
+          migration: invariant.migration,
+          kind: invariant.kind,
+          object,
+          reason: "missing",
+          expected: true,
+          actual: false
+        });
+        continue;
+      }
+
+      passed.push({
+        migration: invariant.migration,
+        kind: invariant.kind,
+        object
+      });
+      continue;
+    }
+
+    if (invariant.kind === "trigger") {
+      const object = getInvariantObject(invariant);
+      const trigger = await catalog.findTrigger({
+        schema: invariant.schema,
+        table: invariant.table,
+        triggerName: invariant.triggerName
+      });
+
+      if (!trigger) {
+        failed.push({
+          migration: invariant.migration,
+          kind: invariant.kind,
+          object,
+          reason: "missing",
+          expected: true,
+          actual: null
+        });
+        continue;
+      }
+
+      if (!trigger.enabled) {
+        failed.push({
+          migration: invariant.migration,
+          kind: invariant.kind,
+          object,
+          reason: "trigger_disabled",
+          expected: true,
+          actual: false
+        });
+        continue;
+      }
+
+      if (trigger.functionName !== invariant.functionName) {
+        failed.push({
+          migration: invariant.migration,
+          kind: invariant.kind,
+          object,
+          reason: "trigger_function_mismatch",
+          expected: invariant.functionName,
+          actual: trigger.functionName
+        });
+        continue;
+      }
+
+      passed.push({
+        migration: invariant.migration,
+        kind: invariant.kind,
+        object
+      });
+      continue;
+    }
+
     const object = getInvariantObject(invariant);
     const indexExists = await catalog.hasIndex({
       schema: invariant.schema,
