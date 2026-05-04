@@ -109,24 +109,24 @@ Rules:
 - agents never merge
 - agents never edit prod env
 
-Current backend baseline through 021O:
+Current backend baseline through 021P:
 
 - production default `SEND_EMAIL_PROVIDER=internal`
 - Resend provider exists only behind explicit env config
 - Resend webhook foundation exists at `POST /api/webhooks/resend`
 - current AI model `mistralai/mistral-small-2603`
 - API tests: 26 files, 415 tests
-- DB verify tests: 41 tests
-- `verify-schema`: 31 invariants
-- migration files: 18 SQL files / 18 journal entries
+- DB verify tests: 46 tests
+- `verify-schema`: 33 invariants
+- migration files: 19 SQL files / 19 journal entries
 - `verify-migration-files` passes with `drift=0`
-- current `verify-schema` expected result: `checked=31 passed=31 failed=0`
+- current `verify-schema` expected result: `checked=33 passed=33 failed=0`
 - API import safety passes
 - hostile env test suite passes
 - full test suite passes
-- 021O production validation passed after building `@syrantis/shared` before targeted API regression tests
+- 021P production validation passed with terminal delivery immutability guard in place
 
-Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, and Resend webhook foundation.
+Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, and terminal delivery immutability.
 
 Targeted API read-model tests after shared contract edits should run after:
 
@@ -570,6 +570,7 @@ Current AI guarantees:
 - 021K Migration Journal Integrity Guard
 - 021N RLS Catalog Verification
 - 021O Resend Webhook Foundation
+- 021P Terminal Delivery Immutability Guard
 
 Implemented validation:
 
@@ -580,6 +581,7 @@ Implemented validation:
 - expected policy-name proof
 - Resend webhook delivery proof columns and constraints
 - provider-message lookup policy proof
+- terminal delivery immutability trigger proof
 
 ## Database Security Status
 
@@ -630,7 +632,8 @@ Status:
 - verify-schema checks expected policy names
 - 021N verified RLS catalog state in production with `checked=21`
 - 021O extended verify-schema to 31 invariants
-- current expected result: `checked=31 passed=31 failed=0`
+- 021P extended verify-schema to 33 invariants
+- current expected result: `checked=33 passed=33 failed=0`
 
 ## Migration Integrity Status
 
@@ -640,14 +643,16 @@ Implemented:
 - 021K migration journal integrity guard
 - 021N RLS catalog verification
 - 021O webhook delivery proof catalog verification
+- 021P terminal delivery immutability catalog verification
 
 Current production state:
 
-- 18 SQL migration files
-- 18 journal entries
+- 19 SQL migration files
+- 19 journal entries
 - `verify-migration-files` result: `drift=0`
-- `verify-schema` result: `checked=31 passed=31 failed=0`
+- `verify-schema` result: `checked=33 passed=33 failed=0`
 - migration `0017_resend_webhook_delivery_proof.sql` exists
+- migration `0018_email_sends_terminal_delivery_immutability.sql` exists
 
 Hard rules:
 
@@ -943,25 +948,26 @@ Not implemented yet.
 | 021M | Test Environment Isolation | done |
 | 021N | RLS Catalog Verification | done |
 | 021O | Resend Webhook Foundation | done |
+| 021P | Terminal Delivery Immutability Guard | done |
+| 022A | CRM Target Selection / Push-back Decision Record | done |
 
 Near-term candidates:
 
-- README / docs state refresh: current task
-- 021P Terminal Delivery Immutability Guard
+- 022B First-User CRM Sandbox Setup
+- 022C Concrete CRM Push-back MVP after first target validation
 - 021Q Delivery Read Model Polish only if needed
-- 022A CRM Proof Push-back Foundation
 - Pipeline UI read layer later
 
 ## Current Execution Focus
 
 Current focus:
 
-- README current-state refresh through 021O
-- keep docs aligned before next feature
-- avoid over-engineering
-- next real feature candidate after docs: 021P or 022A depending strategy
+- CRM target-selection decision record through 022A
+- keep CRM push-back delayed until the first target sandbox is validated
+- avoid generic connector abstractions before one concrete target is proven
+- next real feature candidate after docs: 022B First-User CRM Sandbox Setup
 
-Do not claim 021P, 021Q, 022A, or Pipeline UI work as implemented.
+Do not claim 021Q, 022B, CRM connector code, CRM push-back runtime behavior, or Pipeline UI work as implemented.
 
 ## Development Workflow
 
@@ -1086,10 +1092,10 @@ bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter 
 bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter @syrantis/db verify-schema'
 ```
 
-Expected verify-schema after 021O:
+Expected verify-schema after 021P:
 
 ```txt
-checked=31 passed=31 failed=0
+checked=33 passed=33 failed=0
 ```
 
 Restart API manually from prod runtime if needed:
@@ -1109,8 +1115,8 @@ pnpm --filter @syrantis/db verify-migration-files
 Expected:
 
 ```txt
-18 SQL files
-18 journal entries
+19 SQL files
+19 journal entries
 drift=0
 ```
 
@@ -1123,7 +1129,7 @@ bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter 
 Expected:
 
 ```txt
-checked=31 passed=31 failed=0
+checked=33 passed=33 failed=0
 ```
 
 Migration history:
@@ -1561,26 +1567,25 @@ grep -R "update(leads)\|set({.*score\|scoreReason" \
 
 Near-term:
 
-- docs/readme refresh through 021O
-- 021P Terminal Delivery Immutability Guard
-- 022A CRM Proof Push-back Foundation
+- 022B First-User CRM Sandbox Setup
+- 022C Concrete CRM Push-back MVP after target validation
 - Pipeline UI Read Layer
 - optional webhook event store later only if needed
 
 Not implemented:
 
-- terminal delivery immutability guard
-- CRM proof push-back
+- CRM proof push-back runtime behavior
+- CRM connector code
 - Pipeline UI read layer
 - webhook event store
 
 Later connector candidates:
 
-- HubSpot connector
-- Pipedrive connector
 - Google Sheets connector
-- Odoo connector
-- Zoho connector
+- Dolibarr connector
+- Twenty connector
+- HubSpot connector only if client-forced
+- Odoo connector only if client-forced
 
 ## Future DevOps: Syrantis Sweeper
 
