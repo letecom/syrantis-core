@@ -1,4 +1,14 @@
-export type MigrationId = "0005" | "0006" | "0007" | "0009" | "0010" | "0011" | "0012" | "0015" | "0016";
+export type MigrationId =
+  | "0005"
+  | "0006"
+  | "0007"
+  | "0009"
+  | "0010"
+  | "0011"
+  | "0012"
+  | "0015"
+  | "0016"
+  | "0017";
 
 export type ColumnSchemaInvariant = {
   kind: "column";

@@ -107,6 +107,11 @@ function sendRow(status: string, overrides: Record<string, unknown> = {}) {
     failedAt: null,
     lastErrorCode: null,
     lastErrorMessage: "Private provider error details",
+    deliveryStatus: null,
+    deliveredAt: null,
+    bouncedAt: null,
+    complainedAt: null,
+    deliveryErrorCode: null,
     provider: "resend",
     providerMessageId: "provider-message-secret",
     toEmail: "client@example.test",
@@ -181,6 +186,11 @@ describe("GET /api/drafts/:id/send-status", () => {
           sentAt: null,
           failedAt: null,
           errorCode: null,
+          deliveryStatus: null,
+          deliveredAt: null,
+          bouncedAt: null,
+          complainedAt: null,
+          deliveryErrorCode: null,
         },
       },
     });
@@ -216,6 +226,25 @@ describe("GET /api/drafts/:id/send-status", () => {
       errorCode: "RESEND_TEMPORARY_FAILURE",
     });
     expect(JSON.stringify(body)).not.toContain("Private provider error details");
+  });
+
+  it("returns safe delivery proof fields", async () => {
+    const body = await expectLatestStatus("sent", {
+      sentAt: new Date("2026-05-01T12:01:00.000Z"),
+      deliveryStatus: "complained",
+      deliveredAt: new Date("2026-05-01T12:02:00.000Z"),
+      complainedAt: new Date("2026-05-01T12:03:00.000Z"),
+      deliveryErrorCode: "RESEND_COMPLAINED",
+    });
+
+    expect(body.data.latestSend).toMatchObject({
+      deliveryStatus: "complained",
+      deliveredAt: "2026-05-01T12:02:00.000Z",
+      bouncedAt: null,
+      complainedAt: "2026-05-01T12:03:00.000Z",
+      deliveryErrorCode: "RESEND_COMPLAINED",
+    });
+    expect(JSON.stringify(body)).not.toContain("provider-message-secret");
   });
 
   it("returns latest cancelled send status", async () => {

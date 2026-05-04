@@ -506,6 +506,11 @@ export const emailSends = pgTable(
     status: varchar("status", { length: 24 }).notNull().default("pending"),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     failedAt: timestamp("failed_at", { withTimezone: true }),
+    deliveryStatus: text("delivery_status"),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    bouncedAt: timestamp("bounced_at", { withTimezone: true }),
+    complainedAt: timestamp("complained_at", { withTimezone: true }),
+    deliveryErrorCode: text("delivery_error_code"),
     metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
     ...timestamps
   },
@@ -513,6 +518,22 @@ export const emailSends = pgTable(
     check(
       "email_sends_status_check",
       sql`${table.status} in ('pending', 'queued', 'sent', 'failed', 'cancelled')`
+    ),
+    check(
+      "email_sends_delivery_status_check",
+      sql`${table.deliveryStatus} is null or ${table.deliveryStatus} in ('delivered', 'bounced', 'complained')`
+    ),
+    check(
+      "email_sends_delivered_requires_delivered_at",
+      sql`${table.deliveryStatus} <> 'delivered' or ${table.deliveredAt} is not null`
+    ),
+    check(
+      "email_sends_bounced_requires_bounced_at",
+      sql`${table.deliveryStatus} <> 'bounced' or ${table.bouncedAt} is not null`
+    ),
+    check(
+      "email_sends_complained_requires_complained_at",
+      sql`${table.deliveryStatus} <> 'complained' or ${table.complainedAt} is not null`
     ),
     index("email_sends_workspace_id_idx").on(table.workspaceId),
     index("email_sends_approval_id_idx").on(table.approvalId),

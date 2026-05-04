@@ -29,6 +29,11 @@ function mapAttempt(
     sentAt: row.sentAt?.toISOString() ?? null,
     failedAt: row.failedAt?.toISOString() ?? null,
     errorCode: row.lastErrorCode,
+    deliveryStatus: row.deliveryStatus ?? null,
+    deliveredAt: row.deliveredAt?.toISOString() ?? null,
+    bouncedAt: row.bouncedAt?.toISOString() ?? null,
+    complainedAt: row.complainedAt?.toISOString() ?? null,
+    deliveryErrorCode: row.deliveryErrorCode ?? null,
   };
 }
 

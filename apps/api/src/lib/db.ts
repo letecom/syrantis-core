@@ -28,3 +28,15 @@ export async function withApiKeyLookupDb<T>(
     return fn(tx);
   });
 }
+
+export async function withProviderMessageLookupDb<T>(
+  providerMessageId: string,
+  fn: (tx: WorkspaceDbTransaction) => Promise<T>
+): Promise<T> {
+  const { db } = getGlobalDbClient();
+
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select set_config('app.current_provider_message_id', ${providerMessageId}, true)`);
+    return fn(tx);
+  });
+}
