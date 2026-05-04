@@ -4,16 +4,16 @@ Syrantis Core is a backend-first B2B AI orchestration and controlled execution l
 
 It is not a CRM.
 
-It is a controlled action layer above CRMs, forms, sheets, and business tools.
+It is not a chatbot.
 
-Client CRM = commercial source of truth.
+It is not an uncontrolled agent system.
 
-Syrantis = intake, canonical lead context, AI scoring, AI drafts, AI audit read model, approval readiness, human approval, send readiness, request-send, send status, cancel-send, worker retry/backoff/dead-letter, DB proof, future CRM push-back.
+It is a controlled action layer above CRMs, forms, sheets, and business tools. The client CRM remains the commercial source of truth. Syrantis handles intake, canonical lead context, AI scoring, AI draft generation, AI audit read model, approval readiness, human approval, send readiness, request-send, optional cancel-send while pending, worker execution, send status, send attempts, delivery proof, DB proof, and future CRM push-back.
 
 ```txt
 Client CRM / form / sheet
         ↓
-Syrantis intake
+Syrantis public/internal intake
         ↓
 Canonical lead context
         ↓
@@ -35,9 +35,11 @@ optional cancel-send while pending
         ↓
 Worker execution
         ↓
-send status / DB proof
+send-status / send-attempts
         ↓
-Future CRM update
+Resend webhook delivery proof when real provider is enabled
+        ↓
+Future CRM push-back
 ```
 
 ## Product Positioning
@@ -65,13 +67,13 @@ lead received
   → request-send
   → optional cancel-send while pending
   → worker execution
-  → send status / DB proof
+  → send status / send attempts / delivery proof
   → future CRM update
 ```
 
-No chatbot.
-
 No CRM clone.
+
+No chatbot.
 
 No uncontrolled agent.
 
@@ -107,35 +109,53 @@ Rules:
 - agents never merge
 - agents never edit prod env
 
-Current backend baseline:
+Current backend baseline through 021O:
 
-- prod default `SEND_EMAIL_PROVIDER=internal`
+- production default `SEND_EMAIL_PROVIDER=internal`
+- Resend provider exists only behind explicit env config
+- Resend webhook foundation exists at `POST /api/webhooks/resend`
 - current AI model `mistralai/mistral-small-2603`
-- latest validated test baseline after 021H: 24 test files, 384 tests
+- API tests: 26 files, 415 tests
+- DB verify tests: 41 tests
+- `verify-schema`: 31 invariants
+- migration files: 18 SQL files / 18 journal entries
+- `verify-migration-files` passes with `drift=0`
+- current `verify-schema` expected result: `checked=31 passed=31 failed=0`
 - API import safety passes
-- 021H added migration `0015_background_jobs_scheduled_at.sql`
-- production validation exposed migration drift: `drizzle.__drizzle_migrations` showed 0015 applied while the real schema initially missed `background_jobs.scheduled_at` and `background_jobs_pending_send_email_scheduled_at_idx`
-- manual idempotent DDL patch fixed production
-- next issue should address migration integrity / drift guard
+- hostile env test suite passes
+- full test suite passes
+- 021O production validation passed after building `@syrantis/shared` before targeted API regression tests
+
+Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, and Resend webhook foundation.
+
+Targeted API read-model tests after shared contract edits should run after:
+
+```bash
+pnpm --filter @syrantis/shared build
+```
 
 ## Stack
 
 ```txt
-Runtime/API       Hono + TypeScript
-Database          PostgreSQL
-ORM               Drizzle
-Validation        Zod
-Package manager   pnpm
-Tests             Vitest
-Architecture      API-first, backend-first
-Auth              opaque session cookie
-Tenant model      tenantGuard + RLS
-Transactions      withWorkspaceDb
-Audit             activity_logs
-Async             background_jobs, background_jobs.scheduled_at
-Worker            worker CLI, retry/backoff/dead-letter
-AI Provider       OpenRouter through hardened provider boundary
-Email Provider    internal default; Resend behind explicit config
+Runtime/API          Hono + TypeScript
+Database             PostgreSQL
+ORM                  Drizzle
+Validation           Zod
+Package manager      pnpm
+Tests                Vitest
+Architecture         API-first, backend-first
+Auth                 opaque session cookie + public Bearer API keys
+Tenant model         tenantGuard + RLS + FORCE RLS
+Transactions         withWorkspaceDb
+Public key lookup    withApiKeyLookupDb
+Webhook lookup       withProviderMessageLookupDb
+Audit                activity_logs
+Async                background_jobs
+Worker               worker CLI, retry/backoff/dead-letter
+AI Provider          OpenRouter through hardened provider boundary
+Email Provider       internal default; Resend behind explicit config
+Webhook              optional Resend webhook behind RESEND_WEBHOOK_SECRET
+Validation tooling   verify-migration-files + verify-schema catalog proof
 ```
 
 ## Security Model
@@ -145,11 +165,14 @@ Syrantis uses defense in depth.
 - cookie auth for internal API
 - Bearer API key auth for public intake
 - tenantGuard for session routes
-- withWorkspaceDb for transaction-scoped workspace context
+- withWorkspaceDb for workspace-scoped mutations and reads
+- withApiKeyLookupDb for public API key lookup
+- withProviderMessageLookupDb for Resend webhook provider message lookup
 - PostgreSQL RLS + FORCE on tenant tables
 - runtime DB role `syrantis_app` without superuser or bypassrls
+- worker role `syrantis_worker` with deliberately limited BYPASSRLS scope for `background_jobs`
 - migration DB role `syrantis`
-- worker DB role `syrantis_worker`
+- verify-schema proves real catalog objects, not just journal state
 
 Runtime role:
 
@@ -207,7 +230,16 @@ Public API key model:
 Hard rules:
 
 - workspaceId never comes from the client
+- webhook never accepts workspaceId from body, query, or headers
 - cross-workspace access returns 404
+- provider_message_id never appears in public read models or responses
+- no raw webhook payload storage
+- no raw provider payloads in read models, logs, or activity metadata
+- no PII in read models
+- no prompt/output/payload/cost/token fields in public read models
+- no provider external calls from webhook route
+- no provider external calls from regular routes
+- worker execution is idempotent
 - business routes never hard-delete by default
 - activity logs are transactional and compact
 - updated_at is database-owned
@@ -216,19 +248,15 @@ Hard rules:
 - agents never work in runtime repo
 - agents never deploy
 - future jobs use PostgreSQL SKIP LOCKED before Redis/Kafka
-- no provider external calls from routes
-- worker execution must be idempotent
 - no prompt client input
 - no raw prompt/output in activity_logs
-- no raw PII in read models or worker logs
 - no AI mutation of source leads
-- public read models do not expose prompt/output/payload/cost/token fields
 - `send_email` worker reads and writes `email_sends` by `id` + `workspaceId`
 - internal email provider is the safe default
 - migration journal is not sufficient proof
-- migration validation must verify real schema objects
-- new migrations require explicit prod verification commands
-- schema drift must block further migration-heavy issues
+- verify-schema must verify real catalog objects
+- all migration-heavy issues require production verify-schema after migrate
+- targeted API tests after shared contract edits should build `@syrantis/shared` first
 - send retries must not mutate terminal `email_sends` rows
 - retry creates new `email_sends` rows
 - same `background_jobs` row is reused for send retries
@@ -240,6 +268,7 @@ Forbidden by default:
 - raw SQL outside allowed worker claim / DB helpers
 - workspaceId body/query injection
 - public route under tenantGuard
+- webhook route under tenantGuard
 - secret-like payloads in metadata
 - API keys or hashes in DTOs
 - provider call from route
@@ -256,6 +285,7 @@ Forbidden by default:
 - 009A Workspace transaction helper
 - 014C0 Runtime DB role separation
 - 014C RLS activation
+- 021N RLS Catalog Verification
 
 Implemented:
 
@@ -284,6 +314,8 @@ Implemented:
 - 021D Draft Send Readiness / Request-Send Hardening
 - 021F Draft Send Status Read Model
 - 021G Draft Send Cancellation
+- 021J Send Proof Hardening
+- 021L Send Attempt History Read Model
 
 Implemented routes:
 
@@ -303,27 +335,130 @@ Implemented routes:
 - `/api/drafts/:id/send-readiness`
 - `/api/drafts/:id/request-send`
 - `/api/drafts/:id/send-status`
+- `/api/drafts/:id/send-attempts`
 - `/api/drafts/:id/cancel-send`
 - `/api/email-sends`
 - `/api/email-sends/:id`
 - `/api/integrations`
 - `/api/workspace-api-keys`
 - `/api/public/leads`
+- `/api/webhooks/resend`
 
-Draft send status behavior:
+### Draft Send Status Behavior
 
-- `GET /api/drafts/:id/send-status` returns latest `email_sends` proof for a draft
-- safe DTO only: `draftId`, `hasSend`, `latestSend.status`, `requestedAt`, `updatedAt`, `sentAt`, `failedAt`, `errorCode`
-- no provider, `provider_message_id`, subject/body, recipient/contact PII, `payload_json`, or AI fields
-- read-only; no activity logs, jobs, or mutations
+`GET /api/drafts/:id/send-status` returns latest safe `email_sends` proof for a draft.
 
-Draft send cancellation behavior:
+Safe `latestSend` fields:
 
-- `POST /api/drafts/:id/cancel-send` cancels only the latest pending `email_sends` when the linked `send_email` job is pending
+- `status`
+- `requestedAt`
+- `updatedAt`
+- `sentAt`
+- `failedAt`
+- `errorCode`
+- `deliveryStatus`
+- `deliveredAt`
+- `bouncedAt`
+- `complainedAt`
+- `deliveryErrorCode`
+
+The response excludes:
+
+- provider
+- provider_message_id
+- recipient fields
+- subject/body
+- raw provider payload/errors
+- `metadata_json` / `payload_json`
+- AI internals
+
+Behavior:
+
+- read-only
+- no activity logs, jobs, or mutations
+- returns the newest retry row
+- exposes delivery proof only through safe compact fields
+
+### Draft Send Attempts Behavior
+
+`GET /api/drafts/:id/send-attempts` returns chronological safe attempt history.
+
+Fields:
+
+- `attemptNumber`
+- `status`
+- `createdAt`
+- `updatedAt`
+- `sentAt`
+- `failedAt`
+- `errorCode`
+- `deliveryStatus`
+- `deliveredAt`
+- `bouncedAt`
+- `complainedAt`
+- `deliveryErrorCode`
+
+Pagination:
+
+- `page` default 1
+- `pageSize` default 20, max 50
+- `attemptNumber` stable across pages
+
+Security:
+
+- no provider ids
+- no provider name
+- no recipients
+- no subject/body
+- no raw payload/errors
+- no workspaceId
+
+### Draft Send Cancellation Behavior
+
+`POST /api/drafts/:id/cancel-send` cancels only the latest pending `email_sends` when the linked `send_email` job is pending.
+
+Behavior:
+
 - updates `email_sends.status` and `background_jobs.status` to `cancelled` in one transaction
 - creates one compact `email_send.cancelled` activity log on first cancellation only
 - already-cancelled returns idempotent 200 with no duplicate log
 - queued, sent, failed, and no-send states are blocked safely
+
+### Resend Webhook Behavior
+
+`POST /api/webhooks/resend` is a provider-facing route.
+
+Configuration:
+
+- optional route path for real provider delivery proof
+- requires `RESEND_WEBHOOK_SECRET`
+- returns `WEBHOOK_NOT_CONFIGURED` when `RESEND_WEBHOOK_SECRET` is missing
+- uses Svix-compatible signature verification before trusting or parsing payload content
+- verifies the raw body before payload trust
+
+Security and tenancy:
+
+- no tenantGuard because provider ingress has no session workspace context
+- rejects client-supplied workspaceId from body, query, or headers
+- provider message lookup runs through `withProviderMessageLookupDb(providerMessageId)`
+- lookup uses dedicated RLS policy with `current_setting('app.current_provider_message_id')`
+- workspace mutation runs through `withWorkspaceDb(workspaceId)`
+- unmatched provider_message_id returns safe 200 unmatched
+- provider_message_id is not exposed in public read models or responses
+
+Events:
+
+- accepts `email.delivered`, `email.bounced`, `email.complained`
+- ignores `email.sent`, `email.delivery_delayed`, `email.opened`, `email.clicked`, and unknown event types with safe 200 ignored behavior
+- duplicate already-applied events return unchanged
+- writes compact `email_send.delivery_updated` activity logs only when delivery state changes
+
+The webhook never:
+
+- stores raw payloads
+- logs signatures
+- logs or exposes recipients, subject/body, provider raw errors, signature values, or AI internals
+- calls the provider HTTP API
 
 ### Integration Foundation
 
@@ -364,6 +499,7 @@ Behavior:
 - 019C Worker Ops Hardening
 - 021E Worker Send Execution Hardening
 - 021H Worker Retry / Backoff / Dead Letter
+- 021M Test Environment Isolation
 
 Worker commands:
 
@@ -392,7 +528,6 @@ Current `send_email` worker behavior:
 - no intermediate activity log spam during retry scheduling
 - retryable failure at max attempts dead-letters
 - permanent provider failure fails without retry
-- send-status returns the newest retry row
 - cancel-send works for pending scheduled retry attempts
 - cancelled scheduled retry jobs are not claimed
 - Resend path exists only with explicit `SEND_EMAIL_PROVIDER=resend`
@@ -429,9 +564,26 @@ Current AI guarantees:
 - no `email_sends` or `send_email` job from AI draft generation
 - cost tracked in `cost_estimate_micro_usd`
 
+### Migration / Schema Guards
+
+- 021I Migration Schema Drift Guard
+- 021K Migration Journal Integrity Guard
+- 021N RLS Catalog Verification
+- 021O Resend Webhook Foundation
+
+Implemented validation:
+
+- `verify-migration-files` validates SQL files and journal entries
+- `verify-schema` validates live catalog invariants
+- RLS enabled proof
+- FORCE RLS proof
+- expected policy-name proof
+- Resend webhook delivery proof columns and constraints
+- provider-message lookup policy proof
+
 ## Database Security Status
 
-RLS enabled and forced on:
+RLS enabled and forced on all 15 verified tenant tables:
 
 - organizations
 - contacts
@@ -439,15 +591,15 @@ RLS enabled and forced on:
 - tasks
 - approvals
 - activity_logs
+- external_connections
+- external_object_mappings
+- integration_events
+- workspace_api_keys
 - drafts
 - email_sends
 - background_jobs
 - ai_runs
 - lead_scores
-- external_connections
-- external_object_mappings
-- integration_events
-- workspace_api_keys
 
 RLS policy shape:
 
@@ -462,32 +614,47 @@ status = 'active'
 AND key_hash = nullif(current_setting('app.current_api_key_hash', true), '')
 ```
 
-Direct runtime select without workspace context must return zero rows.
+Resend provider message lookup policy:
 
-`lead_scores` and `ai_runs` are tenant-protected.
+```sql
+provider_message_id = nullif(current_setting('app.current_provider_message_id', true), '')
+```
 
-`syrantis_worker` has no direct grants to `ai_runs` or `lead_scores`.
+Status:
+
+- direct runtime select without workspace context must return zero rows
+- `lead_scores` and `ai_runs` are tenant-protected
+- `syrantis_worker` has no direct grants to `ai_runs` or `lead_scores`
+- verify-schema checks RLS enabled
+- verify-schema checks FORCE RLS enabled
+- verify-schema checks expected policy names
+- 021N verified RLS catalog state in production with `checked=21`
+- 021O extended verify-schema to 31 invariants
+- current expected result: `checked=31 passed=31 failed=0`
 
 ## Migration Integrity Status
 
-021H exposed a migration drift risk.
+Implemented:
 
-`drizzle.__drizzle_migrations` showed migration 0015 applied.
+- 021I schema drift guard
+- 021K migration journal integrity guard
+- 021N RLS catalog verification
+- 021O webhook delivery proof catalog verification
 
-The real schema initially lacked:
+Current production state:
 
-- `background_jobs.scheduled_at`
-- `background_jobs_pending_send_email_scheduled_at_idx`
+- 18 SQL migration files
+- 18 journal entries
+- `verify-migration-files` result: `drift=0`
+- `verify-schema` result: `checked=31 passed=31 failed=0`
+- migration `0017_resend_webhook_delivery_proof.sql` exists
 
-Manual idempotent DDL patch fixed production.
+Hard rules:
 
-Next issue:
-
-```txt
-021I Migration Integrity / Drift Guard
-```
-
-Hard rule: migration journal is not enough; production validation must verify real schema objects.
+- migration journal is not sufficient proof
+- verify-migration-files validates SQL files and journal entries
+- verify-schema validates live catalog invariants
+- all migration-heavy issues require production verify-schema after migrate
 
 ## Operational Lanes
 
@@ -577,28 +744,6 @@ email_sends.pending
 background_jobs.send_email
   ↓
 optional POST /api/drafts/:id/cancel-send while pending
-  ↓
-worker execution
-  ↓
-internal provider: email_sends.queued, job completed, no real email
-  ↓
-GET /api/drafts/:id/send-status
-  ↓
-DB proof
-```
-
-Retry branch:
-
-```txt
-retryable provider failure
-  ↓
-current email_sends.failed
-  ↓
-new email_sends.pending retry row
-  ↓
-same background_jobs row rescheduled with scheduled_at
-  ↓
-worker retry after backoff
 ```
 
 Status:
@@ -623,11 +768,55 @@ running
 handler
   ↓
 completed / failed / cancelled / rescheduled
+  ↓
+send-status / send-attempts
 ```
 
 Worker ops are exposed through CLI, not HTTP.
 
-### 6. AI Scoring Lane
+Retry branch:
+
+```txt
+retryable provider failure
+  ↓
+current email_sends.failed
+  ↓
+new email_sends.pending retry row
+  ↓
+same background_jobs row rescheduled with scheduled_at
+  ↓
+worker retry after backoff
+```
+
+### 6. Resend Delivery Webhook Lane
+
+```txt
+Resend webhook
+  ↓
+Svix signature verification
+  ↓
+provider message lookup via current_setting('app.current_provider_message_id')
+  ↓
+resolve email_sends.workspace_id
+  ↓
+withWorkspaceDb(workspaceId)
+  ↓
+update delivery proof columns
+  ↓
+compact email_send.delivery_updated activity log
+  ↓
+send-status / send-attempts expose safe delivery proof
+```
+
+Status:
+
+- optional
+- requires `RESEND_WEBHOOK_SECRET`
+- no tenantGuard
+- no provider HTTP calls
+- no raw payload storage
+
+### 7. AI Scoring Lane
 
 ```txt
 lead
@@ -662,7 +851,7 @@ Status:
 - no prompt/output in activity_logs
 - cost tracking in `cost_estimate_micro_usd`
 
-### 7. AI Draft Lane
+### 8. AI Draft Lane
 
 ```txt
 lead
@@ -688,10 +877,10 @@ Status:
 - no prompt/output in activity_logs
 - manual drafts return null AI audit
 
-### 8. Future CRM Push-back Lane
+### 9. Future CRM Push-back Lane
 
 ```txt
-email sent / task done / approval accepted
+delivery proof / task done / approval accepted
   ↓
 integration_event outbound
   ↓
@@ -747,43 +936,32 @@ Not implemented yet.
 | 021F | Draft Send Status Read Model | done |
 | 021G | Draft Send Cancellation | done |
 | 021H | Worker Retry / Backoff / Dead Letter | done |
-| 021I | Migration Integrity / Drift Guard | next |
-| 021J | Send Proof Hardening | planned |
-| 021K | Send Attempt History Read Model | planned |
-| 021L | Resend Real Send Smoke / Ops Guardrails | planned |
-| 021M | Resend Webhook Foundation | planned |
-| 021N | CRM Proof Push-back v1 | planned |
-| 022A | Pipeline UI Read Layer | planned |
+| 021I | Migration Schema Drift Guard | done |
+| 021J | Send Proof Hardening | done |
+| 021K | Migration Journal Integrity Guard | done |
+| 021L | Send Attempt History Read Model | done |
+| 021M | Test Environment Isolation | done |
+| 021N | RLS Catalog Verification | done |
+| 021O | Resend Webhook Foundation | done |
+
+Near-term candidates:
+
+- README / docs state refresh: current task
+- 021P Terminal Delivery Immutability Guard
+- 021Q Delivery Read Model Polish only if needed
+- 022A CRM Proof Push-back Foundation
+- Pipeline UI read layer later
 
 ## Current Execution Focus
 
-021I Migration Integrity / Drift Guard
+Current focus:
 
-Goal:
+- README current-state refresh through 021O
+- keep docs aligned before next feature
+- avoid over-engineering
+- next real feature candidate after docs: 021P or 022A depending strategy
 
-Ensure migration journal, real schema, Drizzle schema, and production validation cannot drift silently.
-
-Expected scope:
-
-- verify migration files are present and ordered
-- verify `drizzle.__drizzle_migrations` is not trusted alone
-- add validation commands or scripts for real schema objects
-- add prod checklist for columns, indexes, constraints, RLS, policies
-- document 021H `scheduled_at` drift incident
-
-Allowed:
-
-- docs
-- validation helpers
-- prod checklist improvements
-- migration integrity checks
-
-Forbidden:
-
-- product behavior changes
-- UI
-- worker behavior changes unless validation helper needs it
-- new business routes
+Do not claim 021P, 021Q, 022A, or Pipeline UI work as implemented.
 
 ## Development Workflow
 
@@ -793,31 +971,21 @@ Agent workspace:
 cd /opt/syrantis/agent-workspaces/codex/syrantis-core
 ```
 
-Sync main:
+Clean sync and branch:
 
 ```bash
 git fetch origin
 git checkout main
-git pull origin main
-git status --short
-```
-
-Create feature branch:
-
-```bash
-BRANCH_NAME="feat/021i-migration-integrity-drift-guard"
-
-if git show-ref --verify --quiet "refs/heads/${BRANCH_NAME}"; then
-  git checkout "${BRANCH_NAME}"
-  git rebase main
-else
-  git checkout -b "${BRANCH_NAME}"
-fi
+git reset --hard origin/main
+git clean -fd
+git checkout -b docs/update-readme-through-021o
 ```
 
 Baseline checks:
 
 ```bash
+pnpm --filter @syrantis/db verify-migration-files
+pnpm --filter @syrantis/shared build
 pnpm test
 pnpm typecheck
 pnpm lint
@@ -825,6 +993,13 @@ pnpm build
 
 env -u DATABASE_URL node -e "import('./apps/api/dist/index.js').then(() => console.log('API_IMPORT_OK')).catch((e) => { console.error(e); process.exit(1); })"
 git diff --check
+```
+
+Use the shared build before targeted API read-model tests when shared contracts changed:
+
+```bash
+pnpm --filter @syrantis/shared build
+pnpm --filter @syrantis/api test -- --run
 ```
 
 ## Pull Request Protocol
@@ -844,6 +1019,7 @@ Every PR must include:
 Minimum local gates:
 
 ```bash
+pnpm --filter @syrantis/db verify-migration-files
 pnpm test
 pnpm typecheck
 pnpm lint
@@ -882,27 +1058,38 @@ git status --short
 Install and build:
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
+pnpm --filter @syrantis/db verify-migration-files
+pnpm --filter @syrantis/shared build
 pnpm test
 pnpm typecheck
 pnpm lint
 pnpm build
 ```
 
-Run migrations only when the issue explicitly adds a migration:
+Hostile env tests where relevant:
 
 ```bash
-bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter @syrantis/db migrate'
+pnpm --filter @syrantis/api test -- --run apps/api/src/**/*.hostile-env.test.ts
 ```
-
-021I may have no product migration, but it should add migration/schema validation discipline.
-
-Issues with migrations must include real schema verification commands, not only a migration journal check.
 
 Import safety:
 
 ```bash
 env -u DATABASE_URL node -e "import('./apps/api/dist/index.js').then(() => console.log('API_IMPORT_OK')).catch((e) => { console.error(e); process.exit(1); })"
+```
+
+Run migrations only when the issue explicitly adds a migration:
+
+```bash
+bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter @syrantis/db migrate'
+bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter @syrantis/db verify-schema'
+```
+
+Expected verify-schema after 021O:
+
+```txt
+checked=31 passed=31 failed=0
 ```
 
 Restart API manually from prod runtime if needed:
@@ -913,6 +1100,32 @@ bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; PORT=8787 pnpm
 
 ## DB Validation Commands
 
+Migration file and journal integrity:
+
+```bash
+pnpm --filter @syrantis/db verify-migration-files
+```
+
+Expected:
+
+```txt
+18 SQL files
+18 journal entries
+drift=0
+```
+
+Live catalog verification:
+
+```bash
+bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter @syrantis/db verify-schema'
+```
+
+Expected:
+
+```txt
+checked=31 passed=31 failed=0
+```
+
 Migration history:
 
 ```bash
@@ -920,32 +1133,47 @@ docker exec syrantis-postgres psql -U syrantis -d syrantis -c \
 "select * from drizzle.__drizzle_migrations order by id asc;"
 ```
 
-021H real schema verification:
+021O delivery proof columns on `email_sends`:
 
 ```bash
-echo "== VERIFY 021H scheduled_at COLUMN =="
 docker exec syrantis-postgres psql -U syrantis -d syrantis -c "
 select column_name, data_type, is_nullable
 from information_schema.columns
 where table_schema = 'public'
-  and table_name = 'background_jobs'
-  and column_name = 'scheduled_at';
-"
-
-echo "== VERIFY 021H scheduled_at INDEX =="
-docker exec syrantis-postgres psql -U syrantis -d syrantis -c "
-select indexname, indexdef
-from pg_indexes
-where schemaname = 'public'
-  and tablename = 'background_jobs'
-  and indexname = 'background_jobs_pending_send_email_scheduled_at_idx';
+  and table_name = 'email_sends'
+  and column_name in (
+    'delivery_status',
+    'delivered_at',
+    'bounced_at',
+    'complained_at',
+    'delivery_error_code'
+  )
+order by column_name;
 "
 ```
 
-Expected:
+021O constraints from migration `0017_resend_webhook_delivery_proof.sql`:
 
-- `scheduled_at` exists as timestamp with time zone, nullable
-- `background_jobs_pending_send_email_scheduled_at_idx` exists
+```bash
+docker exec syrantis-postgres psql -U syrantis -d syrantis -c "
+select conname, pg_get_constraintdef(oid) as definition
+from pg_constraint
+where conrelid = 'public.email_sends'::regclass
+  and conname like '%delivery%';
+"
+```
+
+021O provider message lookup policy:
+
+```bash
+docker exec syrantis-postgres psql -U syrantis -d syrantis -c "
+select tablename, policyname, cmd, qual, with_check
+from pg_policies
+where schemaname = 'public'
+  and tablename = 'email_sends'
+  and policyname = 'email_sends_provider_message_lookup';
+"
+```
 
 RLS status:
 
@@ -1002,29 +1230,12 @@ Expected:
 all counts = 0
 ```
 
-Latest AI runs:
-
-```sql
-select id, workspace_id, reference_type, reference_id, provider, model_used, status,
-       finish_reason, input_tokens, output_tokens, cost_estimate_micro_usd, created_at
-from ai_runs
-order by created_at desc
-limit 10;
-```
-
-Latest lead scores:
-
-```sql
-select id, workspace_id, lead_id, ai_run_id, score, qualification, confidence, created_at
-from lead_scores
-order by created_at desc
-limit 10;
-```
-
 Latest email sends:
 
 ```sql
-select id, workspace_id, draft_id, status, provider, created_at, updated_at, sent_at, failed_at
+select id, workspace_id, draft_id, status, provider, created_at, updated_at,
+       sent_at, failed_at, delivery_status, delivered_at, bounced_at,
+       complained_at, delivery_error_code
 from email_sends
 order by created_at desc
 limit 10;
@@ -1168,6 +1379,7 @@ Verify:
 11. Optionally `POST /api/drafts/:id/cancel-send` while pending.
 12. Run worker once.
 13. `GET /api/drafts/:id/send-status`.
+14. `GET /api/drafts/:id/send-attempts`.
 
 Internal provider verify:
 
@@ -1175,6 +1387,13 @@ Internal provider verify:
 - `background_jobs.status = completed`
 - no real external email by default
 - `sent_at` and `provider_message_id` remain null for internal provider
+
+Resend provider verify when explicitly enabled:
+
+- real send is worker-only
+- webhook delivery proof is provider-ingress-only
+- send-status and send-attempts expose compact delivery proof
+- provider ids and raw payloads remain hidden
 
 ## Safety Checks
 
@@ -1209,7 +1428,7 @@ empty, except allowed DB helpers and worker claim infrastructure
 No secrets committed:
 
 ```bash
-grep -R -I "OPENAI_API_KEY\|OPENROUTER_API_KEY=.*[A-Za-z0-9]\|RESEND_API_KEY\|ghp_\|github_pat_\|DATABASE_URL=.*://.*:[^*]\|MIGRATION_DATABASE_URL=.*://.*:[^*]\|FOUNDER_PASSWORD=.*[^>]\|sk-[A-Za-z0-9_-]\{30,\}" \
+grep -R -I "OPENAI_API_KEY\|OPENROUTER_API_KEY=.*[A-Za-z0-9]\|RESEND_API_KEY\|RESEND_WEBHOOK_SECRET=.*[A-Za-z0-9]\|ghp_\|github_pat_\|DATABASE_URL=.*://.*:[^*]\|MIGRATION_DATABASE_URL=.*://.*:[^*]\|FOUNDER_PASSWORD=.*[^>]\|sk-[A-Za-z0-9_-]\{30,\}" \
   apps packages docs \
   --exclude-dir=node_modules \
   --exclude-dir=dist \
@@ -1222,16 +1441,31 @@ No OpenRouter endpoint outside provider:
 grep -R "api.openrouter.ai" apps/api/src --exclude-dir=dist --exclude-dir=node_modules || true
 ```
 
-No fetch outside OpenRouter provider:
+No fetch outside provider boundaries:
 
 ```bash
 grep -R "fetch(" apps/api/src --exclude-dir=dist --exclude-dir=node_modules || true
 ```
 
-No provider call in routes:
+Expected:
+
+```txt
+empty, except approved provider implementations
+```
+
+No provider call in regular routes:
 
 ```bash
 grep -R "OpenRouterProvider\|Resend\|sendEmail\|provider.send\|fetch(" apps/api/src/routes 2>/dev/null || true
+```
+
+No provider external call from webhook route/service:
+
+```bash
+grep -R "fetch(\|Resend\|sendEmail\|provider.send" \
+  apps/api/src/routes \
+  apps/api/src/services \
+  2>/dev/null | grep -i webhook || true
 ```
 
 No prompt/output logging:
@@ -1272,6 +1506,48 @@ No route reading workspaceId from body/query:
 grep -R "workspaceId.*body\|workspaceId.*query\|workspaceId.*req" apps/api/src/routes 2>/dev/null || true
 ```
 
+No webhook workspaceId from body/query/headers:
+
+```bash
+grep -R "workspaceId.*body\|workspaceId.*query\|workspaceId.*header\|x-workspace" apps/api/src 2>/dev/null | grep -i webhook || true
+```
+
+No tenantGuard on webhook route:
+
+```bash
+grep -R "tenantGuard" apps/api/src/routes 2>/dev/null | grep -i webhook || true
+```
+
+No provider_message_id in public response contracts:
+
+```bash
+grep -R "provider_message_id\|providerMessageId" packages/shared/src/contracts apps/api/src/routes 2>/dev/null || true
+```
+
+Expected:
+
+```txt
+empty for public read models/responses; allowed only in internal persistence/provider lookup code
+```
+
+No raw webhook payload storage:
+
+```bash
+grep -R "raw.*payload\|payload_json\|metadata_json" apps/api/src 2>/dev/null | grep -i webhook || true
+```
+
+No raw provider payload storage:
+
+```bash
+grep -R "raw.*provider\|provider.*raw\|response.*body\|payload_json" apps/api/src/services apps/api/src/routes 2>/dev/null || true
+```
+
+Signature verification exists:
+
+```bash
+grep -R "RESEND_WEBHOOK_SECRET\|svix\|webhook.*signature\|verify.*signature" apps/api/src packages/shared/src 2>/dev/null || true
+```
+
 No leads mutation in AI modules:
 
 ```bash
@@ -1285,43 +1561,20 @@ grep -R "update(leads)\|set({.*score\|scoreReason" \
 
 Near-term:
 
-- 021I Migration Integrity / Drift Guard
-- 021J Send Proof Hardening
-- 021K Send Attempt History Read Model
-- 021L Resend Real Send Smoke / Ops Guardrails
-- 021M Resend Webhook Foundation
-- 021N CRM Proof Push-back v1
-- 022A Pipeline UI Read Layer
+- docs/readme refresh through 021O
+- 021P Terminal Delivery Immutability Guard
+- 022A CRM Proof Push-back Foundation
+- Pipeline UI Read Layer
+- optional webhook event store later only if needed
 
-MVP v1:
+Not implemented:
 
-```txt
-public intake
-  ↓
-lead/contact/org normalization
-  ↓
-AI scoring
-  ↓
-AI draft
-  ↓
-AI audit
-  ↓
-approval readiness
-  ↓
-human approval
-  ↓
-send readiness
-  ↓
-request-send
-  ↓
-worker execution
-  ↓
-send status / DB proof
-  ↓
-future CRM push-back
-```
+- terminal delivery immutability guard
+- CRM proof push-back
+- Pipeline UI read layer
+- webhook event store
 
-Later:
+Later connector candidates:
 
 - HubSpot connector
 - Pipedrive connector
@@ -1331,7 +1584,7 @@ Later:
 
 ## Future DevOps: Syrantis Sweeper
 
-Syrantis will eventually need its own maintenance bot inspired by ClawSweeper.
+Syrantis may eventually need a conservative maintenance bot inspired by ClawSweeper.
 
 Working name:
 
@@ -1341,13 +1594,13 @@ Syrantis Sweeper
 
 Purpose:
 
-conservative maintenance bot for Syrantis repositories
+- review issues, PRs, and commits
+- surface migration, RLS, worker, AI provider, cost, and read-model drift
+- produce durable review state and safe maintenance proposals
+- never become an autonomous deployer
+- never merge, deploy, or mutate production
 
-It should not become an autonomous deployer.
-
-It should produce durable review state, surface drift, and propose safe maintenance actions.
-
-Planned lanes:
+Possible future lanes:
 
 - issue/PR sweeper
 - commit review sweeper
@@ -1357,286 +1610,3 @@ Planned lanes:
 - read-model privacy sweeper
 - prod validation checklist generator
 - security drift sweeper
-
-### Issue/PR Sweeper
-
-Responsibilities:
-
-- scan open issues and PRs
-- write one markdown report per item
-- sync one durable marker-backed GitHub comment
-- never spam duplicate comments
-- propose closes only with strong evidence
-- never close maintainer-authored items automatically
-
-Records shape:
-
-```txt
-records/syrantis-core/items/<number>.md
-records/syrantis-core/closed/<number>.md
-```
-
-Report content:
-
-- decision
-- evidence
-- risk level
-- changed surface
-- migration impact
-- RLS impact
-- tests expected
-- prod validation checklist
-- suggested maintainer comment
-- GitHub snapshot hash
-
-### Commit Review Sweeper
-
-Responsibilities:
-
-- watch main branch commits
-- skip docs-only commits cheaply
-- review code-bearing commits
-- write one report per commit SHA
-- optionally create GitHub Check Run
-- never mutate code while reviewing
-
-Records shape:
-
-```txt
-records/syrantis-core/commits/<sha>.md
-```
-
-Results:
-
-- nothing_found
-- findings
-- inconclusive
-- failed
-- skipped_non_code
-
-### Migration Safety Sweeper
-
-Syrantis-specific lane.
-
-Checks:
-
-- new migrations registered in journal
-- RLS enabled when table is tenant-scoped
-- FORCE RLS enabled
-- syrantis_app grants present
-- no owner change to runtime role
-- no DROP / DELETE destructive migration without explicit approval
-- updated_at trigger present for updated_at tables
-
-### Worker Validation Sweeper
-
-Checks:
-
-- worker preflight remains enabled
-- `syrantis_worker` direct grants remain minimal
-- stale repair does not touch completed/cancelled jobs
-- worker handlers do not call tenantGuard
-- score_lead provider calls are outside DB transactions
-
-### AI Provider / Cost Drift Sweeper
-
-Checks:
-
-- OpenRouter endpoint appears only in provider
-- allowed model list did not drift accidentally
-- pricing map changes are explicit
-- cost_estimate_micro_usd is persisted for scoring runs
-- no prompt/output logging was introduced
-
-### Read-model Privacy Sweeper
-
-Checks:
-
-- read models do not expose `prompt_json`
-- read models do not expose `input_payload`
-- read models do not expose raw `output_payload`
-- send readiness/status read models do not expose email bodies or provider raw data
-- error previews are compact
-- PII is not surfaced through DTOs
-
-### Production Validation Sweeper
-
-Reads PR body and generated validation plan.
-
-Can generate:
-
-- `prod-checklists/<issue>.md`
-- curl validation commands
-- SQL validation commands
-- rollback commands
-
-Must never:
-
-- run deployment
-- edit prod env
-- access secrets
-- connect to DB directly without maintainer command
-
-### Security Drift Sweeper
-
-Checks:
-
-- secret-like values committed
-- workspaceId accepted from client
-- raw SQL added outside DB helper
-- `.delete()` added in business code
-- tenantGuard modified
-- withWorkspaceDb modified
-- RLS policy drift
-- public endpoint added without explicit auth model
-
-### Maintainer Commands
-
-Potential commands:
-
-```txt
-@syrantis-sweeper status
-@syrantis-sweeper review
-@syrantis-sweeper re-review
-@syrantis-sweeper check migration
-@syrantis-sweeper generate prod checks
-@syrantis-sweeper explain
-@syrantis-sweeper stop
-```
-
-Rules:
-
-- maintainer-only
-- read-only by default
-- write actions require explicit opt-in
-- no merge
-- no deploy
-- no secret access
-
-### Guarded Apply Model
-
-Syrantis Sweeper may propose but not execute risky actions.
-
-Allowed future apply candidates:
-
-- sync stale review comment
-- move closed report to archive
-- label issue as needs-prod-validation
-- label PR as migration-review-needed
-- generate checklist PR comment
-
-Forbidden apply candidates:
-
-- merge PR
-- deploy production
-- edit env files
-- rotate secrets
-- run migrations
-- close maintainer-authored issues automatically
-
-### State Repository
-
-Future generated state repo:
-
-```txt
-syrantis/syrantis-sweeper-state
-```
-
-State layout:
-
-```txt
-records/
-  syrantis-core/
-    items/
-    closed/
-    commits/
-jobs/
-results/
-  sweep-status/
-  audit/
-  dashboards/
-```
-
-Dashboard should show:
-
-- open issues needing review
-- PRs with migration impact
-- PRs with RLS impact
-- recent main commits
-- failed or inconclusive commit reviews
-- prod validation pending
-- security drift alerts
-
-### Local Run
-
-Core commands:
-
-```bash
-corepack enable
-pnpm install
-pnpm test
-pnpm typecheck
-pnpm lint
-pnpm build
-```
-
-API import safety:
-
-```bash
-env -u DATABASE_URL node -e "import('./apps/api/dist/index.js').then(() => console.log('API_IMPORT_OK')).catch((e) => { console.error(e); process.exit(1); })"
-```
-
-### GitHub Actions Future
-
-Recommended CI gates:
-
-- install
-- typecheck
-- lint
-- test
-- build
-- import safety
-- migration journal check
-- forbidden surface grep
-- secret grep
-- RLS policy grep for tenant tables
-
-Future required secrets:
-
-- OPENAI_API_KEY
-- SYRANTIS_SWEEPER_APP_CLIENT_ID
-- SYRANTIS_SWEEPER_APP_PRIVATE_KEY
-
-Never expose:
-
-- DATABASE_URL
-- MIGRATION_DATABASE_URL
-- FOUNDER_PASSWORD
-- workspace API keys
-- Resend key
-- CRM OAuth credentials
-
-## Philosophy
-
-Syrantis Core optimizes for controlled execution.
-
-Not more features.
-
-Better guarantees.
-
-Every new capability must answer:
-
-- what tenant owns it?
-- what transaction contains it?
-- what audit log proves it?
-- what RLS policy protects it?
-- what rollback path exists?
-- what future agent boundary does it create?
-
-The target is not a big dashboard.
-
-The target is a reliable action spine:
-
-```txt
-Lead → Context → Score → Draft → Approval → Send → Proof → CRM
-```
