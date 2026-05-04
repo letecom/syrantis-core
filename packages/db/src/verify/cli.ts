@@ -70,7 +70,9 @@ function isMigrationId(value: string | undefined): value is MigrationId {
     value === "0011" ||
     value === "0012" ||
     value === "0015" ||
-    value === "0016"
+    value === "0016" ||
+    value === "0017" ||
+    value === "0018"
   );
 }
 

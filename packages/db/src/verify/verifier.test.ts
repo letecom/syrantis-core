@@ -6,11 +6,13 @@ import {
   columnInvariantSql,
   indexInvariantSql,
   policyInvariantSql,
-  rlsInvariantSql
+  rlsInvariantSql,
+  triggerFunctionInvariantSql,
+  triggerInvariantSql
 } from "./queries.js";
 import { getInvariantKey, schemaInvariantRegistry } from "./registry.js";
 import { formatSchemaVerifyJson, getSchemaVerifyExitCode } from "./reporter.js";
-import type { ColumnCatalogRow, RlsCatalogRow, SchemaCatalog } from "./types.js";
+import type { ColumnCatalogRow, RlsCatalogRow, SchemaCatalog, TriggerCatalogRow } from "./types.js";
 import { verifySchemaInvariants } from "./verifier.js";
 
 function isRlsCatalogRow(value: RlsCatalogRow | Record<string, RlsCatalogRow | null>): value is RlsCatalogRow {
@@ -23,12 +25,20 @@ function isColumnCatalogRow(
   return "dataType" in value;
 }
 
+function isTriggerCatalogRow(
+  value: TriggerCatalogRow | Record<string, TriggerCatalogRow | null>
+): value is TriggerCatalogRow {
+  return "enabled" in value;
+}
+
 function buildCatalog(input: {
   column?: ColumnCatalogRow | null | Record<string, ColumnCatalogRow | null>;
   index?: boolean | Record<string, boolean>;
   checkConstraint?: boolean | Record<string, boolean>;
   rls?: RlsCatalogRow | null | Record<string, RlsCatalogRow | null>;
   policy?: boolean | Record<string, boolean>;
+  triggerFunction?: boolean | Record<string, boolean>;
+  trigger?: TriggerCatalogRow | null | Record<string, TriggerCatalogRow | null>;
 }): SchemaCatalog {
   return {
     findColumn: async ({ column }) => {
@@ -60,7 +70,27 @@ function buildCatalog(input: {
       return input.rls ?? { rlsEnabled: true, rlsForced: true };
     },
     hasPolicy: async ({ policyName }) =>
-      typeof input.policy === "object" ? (input.policy[policyName] ?? false) : (input.policy ?? true)
+      typeof input.policy === "object" ? (input.policy[policyName] ?? false) : (input.policy ?? true),
+    hasTriggerFunction: async ({ functionName }) =>
+      typeof input.triggerFunction === "object"
+        ? (input.triggerFunction[functionName] ?? false)
+        : (input.triggerFunction ?? true),
+    findTrigger: async ({ triggerName }) => {
+      if (input.trigger === null) {
+        return null;
+      }
+
+      if (input.trigger && !isTriggerCatalogRow(input.trigger)) {
+        return input.trigger[triggerName] ?? null;
+      }
+
+      return (
+        input.trigger ?? {
+          enabled: true,
+          functionName: "enforce_email_sends_terminal_delivery_immutability"
+        }
+      );
+    }
   };
 }
 
@@ -215,6 +245,30 @@ describe("schema invariant registry", () => {
     );
   });
 
+  it("includes 0018 terminal delivery immutability invariants", () => {
+    assert.ok(
+      schemaInvariantRegistry.some(
+        (invariant) =>
+          invariant.kind === "trigger_function" &&
+          invariant.migration === "0018" &&
+          invariant.schema === "public" &&
+          invariant.functionName === "enforce_email_sends_terminal_delivery_immutability"
+      )
+    );
+
+    assert.ok(
+      schemaInvariantRegistry.some(
+        (invariant) =>
+          invariant.kind === "trigger" &&
+          invariant.migration === "0018" &&
+          invariant.schema === "public" &&
+          invariant.table === "email_sends" &&
+          invariant.triggerName === "email_sends_terminal_delivery_immutability_trg" &&
+          invariant.functionName === "enforce_email_sends_terminal_delivery_immutability"
+      )
+    );
+  });
+
   it("includes RLS tenant isolation invariants for expected tenant tables", () => {
     const rlsInvariants = schemaInvariantRegistry.filter(
       (invariant) =>
@@ -249,8 +303,8 @@ describe("schema invariant verifier", () => {
     );
 
     assert.equal(result.success, true);
-    assert.equal(result.checked, 31);
-    assert.equal(result.passed.length, 31);
+    assert.equal(result.checked, 33);
+    assert.equal(result.passed.length, 33);
     assert.equal(result.failed.length, 0);
   });
 
@@ -580,6 +634,115 @@ describe("schema invariant verifier", () => {
     });
   });
 
+  it("reports drift when the 0018 trigger function is absent", async () => {
+    const [triggerFunctionInvariant] = schemaInvariantRegistry.filter(
+      (invariant) => invariant.kind === "trigger_function" && invariant.migration === "0018"
+    );
+    assert.ok(triggerFunctionInvariant?.kind === "trigger_function");
+
+    const result = await verifySchemaInvariants(
+      buildCatalog({
+        triggerFunction: false,
+        trigger: {
+          enabled: true,
+          functionName: "enforce_email_sends_terminal_delivery_immutability"
+        }
+      }),
+      [triggerFunctionInvariant]
+    );
+
+    assert.equal(result.success, false);
+    assert.deepEqual(result.failed[0], {
+      migration: "0018",
+      kind: "trigger_function",
+      object: "enforce_email_sends_terminal_delivery_immutability",
+      reason: "missing",
+      expected: true,
+      actual: false
+    });
+  });
+
+  it("reports drift when the 0018 trigger is absent", async () => {
+    const [triggerInvariant] = schemaInvariantRegistry.filter(
+      (invariant) => invariant.kind === "trigger" && invariant.migration === "0018"
+    );
+    assert.ok(triggerInvariant?.kind === "trigger");
+
+    const result = await verifySchemaInvariants(
+      buildCatalog({
+        triggerFunction: true,
+        trigger: null
+      }),
+      [triggerInvariant]
+    );
+
+    assert.equal(result.success, false);
+    assert.deepEqual(result.failed[0], {
+      migration: "0018",
+      kind: "trigger",
+      object: "email_sends.email_sends_terminal_delivery_immutability_trg",
+      reason: "missing",
+      expected: true,
+      actual: null
+    });
+  });
+
+  it("reports drift when the 0018 trigger is disabled", async () => {
+    const [triggerInvariant] = schemaInvariantRegistry.filter(
+      (invariant) => invariant.kind === "trigger" && invariant.migration === "0018"
+    );
+    assert.ok(triggerInvariant?.kind === "trigger");
+
+    const result = await verifySchemaInvariants(
+      buildCatalog({
+        triggerFunction: true,
+        trigger: {
+          enabled: false,
+          functionName: "enforce_email_sends_terminal_delivery_immutability"
+        }
+      }),
+      [triggerInvariant]
+    );
+
+    assert.equal(result.success, false);
+    assert.deepEqual(result.failed[0], {
+      migration: "0018",
+      kind: "trigger",
+      object: "email_sends.email_sends_terminal_delivery_immutability_trg",
+      reason: "trigger_disabled",
+      expected: true,
+      actual: false
+    });
+  });
+
+  it("reports drift when the 0018 trigger points to the wrong function", async () => {
+    const [triggerInvariant] = schemaInvariantRegistry.filter(
+      (invariant) => invariant.kind === "trigger" && invariant.migration === "0018"
+    );
+    assert.ok(triggerInvariant?.kind === "trigger");
+
+    const result = await verifySchemaInvariants(
+      buildCatalog({
+        triggerFunction: true,
+        trigger: {
+          enabled: true,
+          functionName: "syrantis_set_updated_at"
+        }
+      }),
+      [triggerInvariant]
+    );
+
+    assert.equal(result.success, false);
+    assert.deepEqual(result.failed[0], {
+      migration: "0018",
+      kind: "trigger",
+      object: "email_sends.email_sends_terminal_delivery_immutability_trg",
+      reason: "trigger_function_mismatch",
+      expected: "enforce_email_sends_terminal_delivery_immutability",
+      actual: "syrantis_set_updated_at"
+    });
+  });
+
   it("returns a failing process summary on drift", async () => {
     const result = await verifySchemaInvariants(
       buildCatalog({
@@ -591,18 +754,20 @@ describe("schema invariant verifier", () => {
     );
 
     assert.equal(getSchemaVerifyExitCode(result), 1);
-    assert.equal(result.checked, 31);
+    assert.equal(result.checked, 33);
     assert.equal(result.failed.length, 15);
   });
 
   it("keeps verification SQL limited to PostgreSQL catalog metadata", () => {
-    const combinedSql = `${columnInvariantSql}\n${indexInvariantSql}\n${checkConstraintInvariantSql}\n${rlsInvariantSql}\n${policyInvariantSql}`;
+    const combinedSql = `${columnInvariantSql}\n${indexInvariantSql}\n${checkConstraintInvariantSql}\n${rlsInvariantSql}\n${policyInvariantSql}\n${triggerFunctionInvariantSql}\n${triggerInvariantSql}`;
     assert.match(combinedSql, /information_schema\.columns/);
     assert.match(combinedSql, /pg_indexes/);
     assert.match(combinedSql, /pg_constraint/);
     assert.match(combinedSql, /pg_class/);
     assert.match(combinedSql, /pg_namespace/);
     assert.match(combinedSql, /pg_policy/);
+    assert.match(combinedSql, /pg_proc/);
+    assert.match(combinedSql, /pg_trigger/);
     assert.match(combinedSql, /contype = 'c'/);
     assert.match(combinedSql, /relkind = 'r'/);
     assert.doesNotMatch(
@@ -631,8 +796,8 @@ describe("schema invariant verifier", () => {
     };
 
     assert.equal(parsed.success, true);
-    assert.equal(parsed.checked, 31);
-    assert.equal(parsed.passed, 31);
+    assert.equal(parsed.checked, 33);
+    assert.equal(parsed.passed, 33);
     assert.deepEqual(parsed.failed, []);
   });
 });

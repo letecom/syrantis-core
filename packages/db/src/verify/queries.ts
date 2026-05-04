@@ -1,5 +1,5 @@
 import type { PgPool } from "../client.js";
-import type { ColumnCatalogRow, RlsCatalogRow, SchemaCatalog } from "./types.js";
+import type { ColumnCatalogRow, RlsCatalogRow, SchemaCatalog, TriggerCatalogRow } from "./types.js";
 
 type InformationSchemaColumnRow = {
   data_type: string;
@@ -21,6 +21,16 @@ type PgRlsRow = {
 
 type PgPolicyRow = {
   polname: string;
+};
+
+type PgFunctionRow = {
+  proname: string;
+};
+
+type PgTriggerRow = {
+  tgname: string;
+  tgenabled: string;
+  function_name: string;
 };
 
 export const columnInvariantSql = `
@@ -71,6 +81,30 @@ join pg_namespace n on n.oid = c.relnamespace
 where n.nspname = $1
   and c.relname = $2
   and p.polname = $3
+limit 1
+`;
+
+export const triggerFunctionInvariantSql = `
+select p.proname
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = $1
+  and p.proname = $2
+  and p.prokind = 'f'
+limit 1
+`;
+
+export const triggerInvariantSql = `
+select tg.tgname, tg.tgenabled, p.proname as function_name
+from pg_trigger tg
+join pg_class c on c.oid = tg.tgrelid
+join pg_namespace n on n.oid = c.relnamespace
+join pg_proc p on p.oid = tg.tgfoid
+where n.nspname = $1
+  and c.relname = $2
+  and c.relkind = 'r'
+  and tg.tgname = $3
+  and not tg.tgisinternal
 limit 1
 `;
 
@@ -125,6 +159,30 @@ export function buildPgSchemaCatalog(pool: PgPool): SchemaCatalog {
         input.policyName
       ]);
       return result.rows.length > 0;
+    },
+    async hasTriggerFunction(input): Promise<boolean> {
+      const result = await pool.query<PgFunctionRow>(triggerFunctionInvariantSql, [
+        input.schema,
+        input.functionName
+      ]);
+      return result.rows.length > 0;
+    },
+    async findTrigger(input): Promise<TriggerCatalogRow | null> {
+      const result = await pool.query<PgTriggerRow>(triggerInvariantSql, [
+        input.schema,
+        input.table,
+        input.triggerName
+      ]);
+      const row = result.rows[0];
+
+      if (!row) {
+        return null;
+      }
+
+      return {
+        enabled: row.tgenabled === "O",
+        functionName: row.function_name
+      };
     }
   };
 }

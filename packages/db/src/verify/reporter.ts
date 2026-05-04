@@ -51,5 +51,13 @@ function formatFailure(failure: SchemaInvariantFailure): string {
     return `FORCE RLS disabled: ${failure.object}`;
   }
 
+  if (failure.reason === "trigger_disabled") {
+    return `trigger disabled: ${failure.object}`;
+  }
+
+  if (failure.reason === "trigger_function_mismatch") {
+    return `trigger function mismatch: ${failure.object} expected=${failure.expected} actual=${failure.actual}`;
+  }
+
   return `missing RLS policy: ${failure.object} expected=${failure.expected}`;
 }
