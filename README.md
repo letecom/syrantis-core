@@ -950,11 +950,11 @@ Not implemented yet.
 | 021O | Resend Webhook Foundation | done |
 | 021P | Terminal Delivery Immutability Guard | done |
 | 022A | CRM Target Selection / Push-back Decision Record | done |
+| 022B | Google Sheets Sandbox Setup / Verification | done |
 
 Near-term candidates:
 
-- 022B First-User CRM Sandbox Setup
-- 022C Concrete CRM Push-back MVP after first target validation
+- 022C Concrete Google Sheets Push-back MVP after sandbox verification returns OK
 - 021Q Delivery Read Model Polish only if needed
 - Pipeline UI read layer later
 
@@ -962,12 +962,15 @@ Near-term candidates:
 
 Current focus:
 
-- CRM target-selection decision record through 022A
-- keep CRM push-back delayed until the first target sandbox is validated
+- Google Sheets sandbox verification through 022B
+- founder guide: [docs/guides/google-sheets-sandbox-setup.fr.md](docs/guides/google-sheets-sandbox-setup.fr.md)
+- keep CRM push-back delayed until the sandbox script is validated manually
 - avoid generic connector abstractions before one concrete target is proven
-- next real feature candidate after docs: 022B First-User CRM Sandbox Setup
+- next real feature candidate: 022C Concrete Google Sheets Push-back MVP after script OK
 
-Do not claim 021Q, 022B, CRM connector code, CRM push-back runtime behavior, or Pipeline UI work as implemented.
+Do not claim 021Q, CRM connector code, CRM push-back runtime behavior, or Pipeline UI work as implemented.
+
+022B is sandbox verification only. It adds a manual Google Sheets API readiness script and setup guide, not a connector, outbox, worker, route, or production push-back path.
 
 ## Development Workflow
 
@@ -1567,8 +1570,7 @@ grep -R "update(leads)\|set({.*score\|scoreReason" \
 
 Near-term:
 
-- 022B First-User CRM Sandbox Setup
-- 022C Concrete CRM Push-back MVP after target validation
+- 022C Concrete Google Sheets Push-back MVP after sandbox verification returns OK
 - Pipeline UI Read Layer
 - optional webhook event store later only if needed
 
@@ -1576,6 +1578,7 @@ Not implemented:
 
 - CRM proof push-back runtime behavior
 - CRM connector code
+- production Google Sheets push-back
 - Pipeline UI read layer
 - webhook event store
 
