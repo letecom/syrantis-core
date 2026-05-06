@@ -24,7 +24,7 @@ type ProviderMessageLookupRow = {
 export type ApplyResendDeliveryEventResult =
   | { result: "unmatched" }
   | { result: "unchanged" }
-  | { result: "updated" };
+  | { result: "updated"; emailSendId: string; workspaceId: string };
 
 async function findEmailSendByProviderMessageId(
   providerMessageId: string,
@@ -148,6 +148,6 @@ export async function applyResendDeliveryEvent(input: {
       deliveryStatus,
     });
 
-    return { result: "updated" };
+    return { result: "updated", emailSendId: emailSend.id, workspaceId: emailSend.workspaceId };
   });
 }

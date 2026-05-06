@@ -4,6 +4,7 @@ import {
   applyResendDeliveryEvent,
   type ResendDeliveryEventType,
 } from "../../repositories/resend-webhook.js";
+import { pushDeliveryProofToGoogleSheets } from "../pushback/google-sheets.js";
 
 const acceptedEventTypes = new Set<ResendDeliveryEventType>([
   "email.delivered",
@@ -27,7 +28,7 @@ export type ResendWebhookServiceResult =
   | { result: "ignored" }
   | { result: "unmatched" }
   | { result: "unchanged" }
-  | { result: "updated" }
+  | { result: "updated"; emailSendId?: string; workspaceId?: string }
   | { result: "invalid_payload" };
 
 function hasClientWorkspaceId(value: unknown): boolean {
@@ -77,8 +78,22 @@ export async function handleResendWebhookPayload(
     return { result: "invalid_payload" };
   }
 
-  return applyResendDeliveryEvent({
+  const applyResult = await applyResendDeliveryEvent({
     providerMessageId,
     eventType: parsed.data.type as ResendDeliveryEventType,
   });
+
+  if (applyResult.result === "updated") {
+    // Non-blocking push-back
+    void pushDeliveryProofToGoogleSheets({
+      workspaceId: applyResult.workspaceId,
+      emailSendId: applyResult.emailSendId,
+      eventType: parsed.data.type as ResendDeliveryEventType,
+      occurredAt: new Date(),
+    }).catch(() => {
+      // Ignore errors to avoid failing the webhook
+    });
+  }
+
+  return applyResult;
 }
