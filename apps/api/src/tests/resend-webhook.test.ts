@@ -5,10 +5,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createActivityLog } from "../repositories/activity-logs.js";
 import { createResendWebhookRoutes } from "../routes/webhooks/resend.js";
 import { verifyResendWebhookSignature } from "../services/webhooks/resend-signature.js";
+import { pushDeliveryProofToGoogleSheets } from "../services/pushback/google-sheets.js";
 
 const mockDb = vi.hoisted(() => ({
   lookupTx: undefined as unknown,
   workspaceTx: undefined as unknown,
+}));
+
+vi.mock("../services/pushback/google-sheets.js", () => ({
+  pushDeliveryProofToGoogleSheets: vi.fn(async () => {}),
 }));
 
 const dbMocks = vi.hoisted(() => ({
@@ -154,6 +159,7 @@ describe("POST /api/webhooks/resend", () => {
     dbMocks.withProviderMessageLookupDb.mockClear();
     dbMocks.withWorkspaceDb.mockClear();
     vi.mocked(createActivityLog).mockClear();
+    vi.mocked(pushDeliveryProofToGoogleSheets).mockClear();
     mockDb.lookupTx = createLookupTx(emailSendLookupRow());
     mockDb.workspaceTx = createWorkspaceTx();
   });
@@ -212,6 +218,7 @@ describe("POST /api/webhooks/resend", () => {
     expect(await response.json()).toEqual({ success: true, ignored: true });
     expect(dbMocks.withProviderMessageLookupDb).not.toHaveBeenCalled();
     expect(dbMocks.withWorkspaceDb).not.toHaveBeenCalled();
+    expect(pushDeliveryProofToGoogleSheets).not.toHaveBeenCalled();
   });
 
   it("returns 200 unmatched without leaking details for an unknown provider_message_id", async () => {
@@ -224,6 +231,7 @@ describe("POST /api/webhooks/resend", () => {
     expect(body).toEqual({ success: true, unmatched: true });
     expect(JSON.stringify(body)).not.toContain(providerMessageId);
     expect(dbMocks.withWorkspaceDb).not.toHaveBeenCalled();
+    expect(pushDeliveryProofToGoogleSheets).not.toHaveBeenCalled();
   });
 
   it("updates delivered proof under the resolved workspace", async () => {
@@ -250,6 +258,12 @@ describe("POST /api/webhooks/resend", () => {
         deliveryStatus: "delivered",
       },
     }));
+    expect(pushDeliveryProofToGoogleSheets).toHaveBeenCalledWith({
+      workspaceId,
+      emailSendId,
+      eventType: "email.delivered",
+      occurredAt: expect.any(Date),
+    });
   });
 
   it("updates bounced proof without raw provider error text", async () => {
@@ -265,6 +279,12 @@ describe("POST /api/webhooks/resend", () => {
       deliveryErrorCode: "RESEND_BOUNCED",
     });
     expect(JSON.stringify(await response.json())).not.toContain("Private raw bounce detail");
+    expect(pushDeliveryProofToGoogleSheets).toHaveBeenCalledWith({
+      workspaceId,
+      emailSendId,
+      eventType: "email.bounced",
+      occurredAt: expect.any(Date),
+    });
   });
 
   it("updates complained proof without raw provider complaint text", async () => {
@@ -280,6 +300,12 @@ describe("POST /api/webhooks/resend", () => {
       deliveryErrorCode: "RESEND_COMPLAINED",
     });
     expect(JSON.stringify(await response.json())).not.toContain("Private complaint detail");
+    expect(pushDeliveryProofToGoogleSheets).toHaveBeenCalledWith({
+      workspaceId,
+      emailSendId,
+      eventType: "email.complained",
+      occurredAt: expect.any(Date),
+    });
   });
 
   it("allows complained after delivered and preserves delivered_at", async () => {
@@ -313,6 +339,19 @@ describe("POST /api/webhooks/resend", () => {
     expect(await response.json()).toEqual({ success: true, unchanged: true });
     expect(dbMocks.withWorkspaceDb).not.toHaveBeenCalled();
     expect(createActivityLog).not.toHaveBeenCalled();
+    expect(pushDeliveryProofToGoogleSheets).not.toHaveBeenCalled();
+  });
+
+  it("does not fail the webhook request if pushback throws", async () => {
+    vi.setSystemTime(new Date("2026-05-04T10:00:00.000Z"));
+    vi.mocked(pushDeliveryProofToGoogleSheets).mockRejectedValueOnce(new Error("pushback error"));
+
+    const request = signedRequest(payload("email.delivered"));
+    const response = await postSigned(request.body, request.headers);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ success: true });
+    expect(pushDeliveryProofToGoogleSheets).toHaveBeenCalled();
   });
 
   it("rejects client-provided workspaceId from signed payload, query, or headers", async () => {

@@ -571,6 +571,8 @@ Current AI guarantees:
 - 021N RLS Catalog Verification
 - 021O Resend Webhook Foundation
 - 021P Terminal Delivery Immutability Guard
+- 022B Google Sheets Sandbox Verification
+- 022C Google Sheets Push-back MVP
 
 Implemented validation:
 
@@ -951,26 +953,21 @@ Not implemented yet.
 | 021P | Terminal Delivery Immutability Guard | done |
 | 022A | CRM Target Selection / Push-back Decision Record | done |
 | 022B | Google Sheets Sandbox Setup / Verification | done |
+| 022C | Google Sheets Push-back MVP | done |
 
 Near-term candidates:
 
-- 022C Concrete Google Sheets Push-back MVP after sandbox verification returns OK
-- 021Q Delivery Read Model Polish only if needed
 - Pipeline UI read layer later
 
 ## Current Execution Focus
 
 Current focus:
 
-- Google Sheets sandbox verification through 022B
-- founder guide: [docs/guides/google-sheets-sandbox-setup.fr.md](docs/guides/google-sheets-sandbox-setup.fr.md)
-- keep CRM push-back delayed until the sandbox script is validated manually
-- avoid generic connector abstractions before one concrete target is proven
-- next real feature candidate: 022C Concrete Google Sheets Push-back MVP after script OK
+- Google Sheets Push-back MVP implemented (022C)
+- Next up: Pipeline UI read layer
+- Keep CRM connector abstractions delayed until more targets are proven
 
-Do not claim 021Q, CRM connector code, CRM push-back runtime behavior, or Pipeline UI work as implemented.
-
-022B is sandbox verification only. It adds a manual Google Sheets API readiness script and setup guide, not a connector, outbox, worker, route, or production push-back path.
+Do not claim 021Q, generic CRM connector code, or Pipeline UI work as implemented.
 
 ## Development Workflow
 
