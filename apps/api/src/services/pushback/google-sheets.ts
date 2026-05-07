@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { GoogleAuth } from "google-auth-library";
 import type { JWTInput } from "google-auth-library";
 
@@ -11,7 +13,8 @@ const SERVICE_ACCOUNT_KEY_FIELD = ["private", "key"].join("_");
 
 function parseCredentials(input: string): JWTInput | null {
   try {
-    const parsed: unknown = JSON.parse(input);
+    const source = path.isAbsolute(input) && existsSync(input) ? readFileSync(input, "utf8") : input;
+    const parsed: unknown = JSON.parse(source);
 
     if (!parsed || typeof parsed !== "object") {
       return null;

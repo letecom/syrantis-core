@@ -1,5 +1,8 @@
 import type { MockInstance } from "vitest";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { writeFileSync, unlinkSync } from "node:fs";
+import path from "node:path";
+import os from "node:os";
 
 import { pushDeliveryProofToGoogleSheets } from "../services/pushback/google-sheets.js";
 import { findPushbackData } from "../repositories/pushback.js";
@@ -81,6 +84,89 @@ describe("Google Sheets Pushback MVP", () => {
     });
     expect(mockFetch).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("missing credentials"));
+  });
+
+  it("pushes back successfully when GOOGLE_SHEETS_CREDENTIALS_JSON is raw JSON", async () => {
+    vi.mocked(findPushbackData).mockResolvedValue({
+      syrantis_lead_id: "lead1",
+      syrantis_draft_id: "draft1",
+      syrantis_email_send_id: "send1",
+      lead_label: "Lead 123",
+      contact_email: "test@test.com",
+      send_status: "sent",
+      delivery_status: "delivered",
+      requested_at: "2026-05-04T10:00:00.000Z",
+      sent_at: "2026-05-04T10:00:01.000Z",
+      delivered_at: "2026-05-04T10:00:02.000Z",
+      bounced_at: null,
+      complained_at: null,
+      delivery_error_code: null,
+      safe_summary: "Subject"
+    });
+    mockFetch.mockResolvedValue({ ok: true });
+    
+    process.env.GOOGLE_SHEETS_CREDENTIALS_JSON = JSON.stringify({ client_email: "raw@test", private_key: "raw_key" });
+    await pushDeliveryProofToGoogleSheets({
+      workspaceId: "w1", emailSendId: "send1", eventType: "email.delivered", occurredAt: new Date()
+    });
+    
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("pushes back successfully when GOOGLE_SHEETS_CREDENTIALS_JSON is a path to a temp JSON file", async () => {
+    const tempFile = path.join(os.tmpdir(), `syrantis-test-creds-${Date.now()}.json`);
+    writeFileSync(tempFile, JSON.stringify({ client_email: "file@test", private_key: "file_key" }));
+    
+    vi.mocked(findPushbackData).mockResolvedValue({
+      syrantis_lead_id: "lead1",
+      syrantis_draft_id: "draft1",
+      syrantis_email_send_id: "send1",
+      lead_label: "Lead 123",
+      contact_email: "test@test.com",
+      send_status: "sent",
+      delivery_status: "delivered",
+      requested_at: "2026-05-04T10:00:00.000Z",
+      sent_at: "2026-05-04T10:00:01.000Z",
+      delivered_at: "2026-05-04T10:00:02.000Z",
+      bounced_at: null,
+      complained_at: null,
+      delivery_error_code: null,
+      safe_summary: "Subject"
+    });
+    mockFetch.mockResolvedValue({ ok: true });
+    
+    process.env.GOOGLE_SHEETS_CREDENTIALS_JSON = tempFile;
+    
+    await pushDeliveryProofToGoogleSheets({
+      workspaceId: "w1", emailSendId: "send1", eventType: "email.delivered", occurredAt: new Date()
+    });
+    
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(warnSpy).not.toHaveBeenCalled();
+    unlinkSync(tempFile);
+  });
+
+  it("no-ops safely when the path does not exist", async () => {
+    process.env.GOOGLE_SHEETS_CREDENTIALS_JSON = "/path/that/does/not/exist/123.json";
+    await pushDeliveryProofToGoogleSheets({
+      workspaceId: "w1", emailSendId: "send1", eventType: "email.delivered", occurredAt: new Date()
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Failed to parse GOOGLE_SHEETS_CREDENTIALS_JSON."));
+  });
+
+  it("no-ops safely when the file contains invalid JSON", async () => {
+    const tempFile = path.join(os.tmpdir(), `syrantis-test-invalid-${Date.now()}.json`);
+    writeFileSync(tempFile, "this is not valid json");
+    
+    process.env.GOOGLE_SHEETS_CREDENTIALS_JSON = tempFile;
+    await pushDeliveryProofToGoogleSheets({
+      workspaceId: "w1", emailSendId: "send1", eventType: "email.delivered", occurredAt: new Date()
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Failed to parse GOOGLE_SHEETS_CREDENTIALS_JSON."));
+    unlinkSync(tempFile);
   });
 
   it("pushes back formatted row to Google Sheets exactly as required", async () => {
