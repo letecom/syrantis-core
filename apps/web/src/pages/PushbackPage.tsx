@@ -1,9 +1,16 @@
-import { useState, type FormEvent } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useRef, useState, type FormEvent } from "react";
+import { useMutation, useQuery, type QueryObserverResult } from "@tanstack/react-query";
 import type { PushbackStatusResponse } from "@syrantis/shared";
 import { z } from "zod";
 
-import { getDraftPushbackStatus, getEmailSendPushbackStatus } from "../lib/api-client";
+import {
+  ApiRequestError,
+  ApiUnauthorizedError,
+  getDraftPushbackStatus,
+  getEmailSendPushbackStatus,
+  replayEmailSendPushback,
+  type EmailSendPushbackReplayResponse
+} from "../lib/api-client";
 
 type LookupType = "emailSendId" | "draftId";
 type SubmittedLookup = {
@@ -17,6 +24,10 @@ const lookupOptions: Array<{ value: LookupType; label: string }> = [
   { value: "emailSendId", label: "Email send ID" },
   { value: "draftId", label: "Draft ID" }
 ];
+
+function resultKey(result: PushbackStatusResponse) {
+  return `${result.target.type}:${result.target.emailSendId ?? result.target.draftId ?? "missing"}`;
+}
 
 function formatValue(value: string | number | boolean | null | undefined) {
   if (value === null || value === undefined || value === "") {
@@ -42,6 +53,18 @@ function formatTime(value: string | null) {
   }
 
   return parsed.toLocaleString();
+}
+
+function replayErrorMessage(error: unknown) {
+  if (error instanceof ApiUnauthorizedError) {
+    return "Replay failed (401).";
+  }
+
+  if (error instanceof ApiRequestError && error.status) {
+    return `Replay failed (${error.status}).`;
+  }
+
+  return "Replay failed.";
 }
 
 function statusRows(result: PushbackStatusResponse) {
@@ -70,7 +93,144 @@ function statusRows(result: PushbackStatusResponse) {
   ] satisfies Array<[string, string | number | boolean | null | undefined]>;
 }
 
-function ResultCard({ result }: { result: PushbackStatusResponse }) {
+function PushbackReplayAction({
+  result,
+  onReplaySettled
+}: {
+  result: PushbackStatusResponse;
+  onReplaySettled: () => Promise<QueryObserverResult<PushbackStatusResponse, Error>>;
+}) {
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
+  const [replaySuccess, setReplaySuccess] = useState<EmailSendPushbackReplayResponse | null>(null);
+  const [replayError, setReplayError] = useState<string | null>(null);
+  const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
+  const replayInFlightRef = useRef(false);
+
+  const emailSendId = result.pushback.replay.emailSendId;
+  const canReplay = result.pushback.canReplay && emailSendId !== null;
+
+  const replayMutation = useMutation({
+    mutationFn: async () => {
+      if (!emailSendId) {
+        throw new Error("Missing email send.");
+      }
+
+      return replayEmailSendPushback(emailSendId);
+    },
+    onSuccess: async (response) => {
+      setConfirmationOpen(false);
+      setReplayError(null);
+      setReplaySuccess(response);
+      setRefreshWarning(null);
+
+      const refreshed = await onReplaySettled();
+
+      if (refreshed.error) {
+        setRefreshWarning("Replay completed, but status refresh failed.");
+      }
+    },
+    onError: async (error) => {
+      setConfirmationOpen(false);
+      setReplaySuccess(null);
+      setRefreshWarning(null);
+      setReplayError(replayErrorMessage(error));
+      await onReplaySettled();
+    },
+    onSettled: () => {
+      replayInFlightRef.current = false;
+    }
+  });
+
+  function handleConfirmReplay() {
+    if (replayInFlightRef.current || replayMutation.isPending) {
+      return;
+    }
+
+    replayInFlightRef.current = true;
+    replayMutation.mutate();
+  }
+
+  return (
+    <div className="mt-5 border-t border-line pt-5" aria-label="Pushback replay action">
+      <h4 className="text-sm font-semibold text-slate-700">Admin action</h4>
+      {canReplay ? (
+        <button
+          className="mt-3 min-h-11 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={replayMutation.isPending}
+          onClick={() => setConfirmationOpen(true)}
+          type="button"
+        >
+          {replayMutation.isPending ? "Replay running..." : "Replay pushback"}
+        </button>
+      ) : (
+        <p className="mt-2 text-sm text-slate-600">Replay unavailable for this status.</p>
+      )}
+
+      {confirmationOpen ? (
+        <div
+          aria-modal="true"
+          className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-4"
+          role="dialog"
+        >
+          <p className="text-sm font-semibold text-slate-900">
+            Replay Google Sheets pushback for this email send?
+          </p>
+          <p className="mt-1 text-sm text-slate-700">This will not resend the email.</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              className="min-h-10 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={replayMutation.isPending}
+              onClick={handleConfirmReplay}
+              type="button"
+            >
+              {replayMutation.isPending ? "Replaying..." : "Confirm replay"}
+            </button>
+            <button
+              className="min-h-10 rounded-md border border-line bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-field disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={replayMutation.isPending}
+              onClick={() => setConfirmationOpen(false)}
+              type="button"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {replaySuccess ? (
+        <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <p>
+            Replay result: <span className="font-semibold">{replaySuccess.result}</span>
+          </p>
+          <p className="mt-1">
+            Diagnostic trace ID:{" "}
+            <span className="font-semibold">{replaySuccess.diagnosticTraceId}</span>
+          </p>
+        </div>
+      ) : null}
+
+      {refreshWarning ? (
+        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          {refreshWarning}
+        </p>
+      ) : null}
+
+      {replayError ? (
+        <p className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          {replayError}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ResultCard({
+  result,
+  onReplaySettled
+}: {
+  result: PushbackStatusResponse;
+  onReplaySettled: () => Promise<QueryObserverResult<PushbackStatusResponse, Error>>;
+}) {
   return (
     <section className="rounded-lg border border-line bg-white p-5 shadow-sm" aria-label="Result">
       <h3 className="text-lg font-semibold text-ink">Pushback status</h3>
@@ -102,6 +262,7 @@ function ResultCard({ result }: { result: PushbackStatusResponse }) {
           </ul>
         </div>
       ) : null}
+      <PushbackReplayAction result={result} onReplaySettled={onReplaySettled} />
     </section>
   );
 }
@@ -203,12 +364,18 @@ export function PushbackPage() {
             Loading pushback status...
           </div>
         ) : null}
-        {pushbackQuery.isError ? (
+        {pushbackQuery.isError && !pushbackQuery.data ? (
           <div className="rounded-lg border border-red-200 bg-red-50 p-5 text-sm text-red-800">
             Pushback status is unavailable for that identifier.
           </div>
         ) : null}
-        {pushbackQuery.data ? <ResultCard result={pushbackQuery.data} /> : null}
+        {pushbackQuery.data ? (
+          <ResultCard
+            key={resultKey(pushbackQuery.data)}
+            result={pushbackQuery.data}
+            onReplaySettled={() => pushbackQuery.refetch()}
+          />
+        ) : null}
       </div>
     </section>
   );

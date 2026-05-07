@@ -79,7 +79,24 @@ const pushbackStatus = {
       contactEmail: "hidden@example.com",
       leadLabel: "forbidden-lead-label",
       recipient: "hidden-recipient@example.com"
-    }
+    },
+    workspaceId: "hidden-workspace-id",
+    workspace_id: "hidden_workspace_id"
+  }
+};
+
+const emailSendId = "33333333-3333-4333-8333-333333333333";
+const replayUrl = `/api/email-sends/${emailSendId}/pushback-replay`;
+const statusUrl = `/api/email-sends/${emailSendId}/pushback-status`;
+
+const replayResponse = {
+  success: true,
+  data: {
+    emailSendId,
+    result: "succeeded",
+    diagnosticTraceId: "66666666-6666-4666-8666-666666666666",
+    providerMessageId: "forbidden-replay-provider",
+    workspaceId: "forbidden-replay-workspace"
   }
 };
 
@@ -90,6 +107,39 @@ function mockJson(body: unknown, status = 200) {
       headers: { "Content-Type": "application/json" }
     }),
   );
+}
+
+function pushbackStatusFixture(canReplay = true) {
+  const clone = JSON.parse(JSON.stringify(pushbackStatus)) as {
+    data: {
+      pushback: {
+        canReplay: boolean;
+        canReplayReason: string | null;
+        replay: {
+          emailSendId: string | null;
+          endpoint: string | null;
+        };
+        counts: {
+          manualReplayEvents: number;
+        };
+      };
+    };
+  };
+  clone.data.pushback.canReplay = canReplay;
+  clone.data.pushback.canReplayReason = canReplay ? null : "send_not_terminal";
+  clone.data.pushback.replay.emailSendId = canReplay ? emailSendId : null;
+  clone.data.pushback.replay.endpoint = canReplay ? replayUrl : null;
+  return clone;
+}
+
+async function lookupEmailSendStatus(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(await screen.findByLabelText("UUID"), emailSendId);
+  await user.click(screen.getByRole("button", { name: "Look up status" }));
+  await screen.findByLabelText("Result");
+}
+
+function replayPostCalls(request: ReturnType<typeof vi.fn>) {
+  return request.mock.calls.filter(([url, init]) => url === replayUrl && init?.method === "POST");
 }
 
 afterEach(() => {
@@ -211,7 +261,7 @@ describe("admin app", () => {
   it("looks up pushback status by email send ID", async () => {
     const user = userEvent.setup();
     const request = vi.fn((url: string) => {
-      if (url === "/api/email-sends/33333333-3333-4333-8333-333333333333/pushback-status") {
+      if (url === statusUrl) {
         return mockJson(pushbackStatus);
       }
 
@@ -225,7 +275,7 @@ describe("admin app", () => {
 
     await waitFor(() => {
       expect(request).toHaveBeenCalledWith(
-        "/api/email-sends/33333333-3333-4333-8333-333333333333/pushback-status",
+        statusUrl,
         expect.objectContaining({ credentials: "include" }),
       );
     });
@@ -300,7 +350,253 @@ describe("admin app", () => {
     expect(screen.queryByText("hidden@example.com")).not.toBeInTheDocument();
     expect(screen.queryByText("forbidden-lead-label")).not.toBeInTheDocument();
     expect(screen.queryByText("hidden-recipient@example.com")).not.toBeInTheDocument();
+    expect(screen.queryByText("hidden-workspace-id")).not.toBeInTheDocument();
+    expect(screen.queryByText("hidden_workspace_id")).not.toBeInTheDocument();
     expect(screen.queryByText("sheet...1234")).not.toBeInTheDocument();
     expect(screen.queryByText("Hidden!A:Q")).not.toBeInTheDocument();
+  });
+
+  it("does not render the replay button when canReplay is false", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => (url === statusUrl ? mockJson(pushbackStatusFixture(false)) : mockJson(currentUser))),
+    );
+
+    renderApp("/app/pushback");
+    await lookupEmailSendStatus(user);
+
+    expect(screen.queryByRole("button", { name: "Replay pushback" })).not.toBeInTheDocument();
+    expect(screen.getByText("Replay unavailable for this status.")).toBeInTheDocument();
+  });
+
+  it("renders the replay button when canReplay is true", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => (url === statusUrl ? mockJson(pushbackStatusFixture(true)) : mockJson(currentUser))),
+    );
+
+    renderApp("/app/pushback");
+    await lookupEmailSendStatus(user);
+
+    expect(screen.getByRole("button", { name: "Replay pushback" })).toBeInTheDocument();
+  });
+
+  it("requires confirmation before replay POST", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => (url === statusUrl ? mockJson(pushbackStatus) : mockJson(currentUser)));
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/pushback");
+    await lookupEmailSendStatus(user);
+    await user.click(screen.getByRole("button", { name: "Replay pushback" }));
+
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "Replay Google Sheets pushback for this email send?",
+    );
+    expect(screen.getByText("This will not resend the email.")).toBeInTheDocument();
+    expect(replayPostCalls(request)).toHaveLength(0);
+  });
+
+  it("does not call replay POST when confirmation is cancelled", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => (url === statusUrl ? mockJson(pushbackStatus) : mockJson(currentUser)));
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/pushback");
+    await lookupEmailSendStatus(user);
+    await user.click(screen.getByRole("button", { name: "Replay pushback" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(replayPostCalls(request)).toHaveLength(0);
+  });
+
+  it("confirms replay with emailSendId only and no workspaceId", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => {
+      if (url === statusUrl) {
+        return mockJson(pushbackStatus);
+      }
+
+      if (url === replayUrl) {
+        return mockJson(replayResponse);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/pushback");
+    await lookupEmailSendStatus(user);
+    await user.click(screen.getByRole("button", { name: "Replay pushback" }));
+    await user.click(screen.getByRole("button", { name: "Confirm replay" }));
+
+    await screen.findByText(/Replay result:/);
+    const postCalls = replayPostCalls(request);
+    expect(postCalls).toHaveLength(1);
+    const [, init] = postCalls[0] ?? [];
+    expect(init).toEqual(expect.objectContaining({ credentials: "include", method: "POST" }));
+    expect(init).not.toHaveProperty("body");
+    expect(JSON.stringify(init)).not.toContain("workspaceId");
+    expect(JSON.stringify(init)).not.toContain("workspace_id");
+    expect(JSON.stringify(init)).not.toContain("Authorization");
+    expect(JSON.stringify(init)).not.toContain("Bearer");
+  });
+
+  it("locks replay UI during POST and prevents rapid double confirm", async () => {
+    const user = userEvent.setup();
+    let resolveReplay: (response: Response) => void = () => undefined;
+    const replayPromise = new Promise<Response>((resolve) => {
+      resolveReplay = resolve;
+    });
+    const request = vi.fn((url: string) => {
+      if (url === statusUrl) {
+        return mockJson(pushbackStatus);
+      }
+
+      if (url === replayUrl) {
+        return replayPromise;
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/pushback");
+    await lookupEmailSendStatus(user);
+    await user.click(screen.getByRole("button", { name: "Replay pushback" }));
+    await user.dblClick(screen.getByRole("button", { name: "Confirm replay" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Replaying..." })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(replayPostCalls(request)).toHaveLength(1);
+
+    resolveReplay(
+      new Response(JSON.stringify(replayResponse), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }),
+    );
+    expect(await screen.findByText(/Replay result:/)).toBeInTheDocument();
+  });
+
+  it("displays replay success and refetches pushback status", async () => {
+    const user = userEvent.setup();
+    let statusCalls = 0;
+    const refreshedStatus = pushbackStatusFixture(true);
+    refreshedStatus.data.pushback.counts.manualReplayEvents = 2;
+    const request = vi.fn((url: string) => {
+      if (url === statusUrl) {
+        statusCalls += 1;
+        return mockJson(statusCalls === 1 ? pushbackStatus : refreshedStatus);
+      }
+
+      if (url === replayUrl) {
+        return mockJson(replayResponse);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/pushback");
+    await lookupEmailSendStatus(user);
+    await user.click(screen.getByRole("button", { name: "Replay pushback" }));
+    await user.click(screen.getByRole("button", { name: "Confirm replay" }));
+
+    expect(await screen.findByText(/Replay result:/)).toBeInTheDocument();
+    expect(screen.getAllByText("succeeded").length).toBeGreaterThan(0);
+    expect(screen.getByText("66666666-6666-4666-8666-666666666666")).toBeInTheDocument();
+    await waitFor(() => expect(statusCalls).toBe(2));
+    expect(screen.getAllByText("2").length).toBeGreaterThan(0);
+    expect(screen.queryByText("forbidden-replay-provider")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-replay-workspace")).not.toBeInTheDocument();
+  });
+
+  it("preserves replay success when status refresh fails", async () => {
+    const user = userEvent.setup();
+    let statusCalls = 0;
+    const request = vi.fn((url: string) => {
+      if (url === statusUrl) {
+        statusCalls += 1;
+        return statusCalls === 1 ? mockJson(pushbackStatus) : mockJson({ success: false }, 500);
+      }
+
+      if (url === replayUrl) {
+        return mockJson(replayResponse);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/pushback");
+    await lookupEmailSendStatus(user);
+    await user.click(screen.getByRole("button", { name: "Replay pushback" }));
+    await user.click(screen.getByRole("button", { name: "Confirm replay" }));
+
+    expect(await screen.findByText(/Replay result:/)).toBeInTheDocument();
+    expect(screen.getByText("66666666-6666-4666-8666-666666666666")).toBeInTheDocument();
+    expect(await screen.findByText("Replay completed, but status refresh failed.")).toBeInTheDocument();
+  });
+
+  it.each([
+    [401, "Replay failed (401)."],
+    [403, "Replay failed (403)."],
+    [404, "Replay failed (404)."],
+    [500, "Replay failed (500)."]
+  ])("shows safe replay handling for %s responses", async (status, message) => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => {
+      if (url === statusUrl) {
+        return mockJson(pushbackStatus);
+      }
+
+      if (url === replayUrl) {
+        return mockJson({ success: false, rawProvider: "do-not-render" }, status);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/pushback");
+    await lookupEmailSendStatus(user);
+    await user.click(screen.getByRole("button", { name: "Replay pushback" }));
+    await user.click(screen.getByRole("button", { name: "Confirm replay" }));
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.queryByText("do-not-render")).not.toBeInTheDocument();
+  });
+
+  it("refetches status when backend refuses replay after canReplay was true", async () => {
+    const user = userEvent.setup();
+    let statusCalls = 0;
+    const refusedStatus = pushbackStatusFixture(false);
+    const request = vi.fn((url: string) => {
+      if (url === statusUrl) {
+        statusCalls += 1;
+        return mockJson(statusCalls === 1 ? pushbackStatusFixture(true) : refusedStatus);
+      }
+
+      if (url === replayUrl) {
+        return mockJson({ success: false, errorCode: "PUSHBACK_NOT_REPLAYABLE" }, 409);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/pushback");
+    await lookupEmailSendStatus(user);
+    await user.click(screen.getByRole("button", { name: "Replay pushback" }));
+    await user.click(screen.getByRole("button", { name: "Confirm replay" }));
+
+    expect(await screen.findByText("Replay failed (409).")).toBeInTheDocument();
+    await waitFor(() => expect(statusCalls).toBe(2));
+    expect(screen.queryByRole("button", { name: "Replay pushback" })).not.toBeInTheDocument();
+    expect(screen.getByText("Replay unavailable for this status.")).toBeInTheDocument();
   });
 });
