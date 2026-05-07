@@ -1,6 +1,5 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, type QueryObserverResult } from "@tanstack/react-query";
-import type { PushbackStatusResponse } from "@syrantis/shared";
 import { z } from "zod";
 
 import {
@@ -9,7 +8,8 @@ import {
   getDraftPushbackStatus,
   getEmailSendPushbackStatus,
   replayEmailSendPushback,
-  type EmailSendPushbackReplayResponse
+  type EmailSendPushbackReplayResponse,
+  type PushbackStatusResponse
 } from "../lib/api-client";
 
 type LookupType = "emailSendId" | "draftId";
