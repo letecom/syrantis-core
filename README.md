@@ -8,7 +8,7 @@ It is not a chatbot.
 
 It is not an uncontrolled agent system.
 
-It is a controlled action layer above CRMs, forms, sheets, and business tools. The client CRM remains the commercial source of truth. Syrantis handles intake, canonical lead context, AI scoring, AI draft generation, AI audit read model, approval readiness, human approval, send readiness, request-send, optional cancel-send while pending, worker execution, send status, send attempts, delivery proof, DB proof, and future CRM push-back.
+It is a controlled action layer above CRMs, forms, sheets, and business tools. The client CRM remains the commercial source of truth. Syrantis handles intake, canonical lead context, AI scoring, AI draft generation, AI audit read model, approval readiness, human approval, send readiness, request-send, optional cancel-send while pending, worker execution, send status, send attempts, delivery proof, DB proof, and Google Sheets push-back.
 
 ```txt
 Client CRM / form / sheet
@@ -39,7 +39,9 @@ send-status / send-attempts
         ↓
 Resend webhook delivery proof when real provider is enabled
         ↓
-Future CRM push-back
+Google Sheets push-back MVP
+        ↓
+Future CRM connector hardening / Dolibarr / additional targets
 ```
 
 ## Product Positioning
@@ -68,7 +70,7 @@ lead received
   → optional cancel-send while pending
   → worker execution
   → send status / send attempts / delivery proof
-  → future CRM update
+  → Google Sheets push-back MVP
 ```
 
 No CRM clone.
@@ -109,24 +111,33 @@ Rules:
 - agents never merge
 - agents never edit prod env
 
-Current backend baseline through 021P:
+Current backend baseline through 022C:
 
 - production default `SEND_EMAIL_PROVIDER=internal`
 - Resend provider exists only behind explicit env config
 - Resend webhook foundation exists at `POST /api/webhooks/resend`
 - current AI model `mistralai/mistral-small-2603`
-- API tests: 26 files, 415 tests
+- API tests: 27 files, 422 tests
 - DB verify tests: 46 tests
 - `verify-schema`: 33 invariants
 - migration files: 19 SQL files / 19 journal entries
 - `verify-migration-files` passes with `drift=0`
 - current `verify-schema` expected result: `checked=33 passed=33 failed=0`
+- 022B Google Sheets sandbox verifier exists
+- 022C Google Sheets push-back MVP exists
 - API import safety passes
 - hostile env test suite passes
 - full test suite passes
-- 021P production validation passed with terminal delivery immutability guard in place
+- Production validation confirmed:
+  - `api.syrantis.fr` reverse proxy through Caddy works
+  - Resend webhook configured at `https://api.syrantis.fr/api/webhooks/resend`
+  - `RESEND_WEBHOOK_SECRET` configured
+  - `SEND_EMAIL_PROVIDER=resend` used for real provider validation
+  - Google Sheets service-account verification succeeded
+  - Google Sheets push-back to `Pushback_Log!A:Q` succeeded after delivery proof
+  - Full test loop produced a row in the Sheet
 
-Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, and terminal delivery immutability.
+Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, and Google Sheets push-back.
 
 Targeted API read-model tests after shared contract edits should run after:
 
@@ -459,6 +470,70 @@ The webhook never:
 - logs signatures
 - logs or exposes recipients, subject/body, provider raw errors, signature values, or AI internals
 - calls the provider HTTP API
+
+### Google Sheets Push-back Behavior
+
+Google Sheets push-back is a first concrete external push-back MVP.
+
+It is NOT:
+
+- generic CRM adapter
+- Dolibarr connector
+- OAuth Google onboarding
+- UI onboarding
+- outbox/retry framework
+- two-way sync
+- provider webhook event store
+
+It uses:
+
+- `GOOGLE_SHEETS_PUSH_ENABLED`
+- `GOOGLE_SHEETS_CREDENTIALS_JSON`
+- `GOOGLE_SHEETS_SPREADSHEET_ID`
+- `GOOGLE_SHEETS_RANGE` for verification lane
+- `GOOGLE_SHEETS_VERIFICATION_RANGE` if documented
+- `GOOGLE_SHEETS_PUSHBACK_RANGE` for push-back lane
+
+Current production ranges:
+
+- `Verification!A:E`
+- `Pushback_Log!A:Q`
+
+Columns for `Pushback_Log`:
+
+1. `event_type`
+2. `occurred_at`
+3. `syrantis_lead_id`
+4. `syrantis_draft_id`
+5. `syrantis_email_send_id`
+6. `lead_label`
+7. `contact_email`
+8. `send_status`
+9. `delivery_status`
+10. `requested_at`
+11. `sent_at`
+12. `delivered_at`
+13. `bounced_at`
+14. `complained_at`
+15. `delivery_error_code`
+16. `safe_summary`
+17. `synced_at`
+
+Behavior:
+
+- Push-back is triggered after Resend webhook delivery state changes.
+- Accepted delivery events remain `email.delivered`, `email.bounced`, `email.complained`.
+- Push-back is non-blocking.
+- Push-back failure must not fail the webhook response.
+- Payload is explicit-whitelist, 17 columns.
+- No `provider_message_id` in push-back payload.
+- No raw webhook payload.
+- No raw provider payload.
+- No email body.
+- No `htmlBody`/`textBody`.
+- No secret or credential value.
+- No `workspaceId` written to the Sheet.
+- Current implementation depends on delivery proof mutation, not on `email.sent` alone.
 
 ### Integration Foundation
 
@@ -823,7 +898,31 @@ Status:
 - no provider HTTP calls
 - no raw payload storage
 
-### 7. AI Scoring Lane
+### 7. Google Sheets Push-back Lane
+
+```txt
+Resend webhook delivery proof
+  ↓
+email_sends delivery state update
+  ↓
+compact email_send.delivery_updated activity log
+  ↓
+pushDeliveryProofToGoogleSheets
+  ↓
+Google Sheets API append
+  ↓
+Pushback_Log row
+```
+
+Status:
+- implemented in 022C
+- production-validated
+- no outbox yet
+- no replay yet
+- no diagnostics read model yet
+- next issue should improve observability/diagnostics
+
+### 8. AI Scoring Lane
 
 ```txt
 lead
@@ -858,7 +957,7 @@ Status:
 - no prompt/output in activity_logs
 - cost tracking in `cost_estimate_micro_usd`
 
-### 8. AI Draft Lane
+### 9. AI Draft Lane
 
 ```txt
 lead
@@ -884,7 +983,7 @@ Status:
 - no prompt/output in activity_logs
 - manual drafts return null AI audit
 
-### 9. Future CRM Push-back Lane
+### 10. Future CRM Connector Lane
 
 ```txt
 delivery proof / task done / approval accepted
@@ -963,11 +1062,18 @@ Near-term candidates:
 
 Current focus:
 
-- Google Sheets Push-back MVP implemented (022C)
-- Next up: Pipeline UI read layer
-- Keep CRM connector abstractions delayed until more targets are proven
+- 022C Google Sheets push-back is implemented and production-validated.
+- Next highest-leverage issue is 022D Pushback Observability & Diagnostics.
+- Reason: the bottleneck is no longer whether Syrantis can push proof externally. The bottleneck is diagnosing cleanly when push-back fails for a founder or client.
+- After diagnostics: manual replay, pushback status read model, then minimal admin UI.
 
-Do not claim 021Q, generic CRM connector code, or Pipeline UI work as implemented.
+Explicit next sequence:
+- 022D Pushback Observability & Diagnostics
+- 022E Manual Pushback Replay
+- 022F Pushback Status Read Model
+- 023A Minimal Admin Console
+- 023B Admin Action Panel
+- 023C Google Sheets Setup Screen
 
 ## Development Workflow
 
@@ -1103,6 +1209,25 @@ Restart API manually from prod runtime if needed:
 ```bash
 bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; PORT=8787 pnpm --filter @syrantis/api start'
 ```
+
+Google Sheets push-back validation:
+- Resync prod separately from checks/tests.
+- After resync, checks/tests separately.
+- Google Sheets verification command:
+  `pnpm --filter @syrantis/api verify:sheets-sandbox`
+- For pushback range test, force `GOOGLE_SHEETS_RANGE="${GOOGLE_SHEETS_PUSHBACK_RANGE}"` and run `verify:sheets-sandbox`.
+- Resend webhook real validation needs:
+  - public API domain working through Caddy
+  - endpoint: `https://api.syrantis.fr/api/webhooks/resend`
+  - `RESEND_WEBHOOK_SECRET` configured
+  - Resend webhook events selected: `email.sent`, `email.delivered`, `email.bounced`, `email.complained`
+  - `SEND_EMAIL_PROVIDER=resend`
+  - API restarted after env changes
+  - `worker:once` to send
+  - real Resend event or signed test webhook to update delivery proof
+
+Actual public health:
+- `https://api.syrantis.fr/health`
 
 ## DB Validation Commands
 
@@ -1470,7 +1595,7 @@ No provider external call from webhook route/service:
 ```bash
 grep -R "fetch(\|Resend\|sendEmail\|provider.send" \
   apps/api/src/routes \
-  apps/api/src/services \
+  apps/api/src/services/webhooks \
   2>/dev/null | grep -i webhook || true
 ```
 
@@ -1539,7 +1664,7 @@ empty for public read models/responses; allowed only in internal persistence/pro
 No raw webhook payload storage:
 
 ```bash
-grep -R "raw.*payload\|payload_json\|metadata_json" apps/api/src 2>/dev/null | grep -i webhook || true
+grep -R "raw.*payload\|payload_json\|metadata_json" apps/api/src/services/webhooks apps/api/src/routes/webhooks 2>/dev/null | grep -i webhook || true
 ```
 
 No raw provider payload storage:
@@ -1563,29 +1688,206 @@ grep -R "update(leads)\|set({.*score\|scoreReason" \
   2>/dev/null || true
 ```
 
+## Pushback Diagnostics Doctrine
+
+The next system must answer:
+
+- Was the email sent?
+- Was a Resend webhook received?
+- Was delivery proof updated?
+- Was push-back attempted?
+- Did push-back succeed?
+- If not, what compact error code explains the failure?
+
+Proposed future activity log types:
+
+- `crm_pushback.skipped`
+- `crm_pushback.attempted`
+- `crm_pushback.succeeded`
+- `crm_pushback.failed`
+- `crm_pushback.replayed`
+
+Proposed future safe error codes:
+
+- `PUSHBACK_DISABLED`
+- `PUSHBACK_MISSING_CREDENTIALS`
+- `PUSHBACK_MISSING_SPREADSHEET_ID`
+- `PUSHBACK_MISSING_RANGE`
+- `PUSHBACK_AUTH_FAILED`
+- `PUSHBACK_APPEND_FAILED`
+- `PUSHBACK_TIMEOUT`
+- `PUSHBACK_UNKNOWN_ERROR`
+
+Forbidden in diagnostics:
+
+- raw Google credential JSON
+- `private_key`
+- `client_email` from credential file
+- `provider_message_id`
+- raw webhook payload
+- raw Google error body
+- `subject`/`htmlBody`/`textBody`
+- `RESEND_API_KEY`
+- `RESEND_WEBHOOK_SECRET`
+- `GOOGLE_SHEETS_CREDENTIALS_JSON` content
+
+## Client Installation Doctrine
+
+Mode A — Founder/internal:
+
+- Google service account JSON
+- Sheet shared with service account
+- env-based config
+- good for internal production and technical tests
+- already used successfully
+
+Mode B — Client simple:
+
+- Google Apps Script Web App receiver
+- client opens existing Sheet
+- Extensions → Apps Script
+- copy/paste Syrantis script
+- deploy Web App
+- paste URL/secret into Syrantis
+- lower technical friction than Google Cloud/IAM
+
+Mode C — Product mature:
+
+- OAuth Google onboarding
+- client clicks connect Google Sheets
+- token stored encrypted
+- user chooses spreadsheet/range
+- not now
+
+Recommended order:
+
+- Founder/internal: Mode A
+- First client pilot: Mode B
+- Scalable product: Mode C later
+
 ## Roadmap
 
 Near-term:
 
-- 022C Concrete Google Sheets Push-back MVP after sandbox verification returns OK
-- Pipeline UI Read Layer
-- optional webhook event store later only if needed
+1. 022D Pushback Observability & Diagnostics
+2. 022E Manual Pushback Replay
+3. 022F Pushback Status Read Model
+4. 023A Minimal Admin Console
+5. 023B Admin Action Panel
+6. 023C Google Sheets Setup Screen
+
+Acquisition:
+
+7. 024A Scout Doctrine & Data Model
+8. 024B Local Prospect Import MVP
+9. 024C Weakness Scoring Engine
+10. 024D AI Outreach Draft Generator
+11. 024E Outreach Compliance Guard
+
+Channels:
+
+12. 025A WhatsApp Business Sandbox Research
+13. 025B WhatsApp Inbound Capture MVP
+14. 025C WhatsApp Opt-in Follow-up
+
+CRM:
+
+15. 026A Dolibarr Sandbox Setup
+16. 026B Dolibarr Push-back MVP
+17. 026C Dolibarr Diagnostics
 
 Not implemented:
 
-- CRM proof push-back runtime behavior
+- CRM proof push-back runtime behavior (other than Sheets)
 - CRM connector code
-- production Google Sheets push-back
+- production Google Sheets push-back (beyond MVP)
 - Pipeline UI read layer
 - webhook event store
 
 Later connector candidates:
 
-- Google Sheets connector
+- Google Sheets connector (full)
 - Dolibarr connector
 - Twenty connector
 - HubSpot connector only if client-forced
 - Odoo connector only if client-forced
+
+## Known Current Limitations
+
+- push-back has no replay endpoint yet
+- push-back has no status read model yet
+- push-back diagnostics are still weak
+- no client onboarding UI
+- no OAuth Google integration
+- no Dolibarr connector
+- no generic CRM adapter
+- no WhatsApp integration
+- no Scout acquisition engine yet
+- API is currently manually started in production, future systemd/ops hardening is needed if not already formalized
+
+## Future: Syrantis Scout / Acquisition Roadmap
+
+Syrantis should become a controlled local B2B acquisition OS, not only a send/proof tool.
+
+Future loop:
+
+```txt
+Local business source
+  ↓
+weak signal extraction
+  ↓
+lead weakness scoring
+  ↓
+AI draft generation
+  ↓
+human approval
+  ↓
+email outreach
+  ↓
+delivery proof
+  ↓
+Google Sheets / CRM push-back
+  ↓
+diagnostics and replay
+```
+
+Potential weak signals:
+
+- recent Google reviews mentioning no response / slow response
+- unanswered Google Business questions
+- missing website
+- broken or slow mobile site
+- missing quote form
+- no visible contact path
+- poor review response behavior
+- competitor nearby with better rating
+- seasonal service timing
+- weak local trust signals
+
+Guardrails:
+
+- B2B relevance check
+- no private-person targeting
+- professional contact only
+- opt-out support
+- human approval before outreach
+- WhatsApp only after opt-in
+- no voice clone / aggressive automated call lane in MVP
+
+## Future: WhatsApp
+
+Status:
+
+- not implemented
+- not next
+- must be opt-in first
+- good path is inbound capture or explicit consent
+
+Future:
+
+- 025A WhatsApp Business Sandbox Research
+- 025B WhatsApp Inbound Capture MVP
+- 025C WhatsApp Opt-in Follow-up
 
 ## Future DevOps: Syrantis Sweeper
 
