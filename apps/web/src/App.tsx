@@ -1,52 +1,40 @@
-import { useMemo, useState } from "react";
-import { Pipeline } from "./pages/Pipeline";
-import { Settings } from "./pages/Settings";
-import { Tasks } from "./pages/Tasks";
+import { useQuery } from "@tanstack/react-query";
+import { Navigate, Route, Routes } from "react-router-dom";
 
-type PageKey = "pipeline" | "tasks" | "settings";
+import { ProtectedRoute } from "./components/ProtectedRoute";
+import { getCurrentUser } from "./lib/api-client";
+import { DashboardPage } from "./pages/DashboardPage";
+import { LoginPage } from "./pages/LoginPage";
+import { NotFoundPage } from "./pages/NotFoundPage";
+import { PushbackPage } from "./pages/PushbackPage";
 
-const pages: Array<{ key: PageKey; label: string }> = [
-  { key: "pipeline", label: "Pipeline" },
-  { key: "tasks", label: "Tasks" },
-  { key: "settings", label: "Settings" }
-];
+function RootRedirect() {
+  const sessionQuery = useQuery({
+    queryKey: ["session"],
+    queryFn: getCurrentUser
+  });
+
+  if (sessionQuery.isLoading) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-slate-50 px-5 text-sm text-slate-600">
+        Checking session...
+      </div>
+    );
+  }
+
+  return <Navigate replace to={sessionQuery.data ? "/app" : "/login"} />;
+}
 
 export function App() {
-  const [activePage, setActivePage] = useState<PageKey>("pipeline");
-
-  const page = useMemo(() => {
-    switch (activePage) {
-      case "pipeline":
-        return <Pipeline />;
-      case "tasks":
-        return <Tasks />;
-      case "settings":
-        return <Settings />;
-    }
-  }, [activePage]);
-
   return (
-    <main className="app-shell">
-      <aside className="sidebar" aria-label="Primary">
-        <div>
-          <p className="eyebrow">Syrantis Core</p>
-          <h1>Delivery shell</h1>
-        </div>
-        <nav className="nav-list">
-          {pages.map((item) => (
-            <button
-              aria-current={activePage === item.key ? "page" : undefined}
-              className="nav-button"
-              key={item.key}
-              onClick={() => setActivePage(item.key)}
-              type="button"
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
-      </aside>
-      <section className="content-area">{page}</section>
-    </main>
+    <Routes>
+      <Route element={<RootRedirect />} path="/" />
+      <Route element={<LoginPage />} path="/login" />
+      <Route element={<ProtectedRoute />} path="/app">
+        <Route index element={<DashboardPage />} />
+        <Route element={<PushbackPage />} path="pushback" />
+      </Route>
+      <Route element={<NotFoundPage />} path="*" />
+    </Routes>
   );
 }
