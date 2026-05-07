@@ -165,10 +165,14 @@ describe("Google Sheets Pushback MVP", () => {
   it("disabled pushback logs crm_pushback.skipped with PUSHBACK_DISABLED and does not call Google append", async () => {
     process.env.GOOGLE_SHEETS_PUSH_ENABLED = "false";
 
-    await pushDeliveryProofToGoogleSheets(pushbackInput());
+    const result = await pushDeliveryProofToGoogleSheets(pushbackInput());
 
     expect(mockFetch).not.toHaveBeenCalled();
     expect(findPushbackData).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      result: "skipped",
+      errorCode: "PUSHBACK_DISABLED"
+    });
     expect(lastActivityLogInput()).toMatchObject({
       workspaceId: "w1",
       action: "crm_pushback.skipped",
@@ -270,9 +274,10 @@ describe("Google Sheets Pushback MVP", () => {
   it("successful append logs crm_pushback.succeeded with compact safe metadata", async () => {
     vi.setSystemTime(new Date("2026-05-04T10:00:03.000Z"));
 
-    await pushDeliveryProofToGoogleSheets(pushbackInput());
+    const result = await pushDeliveryProofToGoogleSheets(pushbackInput());
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ result: "succeeded" });
     expect(lastActivityLogInput()).toMatchObject({
       workspaceId: "w1",
       action: "crm_pushback.succeeded",
@@ -381,7 +386,10 @@ describe("Google Sheets Pushback MVP", () => {
   it("timeout-like error logs PUSHBACK_TIMEOUT", async () => {
     mockFetch.mockRejectedValue(Object.assign(new Error("request timeout"), { code: "ETIMEDOUT" }));
 
-    await expect(pushDeliveryProofToGoogleSheets(pushbackInput())).resolves.toBeUndefined();
+    await expect(pushDeliveryProofToGoogleSheets(pushbackInput())).resolves.toMatchObject({
+      result: "failed",
+      errorCode: "PUSHBACK_TIMEOUT"
+    });
 
     expect(activityMetadata()).toMatchObject({
       errorCode: "PUSHBACK_TIMEOUT"
@@ -392,7 +400,10 @@ describe("Google Sheets Pushback MVP", () => {
   it("unknown thrown error logs PUSHBACK_UNKNOWN_ERROR", async () => {
     mockFetch.mockRejectedValue(new Error("Network error"));
 
-    await expect(pushDeliveryProofToGoogleSheets(pushbackInput())).resolves.toBeUndefined();
+    await expect(pushDeliveryProofToGoogleSheets(pushbackInput())).resolves.toMatchObject({
+      result: "failed",
+      errorCode: "PUSHBACK_UNKNOWN_ERROR"
+    });
 
     expect(activityMetadata()).toMatchObject({
       errorCode: "PUSHBACK_UNKNOWN_ERROR"
@@ -404,10 +415,38 @@ describe("Google Sheets Pushback MVP", () => {
     mockFetch.mockRejectedValue(new Error("Network error"));
     vi.mocked(createActivityLog).mockRejectedValueOnce(new Error("activity log write failed"));
 
-    await expect(pushDeliveryProofToGoogleSheets(pushbackInput())).resolves.toBeUndefined();
+    await expect(pushDeliveryProofToGoogleSheets(pushbackInput())).resolves.toMatchObject({
+      result: "failed",
+      errorCode: "PUSHBACK_UNKNOWN_ERROR"
+    });
 
     expect(warnSpy).toHaveBeenCalledWith("Google Sheets push-back diagnostic log failed for crm_pushback.failed.");
     expect(warnSpy).toHaveBeenCalledWith("Google Sheets push-back failed: PUSHBACK_UNKNOWN_ERROR.");
     expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it("manual replay metadata includes source and safe status fields", async () => {
+    await pushDeliveryProofToGoogleSheets({
+      ...pushbackInput(),
+      source: "manual_replay",
+      draftId: "draft1",
+      leadId: "lead1",
+      deliveryStatus: "delivered",
+      sendStatus: "sent",
+      safeSummaryOverride: "Replay manuel du statut livre"
+    });
+
+    expect(activityMetadata()).toMatchObject({
+      source: "manual_replay",
+      draftId: "draft1",
+      leadId: "lead1",
+      deliveryStatus: "delivered",
+      sendStatus: "sent"
+    });
+
+    const [, requestInit] = mockFetch.mock.calls[0] as [URL, RequestInit];
+    const body = JSON.parse(requestInit.body as string);
+    expect(body.values[0][15]).toBe("Replay manuel du statut livre");
+    expectSafeMetadata(activityMetadata());
   });
 });

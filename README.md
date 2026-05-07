@@ -8,7 +8,7 @@ It is not a chatbot.
 
 It is not an uncontrolled agent system.
 
-It is a controlled action layer above CRMs, forms, sheets, and business tools. The client CRM remains the commercial source of truth. Syrantis handles intake, canonical lead context, AI scoring, AI draft generation, AI audit read model, approval readiness, human approval, send readiness, request-send, optional cancel-send while pending, worker execution, send status, send attempts, delivery proof, DB proof, Google Sheets push-back, and push-back diagnostics.
+It is a controlled action layer above CRMs, forms, sheets, and business tools. The client CRM remains the commercial source of truth. Syrantis handles intake, canonical lead context, AI scoring, AI draft generation, AI audit read model, approval readiness, human approval, send readiness, request-send, optional cancel-send while pending, worker execution, send status, send attempts, delivery proof, DB proof, Google Sheets push-back, push-back diagnostics, and manual push-back replay.
 
 ```txt
 Client CRM / form / sheet
@@ -73,6 +73,7 @@ lead received
   → worker execution
   → send status / send attempts / delivery proof
   → Google Sheets push-back MVP + diagnostics
+  → 022E Manual Pushback Replay
 ```
 
 No CRM clone.
@@ -113,13 +114,13 @@ Rules:
 - agents never merge
 - agents never edit prod env
 
-Current backend baseline through 022D:
+Current backend baseline through 022E:
 
 - production default `SEND_EMAIL_PROVIDER=internal`
 - Resend provider exists only behind explicit env config
 - Resend webhook foundation exists at `POST /api/webhooks/resend`
 - current AI model `mistralai/mistral-small-2603`
-- API tests: 27 files, 432 tests
+- API tests: 28 files, 452 tests
 - DB verify tests: 46 tests
 - `verify-schema`: 33 invariants
 - migration files: 19 SQL files / 19 journal entries
@@ -128,6 +129,11 @@ Current backend baseline through 022D:
 - 022B Google Sheets sandbox verifier exists
 - 022C Google Sheets push-back MVP exists
 - 022D Google Sheets push-back diagnostics exist through compact `activity_logs`
+- 022E Manual Pushback Replay exists at `POST /api/email-sends/:id/pushback-replay`
+- replay is API-only, admin/founder-only, and tenant-scoped
+- replay diagnostics reuse `crm_pushback.succeeded`, `crm_pushback.failed`, and `crm_pushback.skipped`
+- replay does not resend email
+- replay does not mutate `email_sends`
 - API import safety passes
 - hostile env test suite passes
 - full test suite passes
@@ -140,9 +146,9 @@ Current backend baseline through 022D:
   - Google Sheets push-back to `Pushback_Log!A:Q` succeeded after delivery proof
   - Full test loop produced a row in the Sheet
 
-Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, and safe push-back diagnostics.
+Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, safe push-back diagnostics, and manual push-back replay.
 
-Next planned issue: 022E Manual Pushback Replay.
+Next planned issue: 022F Pushback Status Read Model.
 
 Targeted API read-model tests after shared contract edits should run after:
 
@@ -355,6 +361,7 @@ Implemented routes:
 - `/api/drafts/:id/cancel-send`
 - `/api/email-sends`
 - `/api/email-sends/:id`
+- `/api/email-sends/:id/pushback-replay`
 - `/api/integrations`
 - `/api/workspace-api-keys`
 - `/api/public/leads`
@@ -540,6 +547,44 @@ Behavior:
 - No `workspaceId` written to the Sheet.
 - Current implementation depends on delivery proof mutation, not on `email.sent` alone.
 
+### Manual Pushback Replay Behavior
+
+`POST /api/email-sends/:id/pushback-replay` manually replays Google Sheets push-back for an existing email send.
+
+Security and tenancy:
+
+- requires authenticated internal session
+- allows `admin` and `founder`
+- tenant-scoped through `tenantGuard` and `withWorkspaceDb`
+- `workspaceId` never comes from body, query, headers, or client state
+- `emailSendId` comes only from the path parameter
+- unknown and cross-workspace email sends return 404
+
+Replay outcomes:
+
+- `succeeded`
+- `failed`
+- `skipped`
+
+Eligibility:
+
+- `delivery_status` `delivered`, `bounced`, and `complained` may be replayed
+- null delivery status is skipped
+- non-sent statuses are skipped
+- duplicate replay is allowed and may append duplicate rows
+
+Replay guarantees:
+
+- reuses `pushDeliveryProofToGoogleSheets`
+- reuses `crm_pushback.succeeded`, `crm_pushback.failed`, and `crm_pushback.skipped`
+- writes `source: "manual_replay"` in diagnostic metadata
+- returns safe compact replay diagnostics
+- never resends email
+- never creates `background_jobs`
+- never mutates `email_sends`
+- never exposes `provider_message_id`
+- never exposes raw Google or provider errors
+
 ### Integration Foundation
 
 - 015 External Integration Foundation
@@ -653,6 +698,8 @@ Current AI guarantees:
 - 021P Terminal Delivery Immutability Guard
 - 022B Google Sheets Sandbox Verification
 - 022C Google Sheets Push-back MVP
+- 022D Pushback Observability & Diagnostics
+- 022E Manual Pushback Replay
 
 Implemented validation:
 
@@ -922,10 +969,10 @@ Pushback_Log row
 Status:
 - implemented in 022C
 - production-validated
+- diagnostics implemented in 022D
+- manual replay implemented in 022E
 - no outbox yet
-- no replay yet
-- no diagnostics read model yet
-- next issue should improve observability/diagnostics
+- no pushback status read model yet
 
 ### 8. AI Scoring Lane
 
@@ -1058,6 +1105,8 @@ Not implemented yet.
 | 022A | CRM Target Selection / Push-back Decision Record | done |
 | 022B | Google Sheets Sandbox Setup / Verification | done |
 | 022C | Google Sheets Push-back MVP | done |
+| 022D | Pushback Observability & Diagnostics | done |
+| 022E | Manual Pushback Replay | done |
 
 Near-term candidates:
 
@@ -1068,9 +1117,10 @@ Near-term candidates:
 Current focus:
 
 - 022C Google Sheets push-back is implemented and production-validated.
-- Next highest-leverage issue is 022D Pushback Observability & Diagnostics.
-- Reason: the bottleneck is no longer whether Syrantis can push proof externally. The bottleneck is diagnosing cleanly when push-back fails for a founder or client.
-- After diagnostics: manual replay, pushback status read model, then minimal admin UI.
+- 022D Pushback Observability & Diagnostics is implemented and production-validated.
+- 022E Manual Pushback Replay is implemented locally and validated.
+- Next highest-leverage issue is 022F Pushback Status Read Model.
+- Reason: replay now exists, but operators still need a compact read model before minimal admin UI.
 
 Explicit next sequence:
 - 022D Pushback Observability & Diagnostics
@@ -1218,6 +1268,9 @@ bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; PORT=8787 pnpm
 Google Sheets push-back validation:
 - Resync prod separately from checks/tests.
 - After resync, checks/tests separately.
+- Manual replay route returns safe compact replay diagnostics.
+- Replay response and activity metadata must not expose `provider_message_id`.
+- Replay response and activity metadata must not expose raw Google/provider errors.
 - Google Sheets verification command:
   `pnpm --filter @syrantis/api verify:sheets-sandbox`
 - For pushback range test, force `GOOGLE_SHEETS_RANGE="${GOOGLE_SHEETS_PUSHBACK_RANGE}"` and run `verify:sheets-sandbox`.
@@ -1695,30 +1748,32 @@ grep -R "update(leads)\|set({.*score\|scoreReason" \
 
 ## Pushback Diagnostics Doctrine
 
-The next system must answer:
+The implemented diagnostics answer:
 
 - Was the email sent?
 - Was a Resend webhook received?
 - Was delivery proof updated?
 - Was push-back attempted?
-- Did push-back succeed?
+- Did push-back succeed or replay safely?
 - If not, what compact error code explains the failure?
 
-Proposed future activity log types:
+Implemented activity log types:
 
 - `crm_pushback.skipped`
-- `crm_pushback.attempted`
 - `crm_pushback.succeeded`
 - `crm_pushback.failed`
-- `crm_pushback.replayed`
 
-Proposed future safe error codes:
+Implemented safe error codes include:
 
 - `PUSHBACK_DISABLED`
 - `PUSHBACK_MISSING_CREDENTIALS`
 - `PUSHBACK_MISSING_SPREADSHEET_ID`
 - `PUSHBACK_MISSING_RANGE`
+- `PUSHBACK_EMAIL_SEND_NOT_SENT`
+- `PUSHBACK_DELIVERY_STATUS_MISSING`
 - `PUSHBACK_AUTH_FAILED`
+- `PUSHBACK_SPREADSHEET_NOT_FOUND`
+- `PUSHBACK_RANGE_INVALID`
 - `PUSHBACK_APPEND_FAILED`
 - `PUSHBACK_TIMEOUT`
 - `PUSHBACK_UNKNOWN_ERROR`
@@ -1805,7 +1860,6 @@ Not implemented:
 
 - CRM proof push-back runtime behavior (other than Sheets)
 - CRM connector code
-- production Google Sheets push-back (beyond MVP)
 - Pipeline UI read layer
 - webhook event store
 
@@ -1819,9 +1873,7 @@ Later connector candidates:
 
 ## Known Current Limitations
 
-- push-back has no replay endpoint yet
 - push-back has no status read model yet
-- push-back diagnostics are still weak
 - no client onboarding UI
 - no OAuth Google integration
 - no Dolibarr connector

@@ -59,55 +59,87 @@ function pushbackIds(pushbackData: PushbackDataRow | null): { draftId?: string |
   };
 }
 
+function diagnosticIds(input: {
+  draftId?: string | null | undefined;
+  leadId?: string | null | undefined;
+}, pushbackData: PushbackDataRow | null): { draftId?: string | null; leadId?: string | null } {
+  const ids = pushbackIds(pushbackData);
+
+  return {
+    draftId: ids.draftId ?? input.draftId ?? null,
+    leadId: ids.leadId ?? input.leadId ?? null
+  };
+}
+
+export type GoogleSheetsPushbackResult =
+  | { result: "succeeded"; diagnosticTraceId: string }
+  | { result: "failed"; diagnosticTraceId: string; errorCode: PushbackErrorCode }
+  | { result: "skipped"; diagnosticTraceId: string; errorCode: PushbackErrorCode };
+
 export async function pushDeliveryProofToGoogleSheets(input: {
   workspaceId: string;
   emailSendId: string;
   eventType: ResendDeliveryEventType;
   occurredAt: Date;
-}): Promise<void> {
+  source?: "manual_replay" | undefined;
+  draftId?: string | null | undefined;
+  leadId?: string | null | undefined;
+  deliveryStatus?: string | null | undefined;
+  sendStatus?: string | null | undefined;
+  safeSummaryOverride?: string | undefined;
+}): Promise<GoogleSheetsPushbackResult> {
   const startedAtMs = Date.now();
   const diagnosticTraceId = createDiagnosticTraceId();
   let pushbackData: PushbackDataRow | null = null;
 
-  const logSkipped = async (errorCode: PushbackErrorCode): Promise<void> => {
+  const logSkipped = async (errorCode: PushbackErrorCode): Promise<GoogleSheetsPushbackResult> => {
     await logPushbackDiagnosticActivity({
       workspaceId: input.workspaceId,
       emailSendId: input.emailSendId,
       action: "crm_pushback.skipped",
       metadataJson: buildPushbackSkippedMetadata({
+        source: input.source,
         diagnosticTraceId,
         emailSendId: input.emailSendId,
-        ...pushbackIds(pushbackData),
+        ...diagnosticIds(input, pushbackData),
+        deliveryStatus: input.deliveryStatus ?? pushbackData?.delivery_status,
+        sendStatus: input.sendStatus ?? pushbackData?.send_status,
         errorCode,
         durationMs: elapsedMs(startedAtMs)
       })
     });
+
+    return { result: "skipped", diagnosticTraceId, errorCode };
   };
 
   const logFailed = async (params: {
     spreadsheetId?: string | null | undefined;
     range?: string | null | undefined;
     errorCode: PushbackErrorCode;
-  }): Promise<void> => {
+  }): Promise<GoogleSheetsPushbackResult> => {
     await logPushbackDiagnosticActivity({
       workspaceId: input.workspaceId,
       emailSendId: input.emailSendId,
       action: "crm_pushback.failed",
       metadataJson: buildPushbackFailedMetadata({
+        source: input.source,
         diagnosticTraceId,
         emailSendId: input.emailSendId,
-        ...pushbackIds(pushbackData),
+        ...diagnosticIds(input, pushbackData),
+        deliveryStatus: input.deliveryStatus ?? pushbackData?.delivery_status,
+        sendStatus: input.sendStatus ?? pushbackData?.send_status,
         spreadsheetId: params.spreadsheetId,
         range: params.range,
         errorCode: params.errorCode,
         durationMs: elapsedMs(startedAtMs)
       })
     });
+
+    return { result: "failed", diagnosticTraceId, errorCode: params.errorCode };
   };
 
   if (process.env.GOOGLE_SHEETS_PUSH_ENABLED !== "true") {
-    await logSkipped("PUSHBACK_DISABLED");
-    return;
+    return logSkipped("PUSHBACK_DISABLED");
   }
 
   try {
@@ -116,34 +148,29 @@ export async function pushDeliveryProofToGoogleSheets(input: {
     const range = process.env.GOOGLE_SHEETS_PUSHBACK_RANGE?.trim();
 
     if (!credentialsInput) {
-      await logSkipped("PUSHBACK_MISSING_CREDENTIALS");
-      return;
+      return logSkipped("PUSHBACK_MISSING_CREDENTIALS");
     }
 
     if (!spreadsheetId) {
-      await logSkipped("PUSHBACK_MISSING_SPREADSHEET_ID");
-      return;
+      return logSkipped("PUSHBACK_MISSING_SPREADSHEET_ID");
     }
 
     if (!range) {
-      await logSkipped("PUSHBACK_MISSING_RANGE");
-      return;
+      return logSkipped("PUSHBACK_MISSING_RANGE");
     }
 
     const credentials = parseCredentials(credentialsInput);
     if (!credentials) {
-      await logSkipped("PUSHBACK_MISSING_CREDENTIALS");
-      return;
+      return logSkipped("PUSHBACK_MISSING_CREDENTIALS");
     }
 
     pushbackData = await findPushbackData(input.workspaceId, input.emailSendId);
     if (!pushbackData) {
-      await logFailed({
+      return logFailed({
         spreadsheetId,
         range,
         errorCode: "PUSHBACK_UNKNOWN_ERROR"
       });
-      return;
     }
 
     const auth = new GoogleAuth({
@@ -154,12 +181,11 @@ export async function pushDeliveryProofToGoogleSheets(input: {
     const token = await client.getAccessToken();
 
     if (!token.token) {
-      await logFailed({
+      return logFailed({
         spreadsheetId,
         range,
         errorCode: "PUSHBACK_AUTH_FAILED"
       });
-      return;
     }
 
     const row = [
@@ -178,7 +204,7 @@ export async function pushDeliveryProofToGoogleSheets(input: {
       pushbackData.bounced_at || "",
       pushbackData.complained_at || "",
       pushbackData.delivery_error_code || "",
-      pushbackData.safe_summary || "",
+      input.safeSummaryOverride ?? pushbackData.safe_summary ?? "",
       new Date().toISOString()
     ];
 
@@ -205,13 +231,13 @@ export async function pushDeliveryProofToGoogleSheets(input: {
         status: response.status,
         statusText: response.statusText
       });
-      await logFailed({
+      const failed = await logFailed({
         spreadsheetId,
         range,
         errorCode: classified.errorCode
       });
       console.warn(`Google Sheets push-back failed: ${classified.errorCode}.`);
-      return;
+      return failed;
     }
 
     await logPushbackDiagnosticActivity({
@@ -219,24 +245,30 @@ export async function pushDeliveryProofToGoogleSheets(input: {
       emailSendId: input.emailSendId,
       action: "crm_pushback.succeeded",
       metadataJson: buildPushbackSucceededMetadata({
+        source: input.source,
         diagnosticTraceId,
         emailSendId: input.emailSendId,
         ...pushbackIds(pushbackData),
+        deliveryStatus: input.deliveryStatus ?? pushbackData.delivery_status,
+        sendStatus: input.sendStatus ?? pushbackData.send_status,
         spreadsheetId,
         range,
         columnsAppended: row.length,
         durationMs: elapsedMs(startedAtMs)
       })
     });
+
+    return { result: "succeeded", diagnosticTraceId };
   } catch (error) {
     const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
     const range = process.env.GOOGLE_SHEETS_PUSHBACK_RANGE?.trim();
     const classified = classifyPushbackError(error);
-    await logFailed({
+    const failed = await logFailed({
       spreadsheetId,
       range,
       errorCode: classified.errorCode
     });
     console.warn(`Google Sheets push-back failed: ${classified.errorCode}.`);
+    return failed;
   }
 }

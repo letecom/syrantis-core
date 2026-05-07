@@ -8,6 +8,8 @@ export type PushbackErrorCode =
   | "PUSHBACK_MISSING_CREDENTIALS"
   | "PUSHBACK_MISSING_SPREADSHEET_ID"
   | "PUSHBACK_MISSING_RANGE"
+  | "PUSHBACK_EMAIL_SEND_NOT_SENT"
+  | "PUSHBACK_DELIVERY_STATUS_MISSING"
   | "PUSHBACK_AUTH_FAILED"
   | "PUSHBACK_SPREADSHEET_NOT_FOUND"
   | "PUSHBACK_RANGE_INVALID"
@@ -25,6 +27,8 @@ const errorSummaries: Record<PushbackErrorCode, string> = {
   PUSHBACK_MISSING_CREDENTIALS: "Google Sheets push-back credentials are missing or invalid.",
   PUSHBACK_MISSING_SPREADSHEET_ID: "Google Sheets push-back spreadsheet ID is missing.",
   PUSHBACK_MISSING_RANGE: "Google Sheets push-back range is missing.",
+  PUSHBACK_EMAIL_SEND_NOT_SENT: "Email send is not in a sent state.",
+  PUSHBACK_DELIVERY_STATUS_MISSING: "Email send does not have a delivery status to replay.",
   PUSHBACK_AUTH_FAILED: "Google Sheets authentication or authorization failed.",
   PUSHBACK_SPREADSHEET_NOT_FOUND: "Google Sheets spreadsheet was not found or is not shared with the service account.",
   PUSHBACK_RANGE_INVALID: "Google Sheets push-back range is invalid.",
@@ -173,14 +177,20 @@ type PushbackMetadataBase = {
   emailSendId: string;
   draftId?: string | null;
   leadId?: string | null;
+  source?: "manual_replay" | undefined;
+  deliveryStatus?: string | null | undefined;
+  sendStatus?: string | null | undefined;
 };
 
 function compactBaseMetadata(input: PushbackMetadataBase): Record<string, unknown> {
   return {
+    ...(input.source ? { source: input.source } : {}),
     diagnosticTraceId: input.diagnosticTraceId,
     emailSendId: input.emailSendId,
     ...(input.draftId ? { draftId: input.draftId } : {}),
-    ...(input.leadId ? { leadId: input.leadId } : {})
+    ...(input.leadId ? { leadId: input.leadId } : {}),
+    ...(input.deliveryStatus ? { deliveryStatus: input.deliveryStatus } : {}),
+    ...(input.sendStatus ? { sendStatus: input.sendStatus } : {})
   };
 }
 
