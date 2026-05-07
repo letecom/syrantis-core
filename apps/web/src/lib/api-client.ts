@@ -1,9 +1,3 @@
-import {
-  EmailSendPushbackReplaySuccessSchema,
-  PushbackStatusSuccessSchema,
-  type EmailSendPushbackReplaySuccess,
-  type PushbackStatusResponse
-} from "@syrantis/shared";
 import { z } from "zod";
 
 const { stringify: encodeJsonBody } = JSON;
@@ -22,7 +16,75 @@ const logoutSuccessSchema = z.object({
   success: z.literal(true)
 });
 
+const pushbackStatusResponseSchema = z.object({
+  target: z.object({
+    type: z.enum(["draft", "email_send"]),
+    draftId: z.string().uuid().nullable(),
+    emailSendId: z.string().uuid().nullable(),
+    resolvedFromDraft: z.boolean()
+  }),
+  send: z.object({
+    exists: z.boolean(),
+    status: z.string().nullable(),
+    deliveryStatus: z.string().nullable(),
+    deliveryProofAvailable: z.boolean(),
+    requestedAt: z.string().nullable(),
+    sentAt: z.string().nullable(),
+    updatedAt: z.string().nullable()
+  }),
+  pushback: z.object({
+    status: z.string(),
+    latestEventType: z.string().nullable(),
+    latestSource: z.string().nullable(),
+    latestAt: z.string().nullable(),
+    canReplay: z.boolean(),
+    canReplayReason: z.string().nullable(),
+    replay: z.object({
+      emailSendId: z.string().uuid().nullable(),
+      endpoint: z.string().nullable()
+    }),
+    diagnostic: z
+      .object({
+        diagnosticTraceId: z.string().uuid().nullable(),
+        errorCode: z.string().nullable(),
+        errorSummary: z.string().nullable()
+      })
+      .nullable(),
+    counts: z.object({
+      totalPushbackEvents: z.number().int().min(0),
+      manualReplayEvents: z.number().int().min(0)
+    }),
+    recentHistory: z.array(
+      z.object({
+        eventType: z.string(),
+        source: z.string(),
+        occurredAt: z.string(),
+        diagnosticTraceId: z.string().uuid().nullable(),
+        errorCode: z.string().nullable()
+      }),
+    )
+  })
+});
+
+const pushbackStatusSuccessSchema = z.object({
+  success: z.literal(true),
+  data: pushbackStatusResponseSchema
+});
+
+const emailSendPushbackReplaySuccessSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    emailSendId: z.string().uuid(),
+    result: z.enum(["succeeded", "failed", "skipped"]),
+    diagnosticTraceId: z.string().uuid()
+  })
+});
+
 export type CurrentUser = z.infer<typeof loginSuccessSchema>["data"];
+export type PushbackStatusResponse = z.infer<typeof pushbackStatusResponseSchema>;
+export type EmailSendPushbackReplayResponse = z.infer<
+  typeof emailSendPushbackReplaySuccessSchema
+>["data"];
 
 export class ApiUnauthorizedError extends Error {
   constructor() {
@@ -87,20 +149,18 @@ export async function logout(): Promise<void> {
 
 export async function getEmailSendPushbackStatus(id: string): Promise<PushbackStatusResponse> {
   const payload = await requestJson(`/api/email-sends/${encodeURIComponent(id)}/pushback-status`);
-  return PushbackStatusSuccessSchema.parse(payload).data;
+  return pushbackStatusSuccessSchema.parse(payload).data;
 }
 
 export async function getDraftPushbackStatus(id: string): Promise<PushbackStatusResponse> {
   const payload = await requestJson(`/api/drafts/${encodeURIComponent(id)}/pushback-status`);
-  return PushbackStatusSuccessSchema.parse(payload).data;
+  return pushbackStatusSuccessSchema.parse(payload).data;
 }
-
-export type EmailSendPushbackReplayResponse = EmailSendPushbackReplaySuccess["data"];
 
 export async function replayEmailSendPushback(id: string): Promise<EmailSendPushbackReplayResponse> {
   const payload = await requestJson(`/api/email-sends/${encodeURIComponent(id)}/pushback-replay`, {
     method: "POST"
   });
 
-  return EmailSendPushbackReplaySuccessSchema.parse(payload).data;
+  return emailSendPushbackReplaySuccessSchema.parse(payload).data;
 }
