@@ -114,13 +114,13 @@ Rules:
 - agents never merge
 - agents never edit prod env
 
-Current backend baseline through 022E:
+Current backend baseline through 022F:
 
 - production default `SEND_EMAIL_PROVIDER=internal`
 - Resend provider exists only behind explicit env config
 - Resend webhook foundation exists at `POST /api/webhooks/resend`
 - current AI model `mistralai/mistral-small-2603`
-- API tests: 28 files, 452 tests
+- API tests: 29 files, 477 tests
 - DB verify tests: 46 tests
 - `verify-schema`: 33 invariants
 - migration files: 19 SQL files / 19 journal entries
@@ -130,7 +130,11 @@ Current backend baseline through 022E:
 - 022C Google Sheets push-back MVP exists
 - 022D Google Sheets push-back diagnostics exist through compact `activity_logs`
 - 022E Manual Pushback Replay exists at `POST /api/email-sends/:id/pushback-replay`
+- 022F Pushback Status Read Model exists at `GET /api/email-sends/:id/pushback-status`
+  and `GET /api/drafts/:id/pushback-status`
 - replay is API-only, admin/founder-only, and tenant-scoped
+- pushback status is read-only, safe DTO-only, combines `email_sends` with `activity_logs`,
+  and performs no provider calls or mutations
 - replay diagnostics reuse `crm_pushback.succeeded`, `crm_pushback.failed`, and `crm_pushback.skipped`
 - replay does not resend email
 - replay does not mutate `email_sends`
@@ -146,9 +150,9 @@ Current backend baseline through 022E:
   - Google Sheets push-back to `Pushback_Log!A:Q` succeeded after delivery proof
   - Full test loop produced a row in the Sheet
 
-Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, safe push-back diagnostics, and manual push-back replay.
+Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, safe push-back diagnostics, manual push-back replay, and push-back status read models.
 
-Next planned issue: 022F Pushback Status Read Model.
+Next planned issue: 023A Minimal Admin Console.
 
 Targeted API read-model tests after shared contract edits should run after:
 
@@ -585,6 +589,28 @@ Replay guarantees:
 - never exposes `provider_message_id`
 - never exposes raw Google or provider errors
 
+### Pushback Status Read Model
+
+`GET /api/email-sends/:id/pushback-status` returns the authoritative pushback status for one
+email send.
+
+`GET /api/drafts/:id/pushback-status` resolves the latest email send for a draft by
+`email_sends.created_at DESC` and returns the same safe status model. If no email send exists,
+the draft route returns `no_send`.
+
+Status read guarantees:
+
+- read-only
+- authenticated internal session
+- allows `admin` and `founder`
+- tenant-scoped through `tenantGuard` and `withWorkspaceDb`
+- combines safe `email_sends` state with `crm_pushback.*` diagnostics from `activity_logs`
+- returns only an explicit safe DTO
+- never exposes provider message IDs, contact emails, subjects, bodies, raw Google errors, raw
+  webhook payloads, credentials, or `workspaceId`
+- never mutates `email_sends`, `activity_logs`, or `background_jobs`
+- never calls Google, Resend, `fetch`, or a provider helper
+
 ### Integration Foundation
 
 - 015 External Integration Foundation
@@ -971,8 +997,8 @@ Status:
 - production-validated
 - diagnostics implemented in 022D
 - manual replay implemented in 022E
+- pushback status read model implemented in 022F
 - no outbox yet
-- no pushback status read model yet
 
 ### 8. AI Scoring Lane
 
@@ -1107,6 +1133,7 @@ Not implemented yet.
 | 022C | Google Sheets Push-back MVP | done |
 | 022D | Pushback Observability & Diagnostics | done |
 | 022E | Manual Pushback Replay | done |
+| 022F | Pushback Status Read Model | done |
 
 Near-term candidates:
 
@@ -1119,8 +1146,9 @@ Current focus:
 - 022C Google Sheets push-back is implemented and production-validated.
 - 022D Pushback Observability & Diagnostics is implemented and production-validated.
 - 022E Manual Pushback Replay is implemented locally and validated.
-- Next highest-leverage issue is 022F Pushback Status Read Model.
-- Reason: replay now exists, but operators still need a compact read model before minimal admin UI.
+- 022F Pushback Status Read Model is implemented locally and validated.
+- Next highest-leverage issue is 023A Minimal Admin Console.
+- Reason: replay and status now exist, so operators can get a compact UI over safe backend APIs.
 
 Explicit next sequence:
 - 022D Pushback Observability & Diagnostics

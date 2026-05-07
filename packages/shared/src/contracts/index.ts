@@ -12,5 +12,6 @@ export * from "./integrations.js";
 export * from "./leads.js";
 export * from "./organizations.js";
 export * from "./public-leads.js";
+export * from "./pushback-status.js";
 export * from "./tasks.js";
 export * from "./workspace-api-keys.js";

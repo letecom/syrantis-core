@@ -6,6 +6,7 @@ import {
   EmailSendListSuccessSchema,
   EmailSendPushbackReplaySuccessSchema,
   EmailSendSuccessSchema,
+  PushbackStatusSuccessSchema,
   forbidden,
 } from "@syrantis/shared";
 
@@ -20,6 +21,10 @@ import {
   createProductionEmailSendPushbackReplayService,
   type EmailSendPushbackReplayService,
 } from "../services/email-send-pushback-replay.js";
+import {
+  createProductionPushbackStatusService,
+  type PushbackStatusService,
+} from "../services/pushback-status.js";
 import type { AppEnv } from "../types/hono.js";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -40,6 +45,7 @@ export type EmailSendRoutesDependencies = {
   authService?: AuthService;
   emailSendService?: EmailSendService;
   pushbackReplayService?: EmailSendPushbackReplayService;
+  pushbackStatusService?: PushbackStatusService;
 };
 
 function hasClientWorkspaceId(value: unknown): boolean {
@@ -62,6 +68,8 @@ export function createEmailSendRoutes(dependencies: EmailSendRoutesDependencies 
   const emailSendService = dependencies.emailSendService ?? createProductionEmailSendService();
   const pushbackReplayService =
     dependencies.pushbackReplayService ?? createProductionEmailSendPushbackReplayService();
+  const pushbackStatusService =
+    dependencies.pushbackStatusService ?? createProductionPushbackStatusService();
 
   routes.use("*", guard);
 
@@ -105,6 +113,34 @@ export function createEmailSendRoutes(dependencies: EmailSendRoutesDependencies 
       EmailSendSuccessSchema.parse({
         success: true,
         data: emailSend,
+      }),
+    );
+  });
+
+  routes.get("/:id/pushback-status", async (c) => {
+    const emailSendId = parseId(c.req.param("id"));
+
+    if (!emailSendId || hasClientWorkspaceId(c.req.query())) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    if (!isAdminRole(c.get("currentUser").role)) {
+      return c.json(forbidden("ADMIN_REQUIRED"), 403);
+    }
+
+    const result = await pushbackStatusService.getEmailSendPushbackStatus(
+      getWorkspaceId(c),
+      emailSendId,
+    );
+
+    if (result.result === "not_found") {
+      return c.json(emailSendNotFoundResponse, 404);
+    }
+
+    return c.json(
+      PushbackStatusSuccessSchema.parse({
+        success: true,
+        data: result.status,
       }),
     );
   });

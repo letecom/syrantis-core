@@ -15,6 +15,8 @@ import {
   DraftListSuccessSchema,
   DraftSuccessSchema,
   EmailSendSuccessSchema,
+  PushbackStatusSuccessSchema,
+  forbidden,
   RequestDraftApprovalInputSchema,
   RequestEmailSendInputSchema,
   UpdateDraftInputSchema,
@@ -64,6 +66,11 @@ import {
   type EmailSendRequestServiceResult,
   type EmailSendService,
 } from "../services/email-sends.js";
+import {
+  createProductionPushbackStatusService,
+  type PushbackStatusService,
+  type PushbackStatusServiceResult,
+} from "../services/pushback-status.js";
 import type { AppEnv } from "../types/hono.js";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -97,6 +104,10 @@ const emailSendRecipientMissingResponse = ApiErrorSchema.parse({
   error: "Email send recipient missing.",
   code: "EMAIL_SEND_RECIPIENT_MISSING",
 });
+
+function isAdminRole(role: string): boolean {
+  return role === "admin" || role === "founder";
+}
 
 function cancelSendNotAllowedResponse(
   result: Extract<DraftSendCancellationServiceResult, { result: "not_allowed" }>,
@@ -150,6 +161,7 @@ export type DraftRoutesDependencies = {
   draftSendHistoryService?: DraftSendHistoryService;
   draftSendCancellationService?: DraftSendCancellationService;
   emailSendService?: EmailSendService;
+  pushbackStatusService?: PushbackStatusService;
 };
 
 function hasClientWorkspaceId(value: unknown): boolean {
@@ -292,6 +304,19 @@ function sendStatusResponse(c: Context<AppEnv>, result: DraftSendStatusServiceRe
   );
 }
 
+function pushbackStatusResponse(c: Context<AppEnv>, result: PushbackStatusServiceResult) {
+  if (result.result === "not_found") {
+    return c.json(draftNotFoundResponse, 404);
+  }
+
+  return c.json(
+    PushbackStatusSuccessSchema.parse({
+      success: true,
+      data: result.status,
+    }),
+  );
+}
+
 function sendHistoryResponse(c: Context<AppEnv>, result: DraftSendHistoryServiceResult) {
   if (result.result === "not_found") {
     return c.json(draftNotFoundResponse, 404);
@@ -314,12 +339,10 @@ function cancelSendResponse(c: Context<AppEnv>, result: DraftSendCancellationSer
     return c.json(cancelSendNotAllowedResponse(result), 409);
   }
 
-  return c.json(
-    {
-      success: true,
-      data: result.cancellation,
-    },
-  );
+  return c.json({
+    success: true,
+    data: result.cancellation,
+  });
 }
 
 export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
@@ -331,8 +354,7 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
   const draftAiAuditService =
     dependencies.draftAiAuditService ?? createProductionDraftAiAuditService();
   const draftApprovalReadinessService =
-    dependencies.draftApprovalReadinessService ??
-    createProductionDraftApprovalReadinessService();
+    dependencies.draftApprovalReadinessService ?? createProductionDraftApprovalReadinessService();
   const draftSendReadinessService =
     dependencies.draftSendReadinessService ?? createProductionDraftSendReadinessService();
   const draftSendStatusService =
@@ -340,9 +362,10 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
   const draftSendHistoryService =
     dependencies.draftSendHistoryService ?? createProductionDraftSendHistoryService();
   const draftSendCancellationService =
-    dependencies.draftSendCancellationService ??
-    createProductionDraftSendCancellationService();
+    dependencies.draftSendCancellationService ?? createProductionDraftSendCancellationService();
   const emailSendService = dependencies.emailSendService ?? createProductionEmailSendService();
+  const pushbackStatusService =
+    dependencies.pushbackStatusService ?? createProductionPushbackStatusService();
 
   routes.use("*", guard);
 
@@ -442,6 +465,21 @@ export function createDraftRoutes(dependencies: DraftRoutesDependencies = {}) {
 
     const result = await draftSendStatusService.getDraftSendStatus(getWorkspaceId(c), draftId);
     return sendStatusResponse(c, result);
+  });
+
+  routes.get("/:id/pushback-status", async (c) => {
+    const draftId = parseDraftId(c.req.param("id"));
+
+    if (!draftId || hasClientWorkspaceId(c.req.query())) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    if (!isAdminRole(c.get("currentUser").role)) {
+      return c.json(forbidden("ADMIN_REQUIRED"), 403);
+    }
+
+    const result = await pushbackStatusService.getDraftPushbackStatus(getWorkspaceId(c), draftId);
+    return pushbackStatusResponse(c, result);
   });
 
   routes.get("/:id/send-attempts", async (c) => {
