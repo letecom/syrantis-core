@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  getGoogleSheetsSetupStatus,
   getCurrentUser,
   getDraftPushbackStatus,
   getEmailSendPushbackStatus,
   login,
-  replayEmailSendPushback
+  replayEmailSendPushback,
+  testGoogleSheetsSetup,
 } from "../src/lib/api-client";
 
 const userResponse = {
@@ -16,8 +18,8 @@ const userResponse = {
     name: "Admin",
     role: "admin",
     workspaceId: "22222222-2222-4222-8222-222222222222",
-    workspaceName: "Hidden tenant"
-  }
+    workspaceName: "Hidden tenant",
+  },
 };
 
 const pushbackResponse = {
@@ -27,7 +29,7 @@ const pushbackResponse = {
       type: "email_send",
       draftId: null,
       emailSendId: "33333333-3333-4333-8333-333333333333",
-      resolvedFromDraft: false
+      resolvedFromDraft: false,
     },
     send: {
       exists: true,
@@ -36,7 +38,7 @@ const pushbackResponse = {
       deliveryProofAvailable: true,
       requestedAt: null,
       sentAt: null,
-      updatedAt: null
+      updatedAt: null,
     },
     pushback: {
       status: "succeeded",
@@ -47,16 +49,16 @@ const pushbackResponse = {
       canReplayReason: null,
       replay: {
         emailSendId: "33333333-3333-4333-8333-333333333333",
-        endpoint: "/api/email-sends/33333333-3333-4333-8333-333333333333/pushback-replay"
+        endpoint: "/api/email-sends/33333333-3333-4333-8333-333333333333/pushback-replay",
       },
       diagnostic: null,
       counts: {
         totalPushbackEvents: 1,
-        manualReplayEvents: 0
+        manualReplayEvents: 0,
       },
-      recentHistory: []
-    }
-  }
+      recentHistory: [],
+    },
+  },
 };
 
 const replayResponse = {
@@ -66,15 +68,56 @@ const replayResponse = {
     result: "succeeded",
     diagnosticTraceId: "55555555-5555-4555-8555-555555555555",
     workspaceId: "22222222-2222-4222-8222-222222222222",
-    providerMessageId: "forbidden-provider"
-  }
+    providerMessageId: "forbidden-provider",
+  },
+};
+
+const googleSheetsStatusResponse = {
+  success: true,
+  data: {
+    enabled: true,
+    configured: true,
+    credentialsConfigured: true,
+    spreadsheetConfigured: true,
+    spreadsheetIdMasked: "1tml...w7lc",
+    pushbackRangeConfigured: true,
+    verificationRangeConfigured: true,
+    pushbackRangeLabel: "Pushback_Log!A:Q",
+    verificationRangeLabel: "Verification!A:E",
+    lastTest: {
+      result: "failed",
+      diagnosticTraceId: "77777777-7777-4777-8777-777777777777",
+      errorCode: "PUSHBACK_APPEND_FAILED",
+      testedAt: "2026-05-07T10:00:00.000Z",
+    },
+    spreadsheetId: "forbidden-full-spreadsheet-id",
+    client_email: "forbidden-client-email",
+    private_key: "forbidden-private-key",
+  },
+};
+
+const googleSheetsTestResponse = {
+  success: true,
+  data: {
+    result: "succeeded",
+    diagnosticTraceId: "88888888-8888-4888-8888-888888888888",
+    testedAt: "2026-05-07T10:01:00.000Z",
+    errorCode: null,
+    errorSummary: null,
+    verification: {
+      rangeTested: "Verification!A:E",
+      rowsAppended: 1,
+    },
+    workspaceId: "forbidden-workspace",
+    rawGoogle: "forbidden-raw-google",
+  },
 };
 
 function mockResponse(body: unknown, status = 200) {
   return Promise.resolve(
     new Response(JSON.stringify(body), {
       status,
-      headers: { "Content-Type": "application/json" }
+      headers: { "Content-Type": "application/json" },
     }),
   );
 }
@@ -97,13 +140,16 @@ describe("api client", () => {
   });
 
   it("strips unknown auth fields from the current user", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => mockResponse(userResponse)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => mockResponse(userResponse)),
+    );
 
     await expect(getCurrentUser()).resolves.toEqual({
       id: "11111111-1111-4111-8111-111111111111",
       email: "admin@example.com",
       name: "Admin",
-      role: "admin"
+      role: "admin",
     });
   });
 
@@ -142,22 +188,80 @@ describe("api client", () => {
     await expect(replayEmailSendPushback("33333333-3333-4333-8333-333333333333")).resolves.toEqual({
       emailSendId: "33333333-3333-4333-8333-333333333333",
       result: "succeeded",
-      diagnosticTraceId: "55555555-5555-4555-8555-555555555555"
+      diagnosticTraceId: "55555555-5555-4555-8555-555555555555",
     });
 
     expect(request).toHaveBeenCalledWith(
       "/api/email-sends/33333333-3333-4333-8333-333333333333/pushback-replay",
       expect.objectContaining({
         credentials: "include",
-        method: "POST"
+        method: "POST",
       }),
     );
-    const firstCall = request.mock.calls[0];
+    const firstCall = request.mock.calls[0] as [string, RequestInit?] | undefined;
     expect(firstCall).toBeDefined();
     const init = firstCall?.[1];
     expect(init).not.toHaveProperty("body");
     expect(init).not.toHaveProperty("headers.Authorization");
     expect(JSON.stringify(init)).not.toContain("workspaceId");
+    expect(JSON.stringify(init)).not.toContain("Bearer");
+  });
+
+  it("calls the Google Sheets setup status endpoint and strips unsafe fields", async () => {
+    const request = vi.fn(() => mockResponse(googleSheetsStatusResponse));
+    vi.stubGlobal("fetch", request);
+
+    await expect(getGoogleSheetsSetupStatus()).resolves.toEqual({
+      enabled: true,
+      configured: true,
+      credentialsConfigured: true,
+      spreadsheetConfigured: true,
+      spreadsheetIdMasked: "1tml...w7lc",
+      pushbackRangeConfigured: true,
+      verificationRangeConfigured: true,
+      pushbackRangeLabel: "Pushback_Log!A:Q",
+      verificationRangeLabel: "Verification!A:E",
+      lastTest: {
+        result: "failed",
+        diagnosticTraceId: "77777777-7777-4777-8777-777777777777",
+        errorCode: "PUSHBACK_APPEND_FAILED",
+        testedAt: "2026-05-07T10:00:00.000Z",
+      },
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/integrations/google-sheets/setup-status",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("calls the Google Sheets setup test endpoint without client workspace material", async () => {
+    const request = vi.fn(() => mockResponse(googleSheetsTestResponse));
+    vi.stubGlobal("fetch", request);
+
+    await expect(testGoogleSheetsSetup()).resolves.toEqual({
+      result: "succeeded",
+      diagnosticTraceId: "88888888-8888-4888-8888-888888888888",
+      testedAt: "2026-05-07T10:01:00.000Z",
+      errorCode: null,
+      errorSummary: null,
+      verification: {
+        rangeTested: "Verification!A:E",
+        rowsAppended: 1,
+      },
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/integrations/google-sheets/setup-test",
+      expect.objectContaining({
+        credentials: "include",
+        method: "POST",
+      }),
+    );
+    const firstCall = request.mock.calls[0] as [string, RequestInit?] | undefined;
+    expect(firstCall).toBeDefined();
+    const init = firstCall?.[1];
+    expect(init).not.toHaveProperty("body");
+    expect(JSON.stringify(init)).not.toContain("workspaceId");
+    expect(JSON.stringify(init)).not.toContain("Authorization");
     expect(JSON.stringify(init)).not.toContain("Bearer");
   });
 });

@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { getCurrentUser } from "./lib/api-client";
 import { DashboardPage } from "./pages/DashboardPage";
+import { GoogleSheetsPage } from "./pages/GoogleSheetsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { PushbackPage } from "./pages/PushbackPage";
@@ -11,7 +12,7 @@ import { PushbackPage } from "./pages/PushbackPage";
 function RootRedirect() {
   const sessionQuery = useQuery({
     queryKey: ["session"],
-    queryFn: getCurrentUser
+    queryFn: getCurrentUser,
   });
 
   if (sessionQuery.isLoading) {
@@ -33,6 +34,7 @@ export function App() {
       <Route element={<ProtectedRoute />} path="/app">
         <Route index element={<DashboardPage />} />
         <Route element={<PushbackPage />} path="pushback" />
+        <Route element={<GoogleSheetsPage />} path="google-sheets" />
       </Route>
       <Route element={<NotFoundPage />} path="*" />
     </Routes>

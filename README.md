@@ -41,7 +41,7 @@ Resend webhook delivery proof when real provider is enabled
         ↓
 Google Sheets push-back MVP + diagnostics
         ↓
-022E Manual Pushback Replay
+022E Manual Pushback Replay / 023C Setup Verification
         ↓
 Future CRM connector hardening / additional targets
 ```
@@ -74,6 +74,7 @@ lead received
   → send status / send attempts / delivery proof
   → Google Sheets push-back MVP + diagnostics
   → 022E Manual Pushback Replay
+  → Google Sheets setup verification in admin UI
 ```
 
 No CRM clone.
@@ -114,13 +115,13 @@ Rules:
 - agents never merge
 - agents never edit prod env
 
-Current baseline through 023B:
+Current baseline through 023C:
 
 - production default `SEND_EMAIL_PROVIDER=internal`
 - Resend provider exists only behind explicit env config
 - Resend webhook foundation exists at `POST /api/webhooks/resend`
 - current AI model `mistralai/mistral-small-2603`
-- API tests: 29 files, 477 tests
+- API tests: 30 files, 487 tests
 - DB verify tests: 46 tests
 - `verify-schema`: 33 invariants
 - migration files: 19 SQL files / 19 journal entries
@@ -135,7 +136,7 @@ Current baseline through 023B:
 - 023A Minimal Admin Console exists in `apps/web`
 - admin UI supports login, session restore, protected shell, logout, and read-only pushback lookup
 - admin UI uses the existing `/auth/login`, `/auth/me`, and `/auth/logout` cookie-session routes
-- admin UI reads only `GET /api/email-sends/:id/pushback-status`
+- admin UI pushback lookup reads `GET /api/email-sends/:id/pushback-status`
   and `GET /api/drafts/:id/pushback-status`
 - 023B Admin Action Panel exists in `apps/web`
 - admin UI now supports manual pushback replay from the existing pushback lookup result
@@ -148,8 +149,17 @@ Current baseline through 023B:
 - no backend route was added for 023B
 - no migration was added for 023B
 - no new table was added for 023B
-- no Caddy or `admin.syrantis.fr` deploy exists for 023B
-- no Google Sheets setup UI exists yet
+- 023D Admin Static Deploy is production-validated for `admin.syrantis.fr`
+- 023C Google Sheets Setup Verification exists in `apps/web` at `/app/google-sheets`
+- admin UI now supports read-only Google Sheets setup status and backend-only setup test
+- setup status uses `GET /api/integrations/google-sheets/setup-status`
+- setup test uses `POST /api/integrations/google-sheets/setup-test`
+- setup test appends only a safe verification row to `GOOGLE_SHEETS_VERIFICATION_RANGE`
+- Google Sheets config remains server env-backed and cannot be edited in the UI
+- setup verification activity uses `google_sheets_setup.test_*` log types with safe metadata only
+- no migration was added for 023C
+- no new table was added for 023C
+- no Caddy change was added for 023C
 - no global dashboard exists
 - no `email_sends` list exists
 - frontend performs no provider calls
@@ -173,9 +183,9 @@ Current baseline through 023B:
   - Google Sheets push-back to `Pushback_Log!A:Q` succeeded after delivery proof
   - Full test loop produced a row in the Sheet
 
-Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, safe push-back diagnostics, manual push-back replay, push-back status read models, the minimal internal admin console foundation, the first bounded admin action panel, and the 023D admin static deploy runbook.
+Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, safe push-back diagnostics, manual push-back replay, push-back status read models, the minimal internal admin console foundation, the first bounded admin action panel, the 023D admin static deploy, and the 023C Google Sheets setup verification screen.
 
-Next recommended step: human-approved 023D production deploy using `docs/runbooks/admin-static-deploy.md`, then 023C Google Sheets Setup Screen.
+Next recommended step: human review and production validation for 023C, then continue to the next approved wedge issue.
 
 Targeted API read-model tests after shared contract edits should run after:
 
@@ -1016,6 +1026,7 @@ Pushback_Log row
 ```
 
 Status:
+
 - implemented in 022C
 - production-validated
 - diagnostics implemented in 022D
@@ -1100,70 +1111,71 @@ Not implemented yet.
 
 ## Issue Timeline
 
-| Issue | Name | Status |
-| --- | --- | --- |
-| 000 | Build OS / governance | done |
-| 001 | Repo foundation | done |
-| 002 | DB foundation | done |
-| 003 | API health / import safety | done |
-| 006 | Auth/session | done |
-| 007 | Tenant guard hardening | done |
-| 008 | Tasks vertical slice | done |
-| 009A | Workspace transaction helper | done |
-| 009B | updated_at DB triggers | done |
-| 010 | Activity logs core | done |
-| 011 | Approvals vertical slice | done |
-| 012 | Organizations and Contacts | done |
-| 012B | Hide archived organizations | done |
-| 013 | Leads vertical slice | done |
-| 014A | RLS readiness audit | done |
-| 014B2 | Activity logs workspace NOT NULL | done |
-| 014C0 | Runtime DB role separation | done |
-| 014C | RLS activation | done |
-| 015 | External Integration Foundation | done |
-| 016A | Workspace API Keys | done |
-| 016B | Public Lead Intake | done |
-| 017A | Drafts Foundation | done |
-| 017B | Draft approval handoff | done |
-| 018A | Email Sends Foundation | done |
-| 019A | Background Jobs Outbox | done |
-| 019B | Worker Execution Foundation | done |
-| 019C | Worker Ops Hardening | done |
-| 020A | AI Scoring Sandbox | done |
-| 020A-FIX | AI Scoring Prompt/Schema Fix | done |
-| 020B | AI Provider Hardening | done |
-| 020B-FIX | AI Scoring Prompt/Token Budget Fix | done |
-| 020C | AI Scoring Read Model | done |
-| 020D | Resend Provider Integration | done |
-| 021A | AI Draft Generation Foundation | done |
-| 021B | Draft AI Audit Read Model | done |
-| 021C | Draft Approval Readiness / Request-Approval Hardening | done |
-| 021D | Draft Send Readiness / Request-Send Hardening | done |
-| 021E | Worker Send Execution Hardening | done |
-| 021F | Draft Send Status Read Model | done |
-| 021G | Draft Send Cancellation | done |
-| 021H | Worker Retry / Backoff / Dead Letter | done |
-| 021I | Migration Schema Drift Guard | done |
-| 021J | Send Proof Hardening | done |
-| 021K | Migration Journal Integrity Guard | done |
-| 021L | Send Attempt History Read Model | done |
-| 021M | Test Environment Isolation | done |
-| 021N | RLS Catalog Verification | done |
-| 021O | Resend Webhook Foundation | done |
-| 021P | Terminal Delivery Immutability Guard | done |
-| 022A | CRM Target Selection / Push-back Decision Record | done |
-| 022B | Google Sheets Sandbox Setup / Verification | done |
-| 022C | Google Sheets Push-back MVP | done |
-| 022D | Pushback Observability & Diagnostics | done |
-| 022E | Manual Pushback Replay | done |
-| 022F | Pushback Status Read Model | done |
-| 023A | Minimal Admin Console | done |
-| 023B | Admin Action Panel | done |
-| 023D | Admin Static Deploy Runbook | docs ready, not deployed |
+| Issue    | Name                                                  | Status |
+| -------- | ----------------------------------------------------- | ------ |
+| 000      | Build OS / governance                                 | done   |
+| 001      | Repo foundation                                       | done   |
+| 002      | DB foundation                                         | done   |
+| 003      | API health / import safety                            | done   |
+| 006      | Auth/session                                          | done   |
+| 007      | Tenant guard hardening                                | done   |
+| 008      | Tasks vertical slice                                  | done   |
+| 009A     | Workspace transaction helper                          | done   |
+| 009B     | updated_at DB triggers                                | done   |
+| 010      | Activity logs core                                    | done   |
+| 011      | Approvals vertical slice                              | done   |
+| 012      | Organizations and Contacts                            | done   |
+| 012B     | Hide archived organizations                           | done   |
+| 013      | Leads vertical slice                                  | done   |
+| 014A     | RLS readiness audit                                   | done   |
+| 014B2    | Activity logs workspace NOT NULL                      | done   |
+| 014C0    | Runtime DB role separation                            | done   |
+| 014C     | RLS activation                                        | done   |
+| 015      | External Integration Foundation                       | done   |
+| 016A     | Workspace API Keys                                    | done   |
+| 016B     | Public Lead Intake                                    | done   |
+| 017A     | Drafts Foundation                                     | done   |
+| 017B     | Draft approval handoff                                | done   |
+| 018A     | Email Sends Foundation                                | done   |
+| 019A     | Background Jobs Outbox                                | done   |
+| 019B     | Worker Execution Foundation                           | done   |
+| 019C     | Worker Ops Hardening                                  | done   |
+| 020A     | AI Scoring Sandbox                                    | done   |
+| 020A-FIX | AI Scoring Prompt/Schema Fix                          | done   |
+| 020B     | AI Provider Hardening                                 | done   |
+| 020B-FIX | AI Scoring Prompt/Token Budget Fix                    | done   |
+| 020C     | AI Scoring Read Model                                 | done   |
+| 020D     | Resend Provider Integration                           | done   |
+| 021A     | AI Draft Generation Foundation                        | done   |
+| 021B     | Draft AI Audit Read Model                             | done   |
+| 021C     | Draft Approval Readiness / Request-Approval Hardening | done   |
+| 021D     | Draft Send Readiness / Request-Send Hardening         | done   |
+| 021E     | Worker Send Execution Hardening                       | done   |
+| 021F     | Draft Send Status Read Model                          | done   |
+| 021G     | Draft Send Cancellation                               | done   |
+| 021H     | Worker Retry / Backoff / Dead Letter                  | done   |
+| 021I     | Migration Schema Drift Guard                          | done   |
+| 021J     | Send Proof Hardening                                  | done   |
+| 021K     | Migration Journal Integrity Guard                     | done   |
+| 021L     | Send Attempt History Read Model                       | done   |
+| 021M     | Test Environment Isolation                            | done   |
+| 021N     | RLS Catalog Verification                              | done   |
+| 021O     | Resend Webhook Foundation                             | done   |
+| 021P     | Terminal Delivery Immutability Guard                  | done   |
+| 022A     | CRM Target Selection / Push-back Decision Record      | done   |
+| 022B     | Google Sheets Sandbox Setup / Verification            | done   |
+| 022C     | Google Sheets Push-back MVP                           | done   |
+| 022D     | Pushback Observability & Diagnostics                  | done   |
+| 022E     | Manual Pushback Replay                                | done   |
+| 022F     | Pushback Status Read Model                            | done   |
+| 023A     | Minimal Admin Console                                 | done   |
+| 023B     | Admin Action Panel                                    | done   |
+| 023D     | Admin Static Deploy                                   | done   |
+| 023C     | Google Sheets Setup Verification Screen               | done   |
 
 Near-term candidates:
 
-- Pipeline UI read layer later
+- next approved wedge issue
 
 ## Current Execution Focus
 
@@ -1175,20 +1187,21 @@ Current focus:
 - 022F Pushback Status Read Model is implemented locally and validated.
 - 023A Minimal Admin Console is implemented locally and validated.
 - 023B Admin Action Panel is implemented locally and validated.
-- 023D Admin Static Deploy documentation is prepared for human deployment.
-- `admin.syrantis.fr` is not yet publicly browser-validated in this repo state.
+- 023D Admin Static Deploy is production-validated.
+- `admin.syrantis.fr` is publicly browser-validated.
+- 023C Google Sheets Setup Verification is implemented locally and ready for human review.
 - 023A = see.
 - 023B = act.
 - 023D = expose safely.
 - 023C = configure.
-- Next recommended step is human-approved 023D production deployment, then 023C Google Sheets Setup Screen.
-- Reason: operators can now see pushback status and trigger the first bounded action locally; the next
-  step should expose the existing admin surface through the approved static deploy path before adding
-  configuration UI.
+- Next recommended step is human review and production validation for 023C.
+- Reason: operators can now see pushback status, trigger manual replay, and verify active Google
+  Sheets setup without exposing secrets or adding editable configuration.
 
 Explicit next sequence:
-- human-approved 023D production deploy from `docs/runbooks/admin-static-deploy.md`
-- 023C Google Sheets Setup Screen
+
+- human review for 023C
+- human-approved production deploy/validation for the Google Sheets setup verification screen
 
 ## Development Workflow
 
@@ -1326,6 +1339,7 @@ bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; PORT=8787 pnpm
 ```
 
 Google Sheets push-back validation:
+
 - Resync prod separately from checks/tests.
 - After resync, checks/tests separately.
 - Manual replay route returns safe compact replay diagnostics.
@@ -1345,6 +1359,7 @@ Google Sheets push-back validation:
   - real Resend event or signed test webhook to update delivery proof
 
 Actual public health:
+
 - `https://api.syrantis.fr/health`
 
 ## DB Validation Commands
@@ -1822,6 +1837,9 @@ Implemented activity log types:
 - `crm_pushback.skipped`
 - `crm_pushback.succeeded`
 - `crm_pushback.failed`
+- `google_sheets_setup.test_skipped`
+- `google_sheets_setup.test_succeeded`
+- `google_sheets_setup.test_failed`
 
 Implemented safe error codes include:
 
@@ -1850,6 +1868,12 @@ Forbidden in diagnostics:
 - `RESEND_API_KEY`
 - `RESEND_WEBHOOK_SECRET`
 - `GOOGLE_SHEETS_CREDENTIALS_JSON` content
+
+023C Google Sheets setup verification adds read-only admin setup status and a backend-only setup
+test. It does not edit configuration, add OAuth, add Apps Script, create migrations, create tables,
+or change pushback/replay/webhook runtime behavior. The setup test writes only
+`SYRANTIS_SETUP_TEST`, an ISO timestamp, a diagnostic trace ID, and a result marker to
+`GOOGLE_SHEETS_VERIFICATION_RANGE`.
 
 ## Client Installation Doctrine
 
@@ -1895,7 +1919,7 @@ Near-term:
 4. 023A Minimal Admin Console
 5. 023B Admin Action Panel
 6. 023D / 023A-Ops Admin Static Deploy
-7. 023C Google Sheets Setup Screen
+7. 023C Google Sheets Setup Verification Screen
 
 Acquisition:
 

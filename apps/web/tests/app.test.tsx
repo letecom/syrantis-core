@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -12,8 +14,8 @@ const currentUser = {
     name: "Admin User",
     role: "admin",
     workspaceId: "22222222-2222-4222-8222-222222222222",
-    workspaceName: "Hidden tenant"
-  }
+    workspaceName: "Hidden tenant",
+  },
 };
 
 const pushbackStatus = {
@@ -23,7 +25,7 @@ const pushbackStatus = {
       type: "email_send",
       draftId: null,
       emailSendId: "33333333-3333-4333-8333-333333333333",
-      resolvedFromDraft: false
+      resolvedFromDraft: false,
     },
     send: {
       exists: true,
@@ -32,7 +34,7 @@ const pushbackStatus = {
       deliveryProofAvailable: true,
       requestedAt: "2026-05-06T10:00:00.000Z",
       sentAt: "2026-05-06T10:01:00.000Z",
-      updatedAt: "2026-05-06T10:02:00.000Z"
+      updatedAt: "2026-05-06T10:02:00.000Z",
     },
     pushback: {
       status: "succeeded",
@@ -43,7 +45,7 @@ const pushbackStatus = {
       canReplayReason: null,
       replay: {
         emailSendId: "33333333-3333-4333-8333-333333333333",
-        endpoint: "/api/email-sends/33333333-3333-4333-8333-333333333333/pushback-replay"
+        endpoint: "/api/email-sends/33333333-3333-4333-8333-333333333333/pushback-replay",
       },
       diagnostic: {
         diagnosticTraceId: "55555555-5555-4555-8555-555555555555",
@@ -51,11 +53,11 @@ const pushbackStatus = {
         errorSummary: "Pushback was rate limited.",
         durationMs: 42,
         maskedSpreadsheetId: "sheet...1234",
-        range: "Hidden!A:Q"
+        range: "Hidden!A:Q",
       },
       counts: {
         totalPushbackEvents: 2,
-        manualReplayEvents: 1
+        manualReplayEvents: 1,
       },
       recentHistory: [
         {
@@ -63,8 +65,8 @@ const pushbackStatus = {
           source: "manual_replay",
           occurredAt: "2026-05-06T10:03:00.000Z",
           diagnosticTraceId: "55555555-5555-4555-8555-555555555555",
-          errorCode: null
-        }
+          errorCode: null,
+        },
       ],
       provider_message_id: "forbidden-provider",
       providerMessageId: "forbidden-provider-camel",
@@ -78,16 +80,18 @@ const pushbackStatus = {
       textBody: "forbidden-text",
       contactEmail: "hidden@example.com",
       leadLabel: "forbidden-lead-label",
-      recipient: "hidden-recipient@example.com"
+      recipient: "hidden-recipient@example.com",
     },
     workspaceId: "hidden-workspace-id",
-    workspace_id: "hidden_workspace_id"
-  }
+    workspace_id: "hidden_workspace_id",
+  },
 };
 
 const emailSendId = "33333333-3333-4333-8333-333333333333";
 const replayUrl = `/api/email-sends/${emailSendId}/pushback-replay`;
 const statusUrl = `/api/email-sends/${emailSendId}/pushback-status`;
+const googleSheetsStatusUrl = "/api/integrations/google-sheets/setup-status";
+const googleSheetsTestUrl = "/api/integrations/google-sheets/setup-test";
 
 const replayResponse = {
   success: true,
@@ -96,15 +100,72 @@ const replayResponse = {
     result: "succeeded",
     diagnosticTraceId: "66666666-6666-4666-8666-666666666666",
     providerMessageId: "forbidden-replay-provider",
-    workspaceId: "forbidden-replay-workspace"
-  }
+    workspaceId: "forbidden-replay-workspace",
+  },
+};
+
+const googleSheetsStatus = {
+  success: true,
+  data: {
+    enabled: true,
+    configured: true,
+    credentialsConfigured: true,
+    spreadsheetConfigured: true,
+    spreadsheetIdMasked: "1tml...w7lc",
+    pushbackRangeConfigured: true,
+    verificationRangeConfigured: true,
+    pushbackRangeLabel: "Pushback_Log!A:Q",
+    verificationRangeLabel: "Verification!A:E",
+    lastTest: {
+      result: "failed",
+      diagnosticTraceId: "77777777-7777-4777-8777-777777777777",
+      errorCode: "PUSHBACK_APPEND_FAILED",
+      testedAt: "2026-05-07T10:00:00.000Z",
+    },
+    spreadsheetId: "1tmlX52yatPzZD5peOH_oGS46PArKNltZHr28CUzw7lc",
+    credentials: "forbidden-credentials-json",
+    private_key: "forbidden-private-key",
+    client_email: "forbidden-client-email",
+    rawGoogle: "forbidden-raw-google",
+    workspaceId: "forbidden-workspace",
+  },
+};
+
+const googleSheetsTestSuccess = {
+  success: true,
+  data: {
+    result: "succeeded",
+    diagnosticTraceId: "88888888-8888-4888-8888-888888888888",
+    testedAt: "2026-05-07T10:01:00.000Z",
+    errorCode: null,
+    errorSummary: null,
+    verification: {
+      rangeTested: "Verification!A:E",
+      rowsAppended: 1,
+    },
+    rawGoogle: "forbidden-test-raw-google",
+    workspaceId: "forbidden-test-workspace",
+  },
+};
+
+const googleSheetsTestFailure = {
+  success: true,
+  data: {
+    result: "failed",
+    diagnosticTraceId: "99999999-9999-4999-8999-999999999999",
+    testedAt: "2026-05-07T10:02:00.000Z",
+    errorCode: "PUSHBACK_AUTH_FAILED",
+    errorSummary: "Google Sheets authentication or authorization failed.",
+    verification: null,
+    client_email: "forbidden-failure-client-email",
+  },
 };
 
 function mockJson(body: unknown, status = 200) {
   return Promise.resolve(
     new Response(JSON.stringify(body), {
       status,
-      headers: { "Content-Type": "application/json" }
+      headers: { "Content-Type": "application/json" },
     }),
   );
 }
@@ -142,13 +203,22 @@ function replayPostCalls(request: ReturnType<typeof vi.fn>) {
   return request.mock.calls.filter(([url, init]) => url === replayUrl && init?.method === "POST");
 }
 
+function googleSheetsTestPostCalls(request: ReturnType<typeof vi.fn>) {
+  return request.mock.calls.filter(
+    ([url, init]) => url === googleSheetsTestUrl && init?.method === "POST",
+  );
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
 describe("admin app", () => {
   it("renders the login form", () => {
-    vi.stubGlobal("fetch", vi.fn(() => mockJson({ success: false }, 401)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => mockJson({ success: false }, 401)),
+    );
 
     renderApp("/login");
 
@@ -159,7 +229,10 @@ describe("admin app", () => {
 
   it("validates the login form", async () => {
     const user = userEvent.setup();
-    vi.stubGlobal("fetch", vi.fn(() => mockJson({ success: false }, 401)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => mockJson({ success: false }, 401)),
+    );
 
     renderApp("/login");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
@@ -195,7 +268,10 @@ describe("admin app", () => {
 
   it("shows a generic invalid credentials message", async () => {
     const user = userEvent.setup();
-    vi.stubGlobal("fetch", vi.fn(() => mockJson({ success: false }, 401)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => mockJson({ success: false }, 401)),
+    );
 
     renderApp("/login");
     await user.type(screen.getByLabelText("Email"), "admin@example.com");
@@ -206,7 +282,10 @@ describe("admin app", () => {
   });
 
   it("redirects protected routes for unauthenticated users", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => mockJson({ success: false }, 401)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => mockJson({ success: false }, 401)),
+    );
 
     renderApp("/app");
 
@@ -214,7 +293,10 @@ describe("admin app", () => {
   });
 
   it("renders the protected shell for authenticated users", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => mockJson(currentUser)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => mockJson(currentUser)),
+    );
 
     renderApp("/app");
 
@@ -222,6 +304,7 @@ describe("admin app", () => {
     expect(screen.getByText("Admin User")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Pushback" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Google Sheets" })).toBeInTheDocument();
   });
 
   it("logs out through the backend and redirects", async () => {
@@ -249,7 +332,10 @@ describe("admin app", () => {
 
   it("validates pushback UUID input", async () => {
     const user = userEvent.setup();
-    vi.stubGlobal("fetch", vi.fn(() => mockJson(currentUser)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => mockJson(currentUser)),
+    );
 
     renderApp("/app/pushback");
     await user.type(await screen.findByLabelText("UUID"), "not-a-uuid");
@@ -293,9 +379,9 @@ describe("admin app", () => {
               type: "draft",
               draftId: "44444444-4444-4444-8444-444444444444",
               emailSendId: "33333333-3333-4333-8333-333333333333",
-              resolvedFromDraft: true
-            }
-          }
+              resolvedFromDraft: true,
+            },
+          },
         });
       }
 
@@ -360,7 +446,9 @@ describe("admin app", () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
-      vi.fn((url: string) => (url === statusUrl ? mockJson(pushbackStatusFixture(false)) : mockJson(currentUser))),
+      vi.fn((url: string) =>
+        url === statusUrl ? mockJson(pushbackStatusFixture(false)) : mockJson(currentUser),
+      ),
     );
 
     renderApp("/app/pushback");
@@ -374,7 +462,9 @@ describe("admin app", () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
-      vi.fn((url: string) => (url === statusUrl ? mockJson(pushbackStatusFixture(true)) : mockJson(currentUser))),
+      vi.fn((url: string) =>
+        url === statusUrl ? mockJson(pushbackStatusFixture(true)) : mockJson(currentUser),
+      ),
     );
 
     renderApp("/app/pushback");
@@ -385,7 +475,9 @@ describe("admin app", () => {
 
   it("requires confirmation before replay POST", async () => {
     const user = userEvent.setup();
-    const request = vi.fn((url: string) => (url === statusUrl ? mockJson(pushbackStatus) : mockJson(currentUser)));
+    const request = vi.fn((url: string) =>
+      url === statusUrl ? mockJson(pushbackStatus) : mockJson(currentUser),
+    );
     vi.stubGlobal("fetch", request);
 
     renderApp("/app/pushback");
@@ -401,7 +493,9 @@ describe("admin app", () => {
 
   it("does not call replay POST when confirmation is cancelled", async () => {
     const user = userEvent.setup();
-    const request = vi.fn((url: string) => (url === statusUrl ? mockJson(pushbackStatus) : mockJson(currentUser)));
+    const request = vi.fn((url: string) =>
+      url === statusUrl ? mockJson(pushbackStatus) : mockJson(currentUser),
+    );
     vi.stubGlobal("fetch", request);
 
     renderApp("/app/pushback");
@@ -469,14 +563,16 @@ describe("admin app", () => {
     await user.click(screen.getByRole("button", { name: "Replay pushback" }));
     await user.dblClick(screen.getByRole("button", { name: "Confirm replay" }));
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Replaying..." })).toBeDisabled());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Replaying..." })).toBeDisabled(),
+    );
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
     expect(replayPostCalls(request)).toHaveLength(1);
 
     resolveReplay(
       new Response(JSON.stringify(replayResponse), {
         status: 200,
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       }),
     );
     expect(await screen.findByText(/Replay result:/)).toBeInTheDocument();
@@ -539,14 +635,16 @@ describe("admin app", () => {
 
     expect(await screen.findByText(/Replay result:/)).toBeInTheDocument();
     expect(screen.getByText("66666666-6666-4666-8666-666666666666")).toBeInTheDocument();
-    expect(await screen.findByText("Replay completed, but status refresh failed.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Replay completed, but status refresh failed."),
+    ).toBeInTheDocument();
   });
 
   it.each([
     [401, "Replay failed (401)."],
     [403, "Replay failed (403)."],
     [404, "Replay failed (404)."],
-    [500, "Replay failed (500)."]
+    [500, "Replay failed (500)."],
   ])("shows safe replay handling for %s responses", async (status, message) => {
     const user = userEvent.setup();
     const request = vi.fn((url: string) => {
@@ -598,5 +696,144 @@ describe("admin app", () => {
     await waitFor(() => expect(statusCalls).toBe(2));
     expect(screen.queryByRole("button", { name: "Replay pushback" })).not.toBeInTheDocument();
     expect(screen.getByText("Replay unavailable for this status.")).toBeInTheDocument();
+  });
+
+  it("renders the Google Sheets setup status card with masked spreadsheet id only", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        url === googleSheetsStatusUrl ? mockJson(googleSheetsStatus) : mockJson(currentUser),
+      ),
+    );
+
+    renderApp("/app/google-sheets");
+
+    expect(await screen.findByRole("heading", { name: "Google Sheets Setup" })).toBeInTheDocument();
+    const status = await screen.findByLabelText("Status");
+    expect(within(status).getByText("Pushback enabled")).toBeInTheDocument();
+    expect(within(status).getByText("Credentials configured")).toBeInTheDocument();
+    expect(within(status).getByText("Spreadsheet configured")).toBeInTheDocument();
+    expect(within(status).getByText("1tml...w7lc")).toBeInTheDocument();
+    expect(within(status).getByText("PUSHBACK_APPEND_FAILED")).toBeInTheDocument();
+
+    expect(
+      screen.queryByText("1tmlX52yatPzZD5peOH_oGS46PArKNltZHr28CUzw7lc"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-credentials-json")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-private-key")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-client-email")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-raw-google")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-workspace")).not.toBeInTheDocument();
+  });
+
+  it("Google Sheets setup test button triggers api-client POST and shows success", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => {
+      if (url === googleSheetsStatusUrl) {
+        return mockJson(googleSheetsStatus);
+      }
+
+      if (url === googleSheetsTestUrl) {
+        return mockJson(googleSheetsTestSuccess);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/google-sheets");
+    await user.click(await screen.findByRole("button", { name: "Test connection" }));
+
+    await screen.findByLabelText("Test result");
+    expect(googleSheetsTestPostCalls(request)).toHaveLength(1);
+    expect(screen.getAllByText("succeeded").length).toBeGreaterThan(0);
+    expect(screen.getByText("88888888-8888-4888-8888-888888888888")).toBeInTheDocument();
+    expect(screen.getByText("Verification!A:E")).toBeInTheDocument();
+    expect(screen.queryByText("forbidden-test-raw-google")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-test-workspace")).not.toBeInTheDocument();
+  });
+
+  it("locks Google Sheets setup test button during POST and prevents double submit", async () => {
+    const user = userEvent.setup();
+    let resolveTest: (response: Response) => void = () => undefined;
+    const testPromise = new Promise<Response>((resolve) => {
+      resolveTest = resolve;
+    });
+    const request = vi.fn((url: string) => {
+      if (url === googleSheetsStatusUrl) {
+        return mockJson(googleSheetsStatus);
+      }
+
+      if (url === googleSheetsTestUrl) {
+        return testPromise;
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/google-sheets");
+    await user.dblClick(await screen.findByRole("button", { name: "Test connection" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Testing..." })).toBeDisabled());
+    expect(screen.getByRole("status")).toHaveTextContent("Testing Google Sheets connection...");
+    expect(googleSheetsTestPostCalls(request)).toHaveLength(1);
+
+    resolveTest(
+      new Response(JSON.stringify(googleSheetsTestSuccess), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    expect(await screen.findByLabelText("Test result")).toBeInTheDocument();
+  });
+
+  it("shows safe Google Sheets setup failure code and diagnostic trace id", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => {
+      if (url === googleSheetsStatusUrl) {
+        return mockJson(googleSheetsStatus);
+      }
+
+      if (url === googleSheetsTestUrl) {
+        return mockJson(googleSheetsTestFailure);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/google-sheets");
+    await user.click(await screen.findByRole("button", { name: "Test connection" }));
+
+    expect(await screen.findByText("PUSHBACK_AUTH_FAILED")).toBeInTheDocument();
+    expect(screen.getByText("99999999-9999-4999-8999-999999999999")).toBeInTheDocument();
+    expect(
+      screen.getByText("Google Sheets authentication or authorization failed."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("forbidden-failure-client-email")).not.toBeInTheDocument();
+  });
+
+  it("keeps production fetch calls inside api-client", () => {
+    const sourceFiles = [
+      "../src/App.tsx",
+      "../src/components/AdminShell.tsx",
+      "../src/components/ProtectedRoute.tsx",
+      "../src/pages/DashboardPage.tsx",
+      "../src/pages/GoogleSheetsPage.tsx",
+      "../src/pages/LoginPage.tsx",
+      "../src/pages/NotFoundPage.tsx",
+      "../src/pages/PushbackPage.tsx",
+    ].map((file) => readFileSync(new URL(file, import.meta.url), "utf8"));
+
+    for (const source of sourceFiles) {
+      expect(source).not.toMatch(/\bfetch\s*\(/);
+      expect(source).not.toContain("Authorization");
+      expect(source).not.toContain("Bearer");
+      expect(source).not.toContain("localStorage");
+      expect(source).not.toContain("sessionStorage");
+      expect(source).not.toContain("document.cookie");
+      expect(source).not.toContain("workspaceId");
+    }
   });
 });

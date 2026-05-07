@@ -8,12 +8,12 @@ const loginSuccessSchema = z.object({
     id: z.string().uuid(),
     email: z.string().email(),
     name: z.string().nullable(),
-    role: z.enum(["founder", "admin", "operator", "client"])
-  })
+    role: z.enum(["founder", "admin", "operator", "client"]),
+  }),
 });
 
 const logoutSuccessSchema = z.object({
-  success: z.literal(true)
+  success: z.literal(true),
 });
 
 const pushbackStatusResponseSchema = z.object({
@@ -21,7 +21,7 @@ const pushbackStatusResponseSchema = z.object({
     type: z.enum(["draft", "email_send"]),
     draftId: z.string().uuid().nullable(),
     emailSendId: z.string().uuid().nullable(),
-    resolvedFromDraft: z.boolean()
+    resolvedFromDraft: z.boolean(),
   }),
   send: z.object({
     exists: z.boolean(),
@@ -30,7 +30,7 @@ const pushbackStatusResponseSchema = z.object({
     deliveryProofAvailable: z.boolean(),
     requestedAt: z.string().nullable(),
     sentAt: z.string().nullable(),
-    updatedAt: z.string().nullable()
+    updatedAt: z.string().nullable(),
   }),
   pushback: z.object({
     status: z.string(),
@@ -41,18 +41,18 @@ const pushbackStatusResponseSchema = z.object({
     canReplayReason: z.string().nullable(),
     replay: z.object({
       emailSendId: z.string().uuid().nullable(),
-      endpoint: z.string().nullable()
+      endpoint: z.string().nullable(),
     }),
     diagnostic: z
       .object({
         diagnosticTraceId: z.string().uuid().nullable(),
         errorCode: z.string().nullable(),
-        errorSummary: z.string().nullable()
+        errorSummary: z.string().nullable(),
       })
       .nullable(),
     counts: z.object({
       totalPushbackEvents: z.number().int().min(0),
-      manualReplayEvents: z.number().int().min(0)
+      manualReplayEvents: z.number().int().min(0),
     }),
     recentHistory: z.array(
       z.object({
@@ -60,15 +60,15 @@ const pushbackStatusResponseSchema = z.object({
         source: z.string(),
         occurredAt: z.string(),
         diagnosticTraceId: z.string().uuid().nullable(),
-        errorCode: z.string().nullable()
+        errorCode: z.string().nullable(),
       }),
-    )
-  })
+    ),
+  }),
 });
 
 const pushbackStatusSuccessSchema = z.object({
   success: z.literal(true),
-  data: pushbackStatusResponseSchema
+  data: pushbackStatusResponseSchema,
 });
 
 const emailSendPushbackReplaySuccessSchema = z.object({
@@ -76,14 +76,60 @@ const emailSendPushbackReplaySuccessSchema = z.object({
   data: z.object({
     emailSendId: z.string().uuid(),
     result: z.enum(["succeeded", "failed", "skipped"]),
-    diagnosticTraceId: z.string().uuid()
-  })
+    diagnosticTraceId: z.string().uuid(),
+  }),
+});
+
+const googleSheetsSetupStatusSchema = z.object({
+  enabled: z.boolean(),
+  configured: z.boolean(),
+  credentialsConfigured: z.boolean(),
+  spreadsheetConfigured: z.boolean(),
+  spreadsheetIdMasked: z.string().nullable(),
+  pushbackRangeConfigured: z.boolean(),
+  verificationRangeConfigured: z.boolean(),
+  pushbackRangeLabel: z.string().nullable(),
+  verificationRangeLabel: z.string().nullable(),
+  lastTest: z
+    .object({
+      result: z.enum(["succeeded", "failed", "skipped"]),
+      diagnosticTraceId: z.string().uuid(),
+      errorCode: z.string().nullable(),
+      testedAt: z.string(),
+    })
+    .nullable(),
+});
+
+const googleSheetsSetupStatusSuccessSchema = z.object({
+  success: z.literal(true),
+  data: googleSheetsSetupStatusSchema,
+});
+
+const googleSheetsSetupTestSuccessSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    result: z.enum(["succeeded", "failed", "skipped"]),
+    diagnosticTraceId: z.string().uuid(),
+    testedAt: z.string(),
+    errorCode: z.string().nullable(),
+    errorSummary: z.string().nullable(),
+    verification: z
+      .object({
+        rangeTested: z.string(),
+        rowsAppended: z.number().int().min(0),
+      })
+      .nullable(),
+  }),
 });
 
 export type CurrentUser = z.infer<typeof loginSuccessSchema>["data"];
 export type PushbackStatusResponse = z.infer<typeof pushbackStatusResponseSchema>;
 export type EmailSendPushbackReplayResponse = z.infer<
   typeof emailSendPushbackReplaySuccessSchema
+>["data"];
+export type GoogleSheetsSetupStatus = z.infer<typeof googleSheetsSetupStatusSchema>;
+export type GoogleSheetsSetupTestResponse = z.infer<
+  typeof googleSheetsSetupTestSuccessSchema
 >["data"];
 
 export class ApiUnauthorizedError extends Error {
@@ -110,8 +156,8 @@ async function requestJson(path: string, init: RequestInit = {}): Promise<unknow
     headers: {
       Accept: "application/json",
       ...(init.body ? { "Content-Type": "application/json" } : {}),
-      ...init.headers
-    }
+      ...init.headers,
+    },
   });
 
   if (response.status === 401) {
@@ -128,7 +174,7 @@ async function requestJson(path: string, init: RequestInit = {}): Promise<unknow
 export async function login(input: { email: string; password: string }): Promise<CurrentUser> {
   const payload = await requestJson("/auth/login", {
     method: "POST",
-    body: encodeJsonBody(input)
+    body: encodeJsonBody(input),
   });
 
   return loginSuccessSchema.parse(payload).data;
@@ -141,7 +187,7 @@ export async function getCurrentUser(): Promise<CurrentUser> {
 
 export async function logout(): Promise<void> {
   const payload = await requestJson("/auth/logout", {
-    method: "POST"
+    method: "POST",
   });
 
   logoutSuccessSchema.parse(payload);
@@ -157,10 +203,25 @@ export async function getDraftPushbackStatus(id: string): Promise<PushbackStatus
   return pushbackStatusSuccessSchema.parse(payload).data;
 }
 
-export async function replayEmailSendPushback(id: string): Promise<EmailSendPushbackReplayResponse> {
+export async function replayEmailSendPushback(
+  id: string,
+): Promise<EmailSendPushbackReplayResponse> {
   const payload = await requestJson(`/api/email-sends/${encodeURIComponent(id)}/pushback-replay`, {
-    method: "POST"
+    method: "POST",
   });
 
   return emailSendPushbackReplaySuccessSchema.parse(payload).data;
+}
+
+export async function getGoogleSheetsSetupStatus(): Promise<GoogleSheetsSetupStatus> {
+  const payload = await requestJson("/api/integrations/google-sheets/setup-status");
+  return googleSheetsSetupStatusSuccessSchema.parse(payload).data;
+}
+
+export async function testGoogleSheetsSetup(): Promise<GoogleSheetsSetupTestResponse> {
+  const payload = await requestJson("/api/integrations/google-sheets/setup-test", {
+    method: "POST",
+  });
+
+  return googleSheetsSetupTestSuccessSchema.parse(payload).data;
 }
