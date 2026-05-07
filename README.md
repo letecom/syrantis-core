@@ -8,7 +8,7 @@ It is not a chatbot.
 
 It is not an uncontrolled agent system.
 
-It is a controlled action layer above CRMs, forms, sheets, and business tools. The client CRM remains the commercial source of truth. Syrantis handles intake, canonical lead context, AI scoring, AI draft generation, AI audit read model, approval readiness, human approval, send readiness, request-send, optional cancel-send while pending, worker execution, send status, send attempts, delivery proof, DB proof, and Google Sheets push-back.
+It is a controlled action layer above CRMs, forms, sheets, and business tools. The client CRM remains the commercial source of truth. Syrantis handles intake, canonical lead context, AI scoring, AI draft generation, AI audit read model, approval readiness, human approval, send readiness, request-send, optional cancel-send while pending, worker execution, send status, send attempts, delivery proof, DB proof, Google Sheets push-back, and push-back diagnostics.
 
 ```txt
 Client CRM / form / sheet
@@ -39,9 +39,11 @@ send-status / send-attempts
         ↓
 Resend webhook delivery proof when real provider is enabled
         ↓
-Google Sheets push-back MVP
+Google Sheets push-back MVP + diagnostics
         ↓
-Future CRM connector hardening / Dolibarr / additional targets
+022E Manual Pushback Replay
+        ↓
+Future CRM connector hardening / additional targets
 ```
 
 ## Product Positioning
@@ -70,7 +72,7 @@ lead received
   → optional cancel-send while pending
   → worker execution
   → send status / send attempts / delivery proof
-  → Google Sheets push-back MVP
+  → Google Sheets push-back MVP + diagnostics
 ```
 
 No CRM clone.
@@ -111,13 +113,13 @@ Rules:
 - agents never merge
 - agents never edit prod env
 
-Current backend baseline through 022C:
+Current backend baseline through 022D:
 
 - production default `SEND_EMAIL_PROVIDER=internal`
 - Resend provider exists only behind explicit env config
 - Resend webhook foundation exists at `POST /api/webhooks/resend`
 - current AI model `mistralai/mistral-small-2603`
-- API tests: 27 files, 422 tests
+- API tests: 27 files, 432 tests
 - DB verify tests: 46 tests
 - `verify-schema`: 33 invariants
 - migration files: 19 SQL files / 19 journal entries
@@ -125,6 +127,7 @@ Current backend baseline through 022C:
 - current `verify-schema` expected result: `checked=33 passed=33 failed=0`
 - 022B Google Sheets sandbox verifier exists
 - 022C Google Sheets push-back MVP exists
+- 022D Google Sheets push-back diagnostics exist through compact `activity_logs`
 - API import safety passes
 - hostile env test suite passes
 - full test suite passes
@@ -137,7 +140,9 @@ Current backend baseline through 022C:
   - Google Sheets push-back to `Pushback_Log!A:Q` succeeded after delivery proof
   - Full test loop produced a row in the Sheet
 
-Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, and Google Sheets push-back.
+Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, and safe push-back diagnostics.
+
+Next planned issue: 022E Manual Pushback Replay.
 
 Targeted API read-model tests after shared contract edits should run after:
 
