@@ -114,7 +114,7 @@ Rules:
 - agents never merge
 - agents never edit prod env
 
-Current backend baseline through 022F:
+Current baseline through 023A:
 
 - production default `SEND_EMAIL_PROVIDER=internal`
 - Resend provider exists only behind explicit env config
@@ -132,6 +132,13 @@ Current backend baseline through 022F:
 - 022E Manual Pushback Replay exists at `POST /api/email-sends/:id/pushback-replay`
 - 022F Pushback Status Read Model exists at `GET /api/email-sends/:id/pushback-status`
   and `GET /api/drafts/:id/pushback-status`
+- 023A Minimal Admin Console exists in `apps/web`
+- admin UI supports login, session restore, protected shell, logout, and read-only pushback lookup
+- admin UI uses the existing `/auth/login`, `/auth/me`, and `/auth/logout` cookie-session routes
+- admin UI reads only `GET /api/email-sends/:id/pushback-status`
+  and `GET /api/drafts/:id/pushback-status`
+- no replay UI exists yet
+- no Google Sheets setup UI exists yet
 - replay is API-only, admin/founder-only, and tenant-scoped
 - pushback status is read-only, safe DTO-only, combines `email_sends` with `activity_logs`,
   and performs no provider calls or mutations
@@ -150,9 +157,9 @@ Current backend baseline through 022F:
   - Google Sheets push-back to `Pushback_Log!A:Q` succeeded after delivery proof
   - Full test loop produced a row in the Sheet
 
-Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, safe push-back diagnostics, manual push-back replay, and push-back status read models.
+Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, safe push-back diagnostics, manual push-back replay, push-back status read models, and the minimal internal admin console foundation.
 
-Next planned issue: 023A Minimal Admin Console.
+Next planned issue: 023B Admin Action Panel.
 
 Targeted API read-model tests after shared contract edits should run after:
 
@@ -1134,6 +1141,7 @@ Not implemented yet.
 | 022D | Pushback Observability & Diagnostics | done |
 | 022E | Manual Pushback Replay | done |
 | 022F | Pushback Status Read Model | done |
+| 023A | Minimal Admin Console | done |
 
 Near-term candidates:
 
@@ -1147,8 +1155,10 @@ Current focus:
 - 022D Pushback Observability & Diagnostics is implemented and production-validated.
 - 022E Manual Pushback Replay is implemented locally and validated.
 - 022F Pushback Status Read Model is implemented locally and validated.
-- Next highest-leverage issue is 023A Minimal Admin Console.
-- Reason: replay and status now exist, so operators can get a compact UI over safe backend APIs.
+- 023A Minimal Admin Console is implemented locally and validated.
+- Next highest-leverage issue is 023B Admin Action Panel.
+- Reason: operators now have a safe read-only admin surface; the next slice can add a bounded
+  approved action panel without turning the UI into a CRM.
 
 Explicit next sequence:
 - 022D Pushback Observability & Diagnostics
