@@ -13,7 +13,7 @@ import {
   classifyPushbackError,
   createDiagnosticTraceId,
   logPushbackDiagnosticActivity,
-  type PushbackErrorCode
+  type PushbackErrorCode,
 } from "./diagnostics.js";
 
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
@@ -21,9 +21,10 @@ const SHEETS_API_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
 const SERVICE_ACCOUNT_EMAIL_FIELD = ["client", "email"].join("_");
 const SERVICE_ACCOUNT_KEY_FIELD = ["private", "key"].join("_");
 
-function parseCredentials(input: string): JWTInput | null {
+export function parseGoogleSheetsCredentials(input: string): JWTInput | null {
   try {
-    const source = path.isAbsolute(input) && existsSync(input) ? readFileSync(input, "utf8") : input;
+    const source =
+      path.isAbsolute(input) && existsSync(input) ? readFileSync(input, "utf8") : input;
     const parsed: unknown = JSON.parse(source);
 
     if (!parsed || typeof parsed !== "object") {
@@ -31,8 +32,14 @@ function parseCredentials(input: string): JWTInput | null {
     }
 
     const credentialRecord = parsed as Record<string, unknown>;
-    const serviceAccountEmail = typeof credentialRecord[SERVICE_ACCOUNT_EMAIL_FIELD] === "string" ? credentialRecord[SERVICE_ACCOUNT_EMAIL_FIELD] : undefined;
-    const serviceAccountKey = typeof credentialRecord[SERVICE_ACCOUNT_KEY_FIELD] === "string" ? credentialRecord[SERVICE_ACCOUNT_KEY_FIELD] : undefined;
+    const serviceAccountEmail =
+      typeof credentialRecord[SERVICE_ACCOUNT_EMAIL_FIELD] === "string"
+        ? credentialRecord[SERVICE_ACCOUNT_EMAIL_FIELD]
+        : undefined;
+    const serviceAccountKey =
+      typeof credentialRecord[SERVICE_ACCOUNT_KEY_FIELD] === "string"
+        ? credentialRecord[SERVICE_ACCOUNT_KEY_FIELD]
+        : undefined;
 
     if (!serviceAccountEmail || !serviceAccountKey) {
       return null;
@@ -41,7 +48,7 @@ function parseCredentials(input: string): JWTInput | null {
     return {
       ...credentialRecord,
       [SERVICE_ACCOUNT_EMAIL_FIELD]: serviceAccountEmail,
-      [SERVICE_ACCOUNT_KEY_FIELD]: serviceAccountKey
+      [SERVICE_ACCOUNT_KEY_FIELD]: serviceAccountKey,
     };
   } catch {
     return null;
@@ -52,22 +59,28 @@ function elapsedMs(startedAtMs: number): number {
   return Math.max(0, Date.now() - startedAtMs);
 }
 
-function pushbackIds(pushbackData: PushbackDataRow | null): { draftId?: string | null; leadId?: string | null } {
+function pushbackIds(pushbackData: PushbackDataRow | null): {
+  draftId?: string | null;
+  leadId?: string | null;
+} {
   return {
     draftId: pushbackData?.syrantis_draft_id ?? null,
-    leadId: pushbackData?.syrantis_lead_id ?? null
+    leadId: pushbackData?.syrantis_lead_id ?? null,
   };
 }
 
-function diagnosticIds(input: {
-  draftId?: string | null | undefined;
-  leadId?: string | null | undefined;
-}, pushbackData: PushbackDataRow | null): { draftId?: string | null; leadId?: string | null } {
+function diagnosticIds(
+  input: {
+    draftId?: string | null | undefined;
+    leadId?: string | null | undefined;
+  },
+  pushbackData: PushbackDataRow | null,
+): { draftId?: string | null; leadId?: string | null } {
   const ids = pushbackIds(pushbackData);
 
   return {
     draftId: ids.draftId ?? input.draftId ?? null,
-    leadId: ids.leadId ?? input.leadId ?? null
+    leadId: ids.leadId ?? input.leadId ?? null,
   };
 }
 
@@ -105,8 +118,8 @@ export async function pushDeliveryProofToGoogleSheets(input: {
         deliveryStatus: input.deliveryStatus ?? pushbackData?.delivery_status,
         sendStatus: input.sendStatus ?? pushbackData?.send_status,
         errorCode,
-        durationMs: elapsedMs(startedAtMs)
-      })
+        durationMs: elapsedMs(startedAtMs),
+      }),
     });
 
     return { result: "skipped", diagnosticTraceId, errorCode };
@@ -131,8 +144,8 @@ export async function pushDeliveryProofToGoogleSheets(input: {
         spreadsheetId: params.spreadsheetId,
         range: params.range,
         errorCode: params.errorCode,
-        durationMs: elapsedMs(startedAtMs)
-      })
+        durationMs: elapsedMs(startedAtMs),
+      }),
     });
 
     return { result: "failed", diagnosticTraceId, errorCode: params.errorCode };
@@ -159,7 +172,7 @@ export async function pushDeliveryProofToGoogleSheets(input: {
       return logSkipped("PUSHBACK_MISSING_RANGE");
     }
 
-    const credentials = parseCredentials(credentialsInput);
+    const credentials = parseGoogleSheetsCredentials(credentialsInput);
     if (!credentials) {
       return logSkipped("PUSHBACK_MISSING_CREDENTIALS");
     }
@@ -169,13 +182,13 @@ export async function pushDeliveryProofToGoogleSheets(input: {
       return logFailed({
         spreadsheetId,
         range,
-        errorCode: "PUSHBACK_UNKNOWN_ERROR"
+        errorCode: "PUSHBACK_UNKNOWN_ERROR",
       });
     }
 
     const auth = new GoogleAuth({
       credentials,
-      scopes: [SHEETS_SCOPE]
+      scopes: [SHEETS_SCOPE],
     });
     const client = await auth.getClient();
     const token = await client.getAccessToken();
@@ -184,7 +197,7 @@ export async function pushDeliveryProofToGoogleSheets(input: {
       return logFailed({
         spreadsheetId,
         range,
-        errorCode: "PUSHBACK_AUTH_FAILED"
+        errorCode: "PUSHBACK_AUTH_FAILED",
       });
     }
 
@@ -205,11 +218,11 @@ export async function pushDeliveryProofToGoogleSheets(input: {
       pushbackData.complained_at || "",
       pushbackData.delivery_error_code || "",
       input.safeSummaryOverride ?? pushbackData.safe_summary ?? "",
-      new Date().toISOString()
+      new Date().toISOString(),
     ];
 
     const appendUrl = new URL(
-      `${SHEETS_API_BASE}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}:append`
+      `${SHEETS_API_BASE}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}:append`,
     );
     appendUrl.searchParams.set("valueInputOption", "RAW");
     appendUrl.searchParams.set("insertDataOption", "INSERT_ROWS");
@@ -218,23 +231,23 @@ export async function pushDeliveryProofToGoogleSheets(input: {
       method: "POST",
       headers: {
         authorization: `Bearer ${token.token}`,
-        "content-type": "application/json"
+        "content-type": "application/json",
       },
       body: JSON.stringify({
-        values: [row]
-      })
+        values: [row],
+      }),
     });
 
     if (!response.ok) {
       const classified = classifyPushbackError({
         phase: "google_sheets_append",
         status: response.status,
-        statusText: response.statusText
+        statusText: response.statusText,
       });
       const failed = await logFailed({
         spreadsheetId,
         range,
-        errorCode: classified.errorCode
+        errorCode: classified.errorCode,
       });
       console.warn(`Google Sheets push-back failed: ${classified.errorCode}.`);
       return failed;
@@ -254,8 +267,8 @@ export async function pushDeliveryProofToGoogleSheets(input: {
         spreadsheetId,
         range,
         columnsAppended: row.length,
-        durationMs: elapsedMs(startedAtMs)
-      })
+        durationMs: elapsedMs(startedAtMs),
+      }),
     });
 
     return { result: "succeeded", diagnosticTraceId };
@@ -266,7 +279,7 @@ export async function pushDeliveryProofToGoogleSheets(input: {
     const failed = await logFailed({
       spreadsheetId,
       range,
-      errorCode: classified.errorCode
+      errorCode: classified.errorCode,
     });
     console.warn(`Google Sheets push-back failed: ${classified.errorCode}.`);
     return failed;

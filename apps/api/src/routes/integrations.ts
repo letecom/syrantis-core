@@ -13,8 +13,11 @@ import {
   ExternalObjectMappingListSuccessSchema,
   ExternalObjectMappingSuccessSchema,
   ExternalObjectMappingUpdateInputSchema,
+  GoogleSheetsSetupStatusSuccessSchema,
+  GoogleSheetsSetupTestSuccessSchema,
   IntegrationEventListQuerySchema,
-  IntegrationEventListSuccessSchema
+  IntegrationEventListSuccessSchema,
+  forbidden,
 } from "@syrantis/shared";
 
 import { getWorkspaceId } from "../lib/tenant.js";
@@ -24,8 +27,12 @@ import {
   createProductionIntegrationService,
   type IntegrationService,
   type IntegrationServiceConnectionResult,
-  type IntegrationServiceMappingResult
+  type IntegrationServiceMappingResult,
 } from "../services/integrations.js";
+import {
+  createProductionGoogleSheetsSetupService,
+  type GoogleSheetsSetupService,
+} from "../services/google-sheets-setup.js";
 import type { AppEnv } from "../types/hono.js";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -33,36 +40,43 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}
 const invalidRequestResponse = ApiErrorSchema.parse({
   success: false,
   error: "Invalid request.",
-  code: "INVALID_REQUEST"
+  code: "INVALID_REQUEST",
 });
 
 const connectionNotFoundResponse = ApiErrorSchema.parse({
   success: false,
   error: "Connection not found.",
-  code: "CONNECTION_NOT_FOUND"
+  code: "CONNECTION_NOT_FOUND",
 });
 
 const connectionConflictResponse = ApiErrorSchema.parse({
   success: false,
   error: "Connection conflict.",
-  code: "CONNECTION_CONFLICT"
+  code: "CONNECTION_CONFLICT",
 });
 
 const mappingNotFoundResponse = ApiErrorSchema.parse({
   success: false,
   error: "Mapping not found.",
-  code: "MAPPING_NOT_FOUND"
+  code: "MAPPING_NOT_FOUND",
 });
 
 const mappingConflictResponse = ApiErrorSchema.parse({
   success: false,
   error: "Mapping conflict.",
-  code: "MAPPING_CONFLICT"
+  code: "MAPPING_CONFLICT",
+});
+
+const internalServerErrorResponse = ApiErrorSchema.parse({
+  success: false,
+  error: "Internal server error.",
+  code: "INTERNAL_SERVER_ERROR",
 });
 
 export type IntegrationRoutesDependencies = {
   authService?: AuthService;
   integrationService?: IntegrationService;
+  googleSheetsSetupService?: GoogleSheetsSetupService;
 };
 
 function hasClientWorkspaceId(value: unknown): boolean {
@@ -81,6 +95,10 @@ function parseId(value: string): string | null {
   return uuidPattern.test(value) ? value : null;
 }
 
+function isAdminRole(role: string): boolean {
+  return role === "admin" || role === "founder";
+}
+
 const secretLikeKeys = new Set([
   "apiKey",
   "api_key",
@@ -96,7 +114,7 @@ const secretLikeKeys = new Set([
   "bearer",
   "authorization",
   "privateKey",
-  "private_key"
+  "private_key",
 ]);
 
 function containsSecretLikeKeys(value: unknown): boolean {
@@ -105,7 +123,9 @@ function containsSecretLikeKeys(value: unknown): boolean {
   }
 
   if (typeof value === "object" && value !== null) {
-    return Object.entries(value).some(([key, child]) => secretLikeKeys.has(key) || containsSecretLikeKeys(child));
+    return Object.entries(value).some(
+      ([key, child]) => secretLikeKeys.has(key) || containsSecretLikeKeys(child),
+    );
   }
 
   return false;
@@ -114,30 +134,98 @@ function containsSecretLikeKeys(value: unknown): boolean {
 function mutationResponse(
   c: Context<AppEnv>,
   result: IntegrationServiceConnectionResult | IntegrationServiceMappingResult,
-  successStatus: ContentfulStatusCode = 200
+  successStatus: ContentfulStatusCode = 200,
 ) {
   if (result.result === "not_found") {
-    return c.json("connection" in result ? connectionNotFoundResponse : mappingNotFoundResponse, 404);
+    return c.json(
+      "connection" in result ? connectionNotFoundResponse : mappingNotFoundResponse,
+      404,
+    );
   }
 
   if (result.result === "conflict") {
-    return c.json("connection" in result ? connectionConflictResponse : mappingConflictResponse, 409);
+    return c.json(
+      "connection" in result ? connectionConflictResponse : mappingConflictResponse,
+      409,
+    );
   }
 
   return c.json(
     ("connection" in result
       ? ExternalConnectionSuccessSchema.parse({ success: true, data: result.connection })
-      : ExternalObjectMappingSuccessSchema.parse({ success: true, data: result.mapping })) as unknown,
-    successStatus
+      : ExternalObjectMappingSuccessSchema.parse({
+          success: true,
+          data: result.mapping,
+        })) as unknown,
+    successStatus,
   );
 }
 
 export function createIntegrationRoutes(dependencies: IntegrationRoutesDependencies = {}) {
   const routes = new Hono<AppEnv>();
-  const guard = dependencies.authService ? createTenantGuard(dependencies.authService) : tenantGuard;
-  const integrationService = dependencies.integrationService ?? createProductionIntegrationService();
+  const guard = dependencies.authService
+    ? createTenantGuard(dependencies.authService)
+    : tenantGuard;
+  const integrationService =
+    dependencies.integrationService ?? createProductionIntegrationService();
+  const googleSheetsSetupService =
+    dependencies.googleSheetsSetupService ?? createProductionGoogleSheetsSetupService();
 
   routes.use("*", guard);
+
+  routes.get("/google-sheets/setup-status", async (c) => {
+    const query = c.req.query();
+
+    if (hasClientWorkspaceId(query)) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    if (!isAdminRole(c.get("currentUser").role)) {
+      return c.json(forbidden("ADMIN_REQUIRED"), 403);
+    }
+
+    try {
+      const status = await googleSheetsSetupService.getSetupStatus(getWorkspaceId(c));
+
+      return c.json(
+        GoogleSheetsSetupStatusSuccessSchema.parse({
+          success: true,
+          data: status,
+        }),
+      );
+    } catch {
+      return c.json(internalServerErrorResponse, 500);
+    }
+  });
+
+  routes.post("/google-sheets/setup-test", async (c) => {
+    const query = c.req.query();
+    const body = await readOptionalJsonBody(c);
+
+    if (hasClientWorkspaceId(query) || hasClientWorkspaceId(body)) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    if (!isAdminRole(c.get("currentUser").role)) {
+      return c.json(forbidden("ADMIN_REQUIRED"), 403);
+    }
+
+    try {
+      const result = await googleSheetsSetupService.runSetupTest(
+        getWorkspaceId(c),
+        c.get("userId"),
+      );
+
+      return c.json(
+        GoogleSheetsSetupTestSuccessSchema.parse({
+          success: true,
+          data: result,
+        }),
+      );
+    } catch {
+      return c.json(internalServerErrorResponse, 500);
+    }
+  });
 
   routes.get("/connections", async (c) => {
     const query = c.req.query();
@@ -152,13 +240,16 @@ export function createIntegrationRoutes(dependencies: IntegrationRoutesDependenc
       return c.json(invalidRequestResponse, 400);
     }
 
-    const connections = await integrationService.listConnections(getWorkspaceId(c), parsedQuery.data);
+    const connections = await integrationService.listConnections(
+      getWorkspaceId(c),
+      parsedQuery.data,
+    );
 
     return c.json(
       ExternalConnectionListSuccessSchema.parse({
         success: true,
-        data: connections
-      })
+        data: connections,
+      }),
     );
   });
 
@@ -171,14 +262,18 @@ export function createIntegrationRoutes(dependencies: IntegrationRoutesDependenc
 
     const parsedBody = ExternalConnectionCreateInputSchema.safeParse(body);
 
-    if (!parsedBody.success || containsSecretLikeKeys(parsedBody.data.config) || containsSecretLikeKeys(parsedBody.data.metadata)) {
+    if (
+      !parsedBody.success ||
+      containsSecretLikeKeys(parsedBody.data.config) ||
+      containsSecretLikeKeys(parsedBody.data.metadata)
+    ) {
       return c.json(invalidRequestResponse, 400);
     }
 
     const result = await integrationService.createConnection(
       getWorkspaceId(c),
       c.get("userId"),
-      parsedBody.data
+      parsedBody.data,
     );
     return mutationResponse(c, result, 201);
   });
@@ -199,8 +294,8 @@ export function createIntegrationRoutes(dependencies: IntegrationRoutesDependenc
     return c.json(
       ExternalConnectionSuccessSchema.parse({
         success: true,
-        data: connection
-      })
+        data: connection,
+      }),
     );
   });
 
@@ -219,7 +314,11 @@ export function createIntegrationRoutes(dependencies: IntegrationRoutesDependenc
 
     const parsedBody = ExternalConnectionUpdateInputSchema.safeParse(body);
 
-    if (!parsedBody.success || containsSecretLikeKeys(parsedBody.data.config) || containsSecretLikeKeys(parsedBody.data.metadata)) {
+    if (
+      !parsedBody.success ||
+      containsSecretLikeKeys(parsedBody.data.config) ||
+      containsSecretLikeKeys(parsedBody.data.metadata)
+    ) {
       return c.json(invalidRequestResponse, 400);
     }
 
@@ -227,7 +326,7 @@ export function createIntegrationRoutes(dependencies: IntegrationRoutesDependenc
       getWorkspaceId(c),
       c.get("userId"),
       connectionId,
-      parsedBody.data
+      parsedBody.data,
     );
     return mutationResponse(c, result);
   });
@@ -245,7 +344,11 @@ export function createIntegrationRoutes(dependencies: IntegrationRoutesDependenc
       return c.json(invalidRequestResponse, 400);
     }
 
-    const result = await integrationService.archiveConnection(getWorkspaceId(c), c.get("userId"), connectionId);
+    const result = await integrationService.archiveConnection(
+      getWorkspaceId(c),
+      c.get("userId"),
+      connectionId,
+    );
     return mutationResponse(c, result);
   });
 
@@ -267,8 +370,8 @@ export function createIntegrationRoutes(dependencies: IntegrationRoutesDependenc
     return c.json(
       ExternalObjectMappingListSuccessSchema.parse({
         success: true,
-        data: mappings
-      })
+        data: mappings,
+      }),
     );
   });
 
@@ -285,7 +388,11 @@ export function createIntegrationRoutes(dependencies: IntegrationRoutesDependenc
       return c.json(invalidRequestResponse, 400);
     }
 
-    const result = await integrationService.createMapping(getWorkspaceId(c), c.get("userId"), parsedBody.data);
+    const result = await integrationService.createMapping(
+      getWorkspaceId(c),
+      c.get("userId"),
+      parsedBody.data,
+    );
     return mutationResponse(c, result, 201);
   });
 
@@ -305,8 +412,8 @@ export function createIntegrationRoutes(dependencies: IntegrationRoutesDependenc
     return c.json(
       ExternalObjectMappingSuccessSchema.parse({
         success: true,
-        data: mapping
-      })
+        data: mapping,
+      }),
     );
   });
 
@@ -329,7 +436,12 @@ export function createIntegrationRoutes(dependencies: IntegrationRoutesDependenc
       return c.json(invalidRequestResponse, 400);
     }
 
-    const result = await integrationService.updateMapping(getWorkspaceId(c), c.get("userId"), mappingId, parsedBody.data);
+    const result = await integrationService.updateMapping(
+      getWorkspaceId(c),
+      c.get("userId"),
+      mappingId,
+      parsedBody.data,
+    );
     return mutationResponse(c, result);
   });
 
@@ -346,7 +458,11 @@ export function createIntegrationRoutes(dependencies: IntegrationRoutesDependenc
       return c.json(invalidRequestResponse, 400);
     }
 
-    const result = await integrationService.archiveMapping(getWorkspaceId(c), c.get("userId"), mappingId);
+    const result = await integrationService.archiveMapping(
+      getWorkspaceId(c),
+      c.get("userId"),
+      mappingId,
+    );
     return mutationResponse(c, result);
   });
 
@@ -368,8 +484,8 @@ export function createIntegrationRoutes(dependencies: IntegrationRoutesDependenc
     return c.json(
       IntegrationEventListSuccessSchema.parse({
         success: true,
-        data: events
-      })
+        data: events,
+      }),
     );
   });
 
