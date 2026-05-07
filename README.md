@@ -173,9 +173,9 @@ Current baseline through 023B:
   - Google Sheets push-back to `Pushback_Log!A:Q` succeeded after delivery proof
   - Full test loop produced a row in the Sheet
 
-Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, safe push-back diagnostics, manual push-back replay, push-back status read models, the minimal internal admin console foundation, and the first bounded admin action panel.
+Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, safe push-back diagnostics, manual push-back replay, push-back status read models, the minimal internal admin console foundation, the first bounded admin action panel, and the 023D admin static deploy runbook.
 
-Next recommended issue: 023D / 023A-Ops Admin Static Deploy, then 023C Google Sheets Setup Screen.
+Next recommended step: human-approved 023D production deploy using `docs/runbooks/admin-static-deploy.md`, then 023C Google Sheets Setup Screen.
 
 Targeted API read-model tests after shared contract edits should run after:
 
@@ -1159,6 +1159,7 @@ Not implemented yet.
 | 022F | Pushback Status Read Model | done |
 | 023A | Minimal Admin Console | done |
 | 023B | Admin Action Panel | done |
+| 023D | Admin Static Deploy Runbook | docs ready, not deployed |
 
 Near-term candidates:
 
@@ -1174,16 +1175,19 @@ Current focus:
 - 022F Pushback Status Read Model is implemented locally and validated.
 - 023A Minimal Admin Console is implemented locally and validated.
 - 023B Admin Action Panel is implemented locally and validated.
+- 023D Admin Static Deploy documentation is prepared for human deployment.
+- `admin.syrantis.fr` is not yet publicly browser-validated in this repo state.
 - 023A = see.
 - 023B = act.
+- 023D = expose safely.
 - 023C = configure.
-- Next recommended issue is 023D / 023A-Ops Admin Static Deploy, then 023C Google Sheets Setup Screen.
+- Next recommended step is human-approved 023D production deployment, then 023C Google Sheets Setup Screen.
 - Reason: operators can now see pushback status and trigger the first bounded action locally; the next
-  step should make the existing admin surface available through the approved static deploy path before
-  adding configuration UI.
+  step should expose the existing admin surface through the approved static deploy path before adding
+  configuration UI.
 
 Explicit next sequence:
-- 023D / 023A-Ops Admin Static Deploy
+- human-approved 023D production deploy from `docs/runbooks/admin-static-deploy.md`
 - 023C Google Sheets Setup Screen
 
 ## Development Workflow
