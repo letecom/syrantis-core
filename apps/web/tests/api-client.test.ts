@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getCurrentUser, getDraftPushbackStatus, getEmailSendPushbackStatus, login } from "../src/lib/api-client";
+import {
+  getCurrentUser,
+  getDraftPushbackStatus,
+  getEmailSendPushbackStatus,
+  login,
+  replayEmailSendPushback
+} from "../src/lib/api-client";
 
 const userResponse = {
   success: true,
@@ -50,6 +56,17 @@ const pushbackResponse = {
       },
       recentHistory: []
     }
+  }
+};
+
+const replayResponse = {
+  success: true,
+  data: {
+    emailSendId: "33333333-3333-4333-8333-333333333333",
+    result: "succeeded",
+    diagnosticTraceId: "55555555-5555-4555-8555-555555555555",
+    workspaceId: "22222222-2222-4222-8222-222222222222",
+    providerMessageId: "forbidden-provider"
   }
 };
 
@@ -112,5 +129,35 @@ describe("api client", () => {
       "/api/drafts/44444444-4444-4444-8444-444444444444/pushback-status",
       expect.objectContaining({ credentials: "include" }),
     );
+  });
+
+  it("calls the email send pushback replay endpoint without client workspace material", async () => {
+    const request = vi.fn((url: string, init?: RequestInit) => {
+      void url;
+      void init;
+      return mockResponse(replayResponse);
+    });
+    vi.stubGlobal("fetch", request);
+
+    await expect(replayEmailSendPushback("33333333-3333-4333-8333-333333333333")).resolves.toEqual({
+      emailSendId: "33333333-3333-4333-8333-333333333333",
+      result: "succeeded",
+      diagnosticTraceId: "55555555-5555-4555-8555-555555555555"
+    });
+
+    expect(request).toHaveBeenCalledWith(
+      "/api/email-sends/33333333-3333-4333-8333-333333333333/pushback-replay",
+      expect.objectContaining({
+        credentials: "include",
+        method: "POST"
+      }),
+    );
+    const firstCall = request.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    const init = firstCall?.[1];
+    expect(init).not.toHaveProperty("body");
+    expect(init).not.toHaveProperty("headers.Authorization");
+    expect(JSON.stringify(init)).not.toContain("workspaceId");
+    expect(JSON.stringify(init)).not.toContain("Bearer");
   });
 });

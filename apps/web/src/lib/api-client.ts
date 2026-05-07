@@ -1,4 +1,9 @@
-import { PushbackStatusSuccessSchema, type PushbackStatusResponse } from "@syrantis/shared";
+import {
+  EmailSendPushbackReplaySuccessSchema,
+  PushbackStatusSuccessSchema,
+  type EmailSendPushbackReplaySuccess,
+  type PushbackStatusResponse
+} from "@syrantis/shared";
 import { z } from "zod";
 
 const { stringify: encodeJsonBody } = JSON;
@@ -27,9 +32,12 @@ export class ApiUnauthorizedError extends Error {
 }
 
 export class ApiRequestError extends Error {
-  constructor(message = "Request failed.") {
+  readonly status: number | null;
+
+  constructor(message = "Request failed.", status: number | null = null) {
     super(message);
     this.name = "ApiRequestError";
+    this.status = status;
   }
 }
 
@@ -49,7 +57,7 @@ async function requestJson(path: string, init: RequestInit = {}): Promise<unknow
   }
 
   if (!response.ok) {
-    throw new ApiRequestError();
+    throw new ApiRequestError("Request failed.", response.status);
   }
 
   return response.json();
@@ -85,4 +93,14 @@ export async function getEmailSendPushbackStatus(id: string): Promise<PushbackSt
 export async function getDraftPushbackStatus(id: string): Promise<PushbackStatusResponse> {
   const payload = await requestJson(`/api/drafts/${encodeURIComponent(id)}/pushback-status`);
   return PushbackStatusSuccessSchema.parse(payload).data;
+}
+
+export type EmailSendPushbackReplayResponse = EmailSendPushbackReplaySuccess["data"];
+
+export async function replayEmailSendPushback(id: string): Promise<EmailSendPushbackReplayResponse> {
+  const payload = await requestJson(`/api/email-sends/${encodeURIComponent(id)}/pushback-replay`, {
+    method: "POST"
+  });
+
+  return EmailSendPushbackReplaySuccessSchema.parse(payload).data;
 }

@@ -114,7 +114,7 @@ Rules:
 - agents never merge
 - agents never edit prod env
 
-Current baseline through 023A:
+Current baseline through 023B:
 
 - production default `SEND_EMAIL_PROVIDER=internal`
 - Resend provider exists only behind explicit env config
@@ -137,8 +137,24 @@ Current baseline through 023A:
 - admin UI uses the existing `/auth/login`, `/auth/me`, and `/auth/logout` cookie-session routes
 - admin UI reads only `GET /api/email-sends/:id/pushback-status`
   and `GET /api/drafts/:id/pushback-status`
-- no replay UI exists yet
+- 023B Admin Action Panel exists in `apps/web`
+- admin UI now supports manual pushback replay from the existing pushback lookup result
+- replay UI uses the existing backend route `POST /api/email-sends/:id/pushback-replay`
+- replay button appears only when pushback-status `canReplay=true`
+- replay requires explicit confirmation before POST
+- replay UI locks while replay is running to prevent double submit
+- replay success displays only safe replay fields: `result` and `diagnosticTraceId`
+- pushback status is refetched after replay
+- no backend route was added for 023B
+- no migration was added for 023B
+- no new table was added for 023B
+- no Caddy or `admin.syrantis.fr` deploy exists for 023B
 - no Google Sheets setup UI exists yet
+- no global dashboard exists
+- no `email_sends` list exists
+- frontend performs no provider calls
+- frontend sends no `workspaceId`
+- admin UI does not show `provider_message_id`, raw metadata, raw payloads, subject, body, or email fields
 - replay is API-only, admin/founder-only, and tenant-scoped
 - pushback status is read-only, safe DTO-only, combines `email_sends` with `activity_logs`,
   and performs no provider calls or mutations
@@ -157,9 +173,9 @@ Current baseline through 023A:
   - Google Sheets push-back to `Pushback_Log!A:Q` succeeded after delivery proof
   - Full test loop produced a row in the Sheet
 
-Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, safe push-back diagnostics, manual push-back replay, push-back status read models, and the minimal internal admin console foundation.
+Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, safe push-back diagnostics, manual push-back replay, push-back status read models, the minimal internal admin console foundation, and the first bounded admin action panel.
 
-Next planned issue: 023B Admin Action Panel.
+Next recommended issue: 023D / 023A-Ops Admin Static Deploy, then 023C Google Sheets Setup Screen.
 
 Targeted API read-model tests after shared contract edits should run after:
 
@@ -1142,6 +1158,7 @@ Not implemented yet.
 | 022E | Manual Pushback Replay | done |
 | 022F | Pushback Status Read Model | done |
 | 023A | Minimal Admin Console | done |
+| 023B | Admin Action Panel | done |
 
 Near-term candidates:
 
@@ -1156,16 +1173,17 @@ Current focus:
 - 022E Manual Pushback Replay is implemented locally and validated.
 - 022F Pushback Status Read Model is implemented locally and validated.
 - 023A Minimal Admin Console is implemented locally and validated.
-- Next highest-leverage issue is 023B Admin Action Panel.
-- Reason: operators now have a safe read-only admin surface; the next slice can add a bounded
-  approved action panel without turning the UI into a CRM.
+- 023B Admin Action Panel is implemented locally and validated.
+- 023A = see.
+- 023B = act.
+- 023C = configure.
+- Next recommended issue is 023D / 023A-Ops Admin Static Deploy, then 023C Google Sheets Setup Screen.
+- Reason: operators can now see pushback status and trigger the first bounded action locally; the next
+  step should make the existing admin surface available through the approved static deploy path before
+  adding configuration UI.
 
 Explicit next sequence:
-- 022D Pushback Observability & Diagnostics
-- 022E Manual Pushback Replay
-- 022F Pushback Status Read Model
-- 023A Minimal Admin Console
-- 023B Admin Action Panel
+- 023D / 023A-Ops Admin Static Deploy
 - 023C Google Sheets Setup Screen
 
 ## Development Workflow
@@ -1872,15 +1890,16 @@ Near-term:
 3. 022F Pushback Status Read Model
 4. 023A Minimal Admin Console
 5. 023B Admin Action Panel
-6. 023C Google Sheets Setup Screen
+6. 023D / 023A-Ops Admin Static Deploy
+7. 023C Google Sheets Setup Screen
 
 Acquisition:
 
-7. 024A Scout Doctrine & Data Model
-8. 024B Local Prospect Import MVP
-9. 024C Weakness Scoring Engine
-10. 024D AI Outreach Draft Generator
-11. 024E Outreach Compliance Guard
+8. 024A Scout Doctrine & Data Model
+9. 024B Local Prospect Import MVP
+10. 024C Weakness Scoring Engine
+11. 024D AI Outreach Draft Generator
+12. 024E Outreach Compliance Guard
 
 Channels:
 
