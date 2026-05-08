@@ -122,6 +122,77 @@ const googleSheetsSetupTestSuccessSchema = z.object({
   }),
 });
 
+const opsCheckIdSchema = z.enum([
+  "api-health",
+  "db-health",
+  "google-sheets-status",
+  "google-sheets-test",
+  "worker-queue-summary",
+]);
+
+const opsResultSchema = z.enum(["succeeded", "failed", "skipped"]);
+
+const opsHealthSuccessSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    status: z.enum(["healthy", "degraded", "unhealthy"]),
+    checkedAt: z.string(),
+    api: z.object({
+      status: z.literal("ok"),
+      uptimeSeconds: z.number().min(0),
+    }),
+    db: z.object({
+      status: z.enum(["ok", "error"]),
+      latencyMs: z.number().int().min(0).nullable(),
+    }),
+    googleSheets: z.object({
+      status: z.enum(["ok", "disabled", "unconfigured", "error"]),
+      configured: z.boolean(),
+      lastTestResult: opsResultSchema.nullable(),
+      lastTestedAt: z.string().nullable(),
+    }),
+    workerQueue: z.object({
+      status: z.enum(["ok", "degraded", "error"]),
+      pending: z.number().int().min(0).nullable(),
+      running: z.number().int().min(0).nullable(),
+      failed: z.number().int().min(0).nullable(),
+      oldestPendingMinutes: z.number().int().min(0).nullable(),
+    }),
+  }),
+});
+
+const opsRunCheckSuccessSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    checkId: opsCheckIdSchema,
+    result: opsResultSchema,
+    diagnosticTraceId: z.string().uuid(),
+    runAt: z.string(),
+    durationMs: z.number().int().min(0),
+    errorCode: z.string().nullable(),
+    errorSummary: z.string().nullable(),
+    data: z.record(z.unknown()),
+  }),
+});
+
+const opsRecentChecksSuccessSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    checks: z.array(
+      z.object({
+        checkId: opsCheckIdSchema,
+        result: opsResultSchema,
+        diagnosticTraceId: z.string().uuid(),
+        runAt: z.string(),
+        durationMs: z.number().int().min(0),
+        errorCode: z.string().nullable(),
+        errorSummary: z.string().nullable(),
+      }),
+    ),
+    limit: z.number().int().min(1).max(50),
+  }),
+});
+
 export type CurrentUser = z.infer<typeof loginSuccessSchema>["data"];
 export type PushbackStatusResponse = z.infer<typeof pushbackStatusResponseSchema>;
 export type EmailSendPushbackReplayResponse = z.infer<
@@ -131,6 +202,10 @@ export type GoogleSheetsSetupStatus = z.infer<typeof googleSheetsSetupStatusSche
 export type GoogleSheetsSetupTestResponse = z.infer<
   typeof googleSheetsSetupTestSuccessSchema
 >["data"];
+export type OpsCheckId = z.infer<typeof opsCheckIdSchema>;
+export type OpsHealthResponse = z.infer<typeof opsHealthSuccessSchema>["data"];
+export type OpsRunCheckResponse = z.infer<typeof opsRunCheckSuccessSchema>["data"];
+export type OpsRecentChecksResponse = z.infer<typeof opsRecentChecksSuccessSchema>["data"];
 
 export class ApiUnauthorizedError extends Error {
   constructor() {
@@ -224,4 +299,36 @@ export async function testGoogleSheetsSetup(): Promise<GoogleSheetsSetupTestResp
   });
 
   return googleSheetsSetupTestSuccessSchema.parse(payload).data;
+}
+
+export async function getOpsHealth(): Promise<OpsHealthResponse> {
+  const payload = await requestJson("/api/admin/ops/health");
+  return opsHealthSuccessSchema.parse(payload).data;
+}
+
+export async function runOpsCheck(checkId: OpsCheckId): Promise<OpsRunCheckResponse> {
+  const payload = await requestJson(`/api/admin/ops/checks/${encodeURIComponent(checkId)}`, {
+    method: "POST",
+  });
+
+  return opsRunCheckSuccessSchema.parse(payload).data;
+}
+
+export async function getRecentOpsChecks(params: {
+  limit?: number;
+  checkId?: OpsCheckId;
+} = {}): Promise<OpsRecentChecksResponse> {
+  const search = new URLSearchParams();
+
+  if (params.limit !== undefined) {
+    search.set("limit", String(params.limit));
+  }
+
+  if (params.checkId) {
+    search.set("checkId", params.checkId);
+  }
+
+  const query = search.toString();
+  const payload = await requestJson(`/api/admin/ops/checks/recent${query ? `?${query}` : ""}`);
+  return opsRecentChecksSuccessSchema.parse(payload).data;
 }

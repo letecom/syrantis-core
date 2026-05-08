@@ -28,6 +28,9 @@ export const ActivityLogActionSchema = z.enum([
   "google_sheets_setup.test_succeeded",
   "google_sheets_setup.test_failed",
   "google_sheets_setup.test_skipped",
+  "admin_ops.check_succeeded",
+  "admin_ops.check_failed",
+  "admin_ops.check_skipped",
   "lead.created",
   "lead.updated",
   "lead.score_requested",
@@ -68,6 +71,7 @@ export const ActivityLogEntityTypeSchema = z.enum([
   "external_object_mapping",
   "workspace_api_key",
   "google_sheets_setup",
+  "admin_ops",
 ]);
 
 export const ActivityLogQuerySchema = z.object({

@@ -52,6 +52,9 @@ export function AdminShell({ user, children }: AdminShellProps) {
             <NavLink className={navLinkClass} to="/app/google-sheets">
               Google Sheets
             </NavLink>
+            <NavLink className={navLinkClass} to="/app/ops">
+              Ops
+            </NavLink>
           </nav>
         </aside>
         <div className="flex min-h-screen flex-col">

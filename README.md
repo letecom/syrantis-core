@@ -41,7 +41,7 @@ Resend webhook delivery proof when real provider is enabled
         ↓
 Google Sheets push-back MVP + diagnostics
         ↓
-022E Manual Pushback Replay / 023C Setup Verification
+022E Manual Pushback Replay / 023C Setup Verification / 023E Ops Health
         ↓
 Future CRM connector hardening / additional targets
 ```
@@ -75,6 +75,7 @@ lead received
   → Google Sheets push-back MVP + diagnostics
   → 022E Manual Pushback Replay
   → Google Sheets setup verification in admin UI
+  → bounded admin ops health checks
 ```
 
 No CRM clone.
@@ -115,7 +116,7 @@ Rules:
 - agents never merge
 - agents never edit prod env
 
-Current baseline through 023C:
+Current baseline through 023E:
 
 - production default `SEND_EMAIL_PROVIDER=internal`
 - Resend provider exists only behind explicit env config
@@ -151,6 +152,7 @@ Current baseline through 023C:
 - no new table was added for 023B
 - 023D Admin Static Deploy is production-validated for `admin.syrantis.fr`
 - 023C Google Sheets Setup Verification exists in `apps/web` at `/app/google-sheets`
+- 023C Google Sheets Setup Verification is production-validated
 - admin UI now supports read-only Google Sheets setup status and backend-only setup test
 - setup status uses `GET /api/integrations/google-sheets/setup-status`
 - setup test uses `POST /api/integrations/google-sheets/setup-test`
@@ -160,6 +162,15 @@ Current baseline through 023C:
 - no migration was added for 023C
 - no new table was added for 023C
 - no Caddy change was added for 023C
+- 023E Admin Ops Health & Test Panel exists in `apps/web` at `/app/ops`
+- admin ops uses `GET /api/admin/ops/health`, `POST /api/admin/ops/checks/:checkId`,
+  and `GET /api/admin/ops/checks/recent`
+- admin ops check IDs are limited to `api-health`, `db-health`, `google-sheets-status`,
+  `google-sheets-test`, and `worker-queue-summary`
+- admin ops does not provide restart, shell execution, arbitrary SQL, logs, migrations, env edits,
+  or dashboard charts
+- no migration was added for 023E
+- no new table was added for 023E
 - no global dashboard exists
 - no `email_sends` list exists
 - frontend performs no provider calls
@@ -183,9 +194,9 @@ Current baseline through 023C:
   - Google Sheets push-back to `Pushback_Log!A:Q` succeeded after delivery proof
   - Full test loop produced a row in the Sheet
 
-Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, safe push-back diagnostics, manual push-back replay, push-back status read models, the minimal internal admin console foundation, the first bounded admin action panel, the 023D admin static deploy, and the 023C Google Sheets setup verification screen.
+Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, safe push-back diagnostics, manual push-back replay, push-back status read models, the minimal internal admin console foundation, the first bounded admin action panel, the 023D admin static deploy, the 023C Google Sheets setup verification screen, and the 023E bounded admin ops health panel.
 
-Next recommended step: human review and production validation for 023C, then continue to the next approved wedge issue.
+Next recommended step after 023E implementation: 023F API Process Supervisor Foundation.
 
 Targeted API read-model tests after shared contract edits should run after:
 
@@ -1172,10 +1183,11 @@ Not implemented yet.
 | 023B     | Admin Action Panel                                    | done   |
 | 023D     | Admin Static Deploy                                   | done   |
 | 023C     | Google Sheets Setup Verification Screen               | done   |
+| 023E     | Admin Ops Health & Test Panel                         | done   |
 
 Near-term candidates:
 
-- next approved wedge issue
+- 023F API Process Supervisor Foundation
 
 ## Current Execution Focus
 
@@ -1189,19 +1201,23 @@ Current focus:
 - 023B Admin Action Panel is implemented locally and validated.
 - 023D Admin Static Deploy is production-validated.
 - `admin.syrantis.fr` is publicly browser-validated.
-- 023C Google Sheets Setup Verification is implemented locally and ready for human review.
+- 023C Google Sheets Setup Verification is production-validated.
+- 023E Admin Ops Health & Test Panel is implemented locally and ready for human review.
 - 023A = see.
 - 023B = act.
 - 023D = expose safely.
 - 023C = configure.
-- Next recommended step is human review and production validation for 023C.
-- Reason: operators can now see pushback status, trigger manual replay, and verify active Google
-  Sheets setup without exposing secrets or adding editable configuration.
+- 023E = diagnose safely.
+- Next recommended step after 023E is 023F API Process Supervisor Foundation.
+- Reason: operators can now see pushback status, trigger manual replay, verify active Google
+  Sheets setup, and run bounded ops checks without exposing secrets or adding restart/shell/log
+  controls.
 
 Explicit next sequence:
 
-- human review for 023C
-- human-approved production deploy/validation for the Google Sheets setup verification screen
+- human review for 023E
+- human-approved production deploy/validation for the Ops Health panel
+- 023F API Process Supervisor Foundation
 
 ## Development Workflow
 
@@ -1920,26 +1936,28 @@ Near-term:
 5. 023B Admin Action Panel
 6. 023D / 023A-Ops Admin Static Deploy
 7. 023C Google Sheets Setup Verification Screen
+8. 023E Admin Ops Health & Test Panel
+9. 023F API Process Supervisor Foundation
 
 Acquisition:
 
-8. 024A Scout Doctrine & Data Model
-9. 024B Local Prospect Import MVP
-10. 024C Weakness Scoring Engine
-11. 024D AI Outreach Draft Generator
-12. 024E Outreach Compliance Guard
+10. 024A Scout Doctrine & Data Model
+11. 024B Local Prospect Import MVP
+12. 024C Weakness Scoring Engine
+13. 024D AI Outreach Draft Generator
+14. 024E Outreach Compliance Guard
 
 Channels:
 
-12. 025A WhatsApp Business Sandbox Research
-13. 025B WhatsApp Inbound Capture MVP
-14. 025C WhatsApp Opt-in Follow-up
+15. 025A WhatsApp Business Sandbox Research
+16. 025B WhatsApp Inbound Capture MVP
+17. 025C WhatsApp Opt-in Follow-up
 
 CRM:
 
-15. 026A Dolibarr Sandbox Setup
-16. 026B Dolibarr Push-back MVP
-17. 026C Dolibarr Diagnostics
+18. 026A Dolibarr Sandbox Setup
+19. 026B Dolibarr Push-back MVP
+20. 026C Dolibarr Diagnostics
 
 Not implemented:
 
@@ -1958,7 +1976,9 @@ Later connector candidates:
 
 ## Known Current Limitations
 
-- push-back has no status read model yet
+- push-back status read models exist for email sends and drafts
+- Ops Health is bounded diagnostics only; it does not restart services, run shell commands, run
+  arbitrary SQL, read logs, or run migrations
 - no client onboarding UI
 - no OAuth Google integration
 - no Dolibarr connector

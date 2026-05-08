@@ -92,6 +92,10 @@ const replayUrl = `/api/email-sends/${emailSendId}/pushback-replay`;
 const statusUrl = `/api/email-sends/${emailSendId}/pushback-status`;
 const googleSheetsStatusUrl = "/api/integrations/google-sheets/setup-status";
 const googleSheetsTestUrl = "/api/integrations/google-sheets/setup-test";
+const opsHealthUrl = "/api/admin/ops/health";
+const opsRecentUrl = "/api/admin/ops/checks/recent?limit=20";
+const opsDbHealthUrl = "/api/admin/ops/checks/db-health";
+const opsGoogleSheetsTestUrl = "/api/admin/ops/checks/google-sheets-test";
 
 const replayResponse = {
   success: true,
@@ -161,6 +165,93 @@ const googleSheetsTestFailure = {
   },
 };
 
+const opsHealth = {
+  success: true,
+  data: {
+    status: "healthy",
+    checkedAt: "2026-05-08T10:00:00.000Z",
+    api: {
+      status: "ok",
+      uptimeSeconds: 120,
+    },
+    db: {
+      status: "ok",
+      latencyMs: 8,
+    },
+    googleSheets: {
+      status: "ok",
+      configured: true,
+      lastTestResult: "succeeded",
+      lastTestedAt: "2026-05-08T09:55:00.000Z",
+    },
+    workerQueue: {
+      status: "ok",
+      pending: 2,
+      running: 1,
+      failed: 0,
+      oldestPendingMinutes: 12,
+    },
+    workspaceId: "forbidden-ops-workspace",
+    payload_json: { hidden: true },
+  },
+};
+
+const opsRecent = {
+  success: true,
+  data: {
+    checks: [
+      {
+        checkId: "api-health",
+        result: "succeeded",
+        diagnosticTraceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        runAt: "2026-05-08T10:01:00.000Z",
+        durationMs: 3,
+        errorCode: null,
+        errorSummary: null,
+        workspaceId: "forbidden-recent-workspace",
+        metadata_json: { hidden: true },
+      },
+    ],
+    limit: 20,
+  },
+};
+
+const opsDbHealthSuccess = {
+  success: true,
+  data: {
+    checkId: "db-health",
+    result: "succeeded",
+    diagnosticTraceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    runAt: "2026-05-08T10:02:00.000Z",
+    durationMs: 9,
+    errorCode: null,
+    errorSummary: null,
+    data: {
+      latencyMs: 8,
+      payload_json: { hidden: true },
+      workspaceId: "forbidden-run-workspace",
+    },
+  },
+};
+
+const opsGoogleSheetsSkipped = {
+  success: true,
+  data: {
+    checkId: "google-sheets-test",
+    result: "skipped",
+    diagnosticTraceId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    runAt: "2026-05-08T10:03:00.000Z",
+    durationMs: 4,
+    errorCode: "OPS_CHECK_COOLDOWN",
+    errorSummary: "Google Sheets test was skipped because it ran recently.",
+    data: {
+      cooldownMinutes: 5,
+      rawGoogle: "forbidden-ops-raw-google",
+      private_key: "forbidden-ops-private-key",
+    },
+  },
+};
+
 function mockJson(body: unknown, status = 200) {
   return Promise.resolve(
     new Response(JSON.stringify(body), {
@@ -207,6 +298,22 @@ function googleSheetsTestPostCalls(request: ReturnType<typeof vi.fn>) {
   return request.mock.calls.filter(
     ([url, init]) => url === googleSheetsTestUrl && init?.method === "POST",
   );
+}
+
+function opsCheckPostCalls(request: ReturnType<typeof vi.fn>, url: string) {
+  return request.mock.calls.filter(([calledUrl, init]) => calledUrl === url && init?.method === "POST");
+}
+
+function opsDefaultResponse(url: string) {
+  if (url === opsHealthUrl) {
+    return mockJson(opsHealth);
+  }
+
+  if (url === opsRecentUrl) {
+    return mockJson(opsRecent);
+  }
+
+  return mockJson(currentUser);
 }
 
 afterEach(() => {
@@ -305,6 +412,7 @@ describe("admin app", () => {
     expect(screen.getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Pushback" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Google Sheets" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ops" })).toBeInTheDocument();
   });
 
   it("logs out through the backend and redirects", async () => {
@@ -814,6 +922,134 @@ describe("admin app", () => {
     expect(screen.queryByText("forbidden-failure-client-email")).not.toBeInTheDocument();
   });
 
+  it("renders the Ops page with health cards, checks, and recent checks", async () => {
+    vi.stubGlobal("fetch", vi.fn((url: string) => opsDefaultResponse(url)));
+
+    renderApp("/app/ops");
+
+    expect(await screen.findByRole("heading", { name: "Ops Health" })).toBeInTheDocument();
+    expect(screen.getByText(/bounded diagnostic checks only/i)).toBeInTheDocument();
+    const cards = await screen.findByLabelText("Health cards");
+    expect(within(cards).getByText("API")).toBeInTheDocument();
+    expect(within(cards).getByText("Database")).toBeInTheDocument();
+    expect(within(cards).getByText("Google Sheets")).toBeInTheDocument();
+    expect(within(cards).getByText("Worker Queue")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "API health" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "DB health" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Google Sheets status" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Google Sheets test" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Worker queue summary" })).toBeInTheDocument();
+    const recent = await screen.findByLabelText("Recent checks");
+    expect(within(recent).getByText("api-health")).toBeInTheDocument();
+    expect(within(recent).getByText("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")).toBeInTheDocument();
+  });
+
+  it("Ops check button calls api-client POST and renders success diagnostic trace id", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => {
+      if (url === opsDbHealthUrl) {
+        return mockJson(opsDbHealthSuccess);
+      }
+
+      return opsDefaultResponse(url);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/ops");
+    await user.click(await screen.findByRole("button", { name: "DB health" }));
+
+    const result = await screen.findByLabelText("Last result");
+    expect(opsCheckPostCalls(request, opsDbHealthUrl)).toHaveLength(1);
+    expect(within(result).getByText("succeeded")).toBeInTheDocument();
+    expect(within(result).getByText("db-health")).toBeInTheDocument();
+    expect(within(result).getByText("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")).toBeInTheDocument();
+    expect(within(result).getAllByText("8").length).toBeGreaterThan(0);
+    expect(screen.queryByText("forbidden-run-workspace")).not.toBeInTheDocument();
+  });
+
+  it("Ops check button locks while running and prevents double submit", async () => {
+    const user = userEvent.setup();
+    let resolveCheck: (response: Response) => void = () => undefined;
+    const checkPromise = new Promise<Response>((resolve) => {
+      resolveCheck = resolve;
+    });
+    const request = vi.fn((url: string) => {
+      if (url === opsDbHealthUrl) {
+        return checkPromise;
+      }
+
+      return opsDefaultResponse(url);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/ops");
+    await user.dblClick(await screen.findByRole("button", { name: "DB health" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Running..." })).toBeDisabled());
+    expect(screen.getByRole("status")).toHaveTextContent("Running bounded diagnostic check...");
+    expect(opsCheckPostCalls(request, opsDbHealthUrl)).toHaveLength(1);
+
+    resolveCheck(
+      new Response(JSON.stringify(opsDbHealthSuccess), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    expect(await screen.findByLabelText("Last result")).toBeInTheDocument();
+  });
+
+  it("Ops skipped and failure result renders safe error fields only", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => {
+      if (url === opsGoogleSheetsTestUrl) {
+        return mockJson(opsGoogleSheetsSkipped);
+      }
+
+      return opsDefaultResponse(url);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/ops");
+    await user.click(await screen.findByRole("button", { name: "Google Sheets test" }));
+
+    const result = await screen.findByLabelText("Last result");
+    expect(within(result).getByText("skipped")).toBeInTheDocument();
+    expect(within(result).getByText("OPS_CHECK_COOLDOWN")).toBeInTheDocument();
+    expect(
+      within(result).getByText("Google Sheets test was skipped because it ran recently."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("forbidden-ops-raw-google")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-ops-private-key")).not.toBeInTheDocument();
+  });
+
+  it("Ops page does not render forbidden sensitive strings from responses", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => {
+      if (url === opsGoogleSheetsTestUrl) {
+        return mockJson(opsGoogleSheetsSkipped);
+      }
+
+      return opsDefaultResponse(url);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/ops");
+    await user.click(await screen.findByRole("button", { name: "Google Sheets test" }));
+    await screen.findByLabelText("Last result");
+
+    for (const forbidden of [
+      "forbidden-ops-workspace",
+      "forbidden-recent-workspace",
+      "forbidden-run-workspace",
+      "forbidden-ops-raw-google",
+      "forbidden-ops-private-key",
+      "metadata_json",
+      "payload_json",
+    ]) {
+      expect(screen.queryByText(forbidden)).not.toBeInTheDocument();
+    }
+  });
+
   it("keeps production fetch calls inside api-client", () => {
     const sourceFiles = [
       "../src/App.tsx",
@@ -823,6 +1059,7 @@ describe("admin app", () => {
       "../src/pages/GoogleSheetsPage.tsx",
       "../src/pages/LoginPage.tsx",
       "../src/pages/NotFoundPage.tsx",
+      "../src/pages/OpsPage.tsx",
       "../src/pages/PushbackPage.tsx",
     ].map((file) => readFileSync(new URL(file, import.meta.url), "utf8"));
 

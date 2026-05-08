@@ -7,6 +7,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { GoogleSheetsPage } from "./pages/GoogleSheetsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
+import { OpsPage } from "./pages/OpsPage";
 import { PushbackPage } from "./pages/PushbackPage";
 
 function RootRedirect() {
@@ -35,6 +36,7 @@ export function App() {
         <Route index element={<DashboardPage />} />
         <Route element={<PushbackPage />} path="pushback" />
         <Route element={<GoogleSheetsPage />} path="google-sheets" />
+        <Route element={<OpsPage />} path="ops" />
       </Route>
       <Route element={<NotFoundPage />} path="*" />
     </Routes>

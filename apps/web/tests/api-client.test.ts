@@ -3,10 +3,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getGoogleSheetsSetupStatus,
   getCurrentUser,
+  getOpsHealth,
+  getRecentOpsChecks,
   getDraftPushbackStatus,
   getEmailSendPushbackStatus,
   login,
   replayEmailSendPushback,
+  runOpsCheck,
   testGoogleSheetsSetup,
 } from "../src/lib/api-client";
 
@@ -110,6 +113,79 @@ const googleSheetsTestResponse = {
     },
     workspaceId: "forbidden-workspace",
     rawGoogle: "forbidden-raw-google",
+  },
+};
+
+const opsHealthResponse = {
+  success: true,
+  data: {
+    status: "healthy",
+    checkedAt: "2026-05-08T10:03:00.000Z",
+    api: {
+      status: "ok",
+      uptimeSeconds: 123,
+    },
+    db: {
+      status: "ok",
+      latencyMs: 8,
+    },
+    googleSheets: {
+      status: "ok",
+      configured: true,
+      lastTestResult: "succeeded",
+      lastTestedAt: "2026-05-08T10:00:00.000Z",
+    },
+    workerQueue: {
+      status: "ok",
+      pending: 2,
+      running: 1,
+      failed: 0,
+      oldestPendingMinutes: 12,
+    },
+    workspaceId: "forbidden-workspace",
+    rawProvider: "forbidden-provider",
+  },
+};
+
+const opsRunCheckResponse = {
+  success: true,
+  data: {
+    checkId: "google-sheets-test",
+    result: "skipped",
+    diagnosticTraceId: "99999999-9999-4999-8999-999999999999",
+    runAt: "2026-05-08T10:04:00.000Z",
+    durationMs: 4,
+    errorCode: "OPS_CHECK_COOLDOWN",
+    errorSummary: "Google Sheets test was skipped because it ran recently.",
+    data: {
+      cooldownMinutes: 5,
+      workspaceId: "forbidden-workspace",
+      rawGoogle: "forbidden-raw-google",
+    },
+    metadata_json: {
+      hidden: true,
+    },
+  },
+};
+
+const opsRecentChecksResponse = {
+  success: true,
+  data: {
+    checks: [
+      {
+        checkId: "db-health",
+        result: "failed",
+        diagnosticTraceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        runAt: "2026-05-08T10:05:00.000Z",
+        durationMs: 5000,
+        errorCode: "OPS_CHECK_TIMEOUT",
+        errorSummary: "Check timed out.",
+        workspaceId: "forbidden-workspace",
+        payload_json: { hidden: true },
+      },
+    ],
+    limit: 20,
+    metadata_json: { hidden: true },
   },
 };
 
@@ -263,5 +339,98 @@ describe("api client", () => {
     expect(JSON.stringify(init)).not.toContain("workspaceId");
     expect(JSON.stringify(init)).not.toContain("Authorization");
     expect(JSON.stringify(init)).not.toContain("Bearer");
+  });
+
+  it("calls the Ops health endpoint and strips unsafe fields", async () => {
+    const request = vi.fn(() => mockResponse(opsHealthResponse));
+    vi.stubGlobal("fetch", request);
+
+    await expect(getOpsHealth()).resolves.toEqual({
+      status: "healthy",
+      checkedAt: "2026-05-08T10:03:00.000Z",
+      api: {
+        status: "ok",
+        uptimeSeconds: 123,
+      },
+      db: {
+        status: "ok",
+        latencyMs: 8,
+      },
+      googleSheets: {
+        status: "ok",
+        configured: true,
+        lastTestResult: "succeeded",
+        lastTestedAt: "2026-05-08T10:00:00.000Z",
+      },
+      workerQueue: {
+        status: "ok",
+        pending: 2,
+        running: 1,
+        failed: 0,
+        oldestPendingMinutes: 12,
+      },
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/admin/ops/health",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("calls an Ops check endpoint without client workspace material", async () => {
+    const request = vi.fn(() => mockResponse(opsRunCheckResponse));
+    vi.stubGlobal("fetch", request);
+
+    await expect(runOpsCheck("google-sheets-test")).resolves.toEqual({
+      checkId: "google-sheets-test",
+      result: "skipped",
+      diagnosticTraceId: "99999999-9999-4999-8999-999999999999",
+      runAt: "2026-05-08T10:04:00.000Z",
+      durationMs: 4,
+      errorCode: "OPS_CHECK_COOLDOWN",
+      errorSummary: "Google Sheets test was skipped because it ran recently.",
+      data: {
+        cooldownMinutes: 5,
+        workspaceId: "forbidden-workspace",
+        rawGoogle: "forbidden-raw-google",
+      },
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/admin/ops/checks/google-sheets-test",
+      expect.objectContaining({
+        credentials: "include",
+        method: "POST",
+      }),
+    );
+    const firstCall = request.mock.calls[0] as [string, RequestInit?] | undefined;
+    expect(firstCall).toBeDefined();
+    const init = firstCall?.[1];
+    expect(init).not.toHaveProperty("body");
+    expect(JSON.stringify(init)).not.toContain("workspaceId");
+    expect(JSON.stringify(init)).not.toContain("Authorization");
+    expect(JSON.stringify(init)).not.toContain("Bearer");
+  });
+
+  it("calls the recent Ops checks endpoint with bounded query params", async () => {
+    const request = vi.fn(() => mockResponse(opsRecentChecksResponse));
+    vi.stubGlobal("fetch", request);
+
+    await expect(getRecentOpsChecks({ limit: 20, checkId: "db-health" })).resolves.toEqual({
+      checks: [
+        {
+          checkId: "db-health",
+          result: "failed",
+          diagnosticTraceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          runAt: "2026-05-08T10:05:00.000Z",
+          durationMs: 5000,
+          errorCode: "OPS_CHECK_TIMEOUT",
+          errorSummary: "Check timed out.",
+        },
+      ],
+      limit: 20,
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/admin/ops/checks/recent?limit=20&checkId=db-health",
+      expect.objectContaining({ credentials: "include" }),
+    );
   });
 });
