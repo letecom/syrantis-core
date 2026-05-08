@@ -1,0 +1,37 @@
+[Unit]
+Description=Syrantis Core API
+After=network-online.target
+Wants=network-online.target
+# Add PostgreSQL to After/Wants only if PostgreSQL is managed by local systemd.
+
+[Service]
+Type=simple
+User=syrantis
+Group=syrantis
+WorkingDirectory=/opt/syrantis/repos/syrantis-core
+EnvironmentFile=/opt/syrantis/env/core.prod.env
+Environment=PORT=8787
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/env pnpm --filter @syrantis/api start
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=syrantis-api
+NoNewPrivileges=true
+
+# Hardening directives: enable only after validation.
+# PrivateTmp=true
+# ProtectSystem=full
+# ProtectHome=true
+# RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# ProtectKernelTunables=true
+# ProtectKernelModules=true
+# ProtectControlGroups=true
+# MemoryMax=512M
+# CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
