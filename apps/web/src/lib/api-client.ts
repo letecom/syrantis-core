@@ -128,6 +128,7 @@ const opsCheckIdSchema = z.enum([
   "google-sheets-status",
   "google-sheets-test",
   "worker-queue-summary",
+  "worker-failed-summary",
 ]);
 
 const opsResultSchema = z.enum(["succeeded", "failed", "skipped"]);

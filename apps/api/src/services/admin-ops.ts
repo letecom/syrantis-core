@@ -5,11 +5,13 @@ import {
   adminOpsHealthResponseSchema,
   adminOpsRecentChecksResponseSchema,
   adminOpsRunCheckResponseSchema,
+  adminOpsWorkerFailedSummaryDataSchema,
   type AdminOpsCheckId,
   type AdminOpsHealthResponse,
   type AdminOpsRecentChecksResponse,
   type AdminOpsResult,
   type AdminOpsRunCheckResponse,
+  type AdminOpsWorkerFailedSummaryData,
   type GoogleSheetsSetupStatus,
 } from "@syrantis/shared";
 
@@ -17,10 +19,12 @@ import {
   checkAdminOpsDbHealth,
   findRecentAdminOpsCheckLogs,
   findRecentAdminOpsCheckLogsSince,
+  getAdminOpsWorkerFailedSummaryGroups,
   getAdminOpsWorkerQueueSummary,
   writeAdminOpsCheckActivityLog,
   type AdminOpsActivityType,
   type AdminOpsCheckLogRow,
+  type AdminOpsWorkerFailedSummaryGroup,
   type AdminOpsWorkerQueueSummary,
 } from "../repositories/admin-ops.js";
 import {
@@ -30,9 +34,12 @@ import {
 
 const API_HEALTH_TIMEOUT_MS = 1_000;
 const DB_HEALTH_TIMEOUT_MS = 5_000;
+const WORKER_FAILED_TIMEOUT_MS = 5_000;
 const WORKER_QUEUE_TIMEOUT_MS = 5_000;
 const GOOGLE_SHEETS_TEST_COOLDOWN_MS = 5 * 60_000;
 const RECENT_CHECK_SCAN_LIMIT = 200;
+const FRESH_FAILURE_MS = 24 * 60 * 60 * 1_000;
+const RECENT_FAILURE_MS = 7 * 24 * 60 * 60 * 1_000;
 
 export const allowedAdminOpsCheckIds = adminOpsCheckIdSchema.options;
 
@@ -59,6 +66,7 @@ export type AdminOpsService = {
 type AdminOpsRepository = {
   checkDbHealth(workspaceId: string): Promise<{ latencyMs: number }>;
   getWorkerQueueSummary(workspaceId: string): Promise<AdminOpsWorkerQueueSummary>;
+  getWorkerFailedSummaryGroups(workspaceId: string): Promise<AdminOpsWorkerFailedSummaryGroup[]>;
   writeCheckActivityLog(input: {
     workspaceId: string;
     actorUserId: string;
@@ -84,6 +92,7 @@ export type CreateAdminOpsServiceDependencies = {
 const productionRepository: AdminOpsRepository = {
   checkDbHealth: checkAdminOpsDbHealth,
   getWorkerQueueSummary: getAdminOpsWorkerQueueSummary,
+  getWorkerFailedSummaryGroups: getAdminOpsWorkerFailedSummaryGroups,
   writeCheckActivityLog: writeAdminOpsCheckActivityLog,
   findRecentCheckLogs: findRecentAdminOpsCheckLogs,
   findRecentCheckLogsSince: findRecentAdminOpsCheckLogsSince,
@@ -253,17 +262,102 @@ function safeGoogleSheetsTestData(result: Awaited<ReturnType<GoogleSheetsSetupSe
   };
 }
 
-function safeCountsForMetadata(checkId: AdminOpsCheckId, data: SafeData): Record<string, unknown> {
-  if (checkId !== "worker-queue-summary") {
-    return {};
+function ageBucket(updatedAt: Date | null, nowMs: number): AdminOpsWorkerFailedSummaryData["groups"][number]["ageBucket"] {
+  if (!updatedAt) {
+    return "unknown";
   }
 
-  return {
-    pending: data.pending,
-    running: data.running,
-    failed: data.failed,
-    oldestPendingMinutes: data.oldestPendingMinutes,
-  };
+  const ageMs = Math.max(0, nowMs - updatedAt.getTime());
+
+  if (ageMs <= FRESH_FAILURE_MS) {
+    return "fresh";
+  }
+
+  if (ageMs <= RECENT_FAILURE_MS) {
+    return "recent";
+  }
+
+  return "historical";
+}
+
+function safeWorkerFailedSummaryData(
+  groups: AdminOpsWorkerFailedSummaryGroup[],
+): AdminOpsWorkerFailedSummaryData {
+  const nowMs = Date.now();
+  const safeGroups = groups.map((group) => ({
+    type: group.type,
+    count: group.count,
+    minAttempts: group.minAttempts,
+    maxAttempts: group.maxAttempts,
+    oldestCreatedAt: group.oldestCreatedAt?.toISOString() ?? null,
+    latestUpdatedAt: group.latestUpdatedAt?.toISOString() ?? null,
+    ageBucket: ageBucket(group.latestUpdatedAt, nowMs),
+  }));
+  const totalFailed = safeGroups.reduce((sum, group) => sum + group.count, 0);
+  const hasFreshFailures = safeGroups.some((group) => group.ageBucket === "fresh" || group.ageBucket === "recent");
+  const hasOnlyHistoricalFailures =
+    totalFailed > 0 && safeGroups.length > 0 && safeGroups.every((group) => group.ageBucket === "historical");
+
+  if (totalFailed === 0) {
+    return adminOpsWorkerFailedSummaryDataSchema.parse({
+      totalFailed,
+      status: "ok",
+      groups: safeGroups,
+      interpretation: {
+        summary: "No failed worker jobs detected.",
+        hasOnlyHistoricalFailures: false,
+        hasFreshFailures: false,
+        recommendedNextAction: "none",
+      },
+    });
+  }
+
+  return adminOpsWorkerFailedSummaryDataSchema.parse({
+    totalFailed,
+    status: "degraded",
+    groups: safeGroups,
+    interpretation: {
+      summary: hasFreshFailures
+        ? "Recent failed worker jobs detected."
+        : hasOnlyHistoricalFailures
+          ? "Only historical failed worker jobs detected."
+          : "Failed worker jobs detected without recent updates.",
+      hasOnlyHistoricalFailures,
+      hasFreshFailures,
+      recommendedNextAction: hasFreshFailures
+        ? "investigate_recent_failures"
+        : "review_historical_failures",
+    },
+  });
+}
+
+function safeCountsForMetadata(checkId: AdminOpsCheckId, data: SafeData): Record<string, unknown> {
+  if (checkId === "worker-queue-summary") {
+    return {
+      pending: data.pending,
+      running: data.running,
+      failed: data.failed,
+      oldestPendingMinutes: data.oldestPendingMinutes,
+    };
+  }
+
+  if (checkId === "worker-failed-summary") {
+    const parsed = adminOpsWorkerFailedSummaryDataSchema.safeParse(data);
+
+    if (!parsed.success) {
+      return {};
+    }
+
+    return {
+      totalFailed: parsed.data.totalFailed,
+      groupCount: parsed.data.groups.length,
+      hasFreshFailures: parsed.data.interpretation.hasFreshFailures,
+      hasOnlyHistoricalFailures: parsed.data.interpretation.hasOnlyHistoricalFailures,
+      recommendedNextAction: parsed.data.interpretation.recommendedNextAction,
+    };
+  }
+
+  return {};
 }
 
 function buildLogMetadata(run: AdminOpsCheckRun): Record<string, unknown> {
@@ -274,7 +368,9 @@ function buildLogMetadata(run: AdminOpsCheckRun): Record<string, unknown> {
     diagnosticTraceId: run.diagnosticTraceId,
     durationMs: run.durationMs,
     ...(run.errorCode ? { errorCode: run.errorCode } : {}),
-    ...(run.errorSummary ? { errorSummary: run.errorSummary } : {}),
+    ...(run.errorSummary && run.checkId !== "worker-failed-summary"
+      ? { errorSummary: run.errorSummary }
+      : {}),
     ...safeCountsForMetadata(run.checkId, run.data),
   };
 }
@@ -395,7 +491,7 @@ export function createProductionAdminOpsService(
         errorCode = setupResult.errorCode;
         errorSummary = setupResult.errorSummary;
         data = safeGoogleSheetsTestData(setupResult);
-      } else {
+      } else if (checkId === "worker-queue-summary") {
         const summary = await withTimeout(
           repository.getWorkerQueueSummary(workspaceId),
           WORKER_QUEUE_TIMEOUT_MS,
@@ -406,6 +502,11 @@ export function createProductionAdminOpsService(
           failed: summary.failed,
           oldestPendingMinutes: summary.oldestPendingMinutes,
         };
+      } else {
+        data = await withTimeout(
+          repository.getWorkerFailedSummaryGroups(workspaceId).then(safeWorkerFailedSummaryData),
+          WORKER_FAILED_TIMEOUT_MS,
+        );
       }
 
       return adminOpsRunCheckResponseSchema.parse({

@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, inArray, min, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, max, min, sql } from "drizzle-orm";
 
 import { activityLogs, backgroundJobs } from "@syrantis/db";
 import type { ActivityLogAction } from "@syrantis/shared";
@@ -19,6 +19,15 @@ export type AdminOpsWorkerQueueSummary = {
   running: number;
   failed: number;
   oldestPendingMinutes: number | null;
+};
+
+export type AdminOpsWorkerFailedSummaryGroup = {
+  type: string;
+  count: number;
+  minAttempts: number | null;
+  maxAttempts: number | null;
+  oldestCreatedAt: Date | null;
+  latestUpdatedAt: Date | null;
 };
 
 export type AdminOpsCheckLogRow = {
@@ -82,6 +91,36 @@ export async function getAdminOpsWorkerQueueSummary(
       failed,
       oldestPendingMinutes: minutesSince(oldestPending?.value ?? null),
     };
+  });
+}
+
+export async function getAdminOpsWorkerFailedSummaryGroups(
+  workspaceId: string,
+): Promise<AdminOpsWorkerFailedSummaryGroup[]> {
+  return withWorkspaceDb(workspaceId, async (tx) => {
+    const failedCount = count();
+    const rows = await tx
+      .select({
+        type: backgroundJobs.type,
+        count: failedCount,
+        minAttempts: min(backgroundJobs.attempts),
+        maxAttempts: max(backgroundJobs.attempts),
+        oldestCreatedAt: min(backgroundJobs.createdAt),
+        latestUpdatedAt: max(backgroundJobs.updatedAt),
+      })
+      .from(backgroundJobs)
+      .where(and(eq(backgroundJobs.workspaceId, workspaceId), eq(backgroundJobs.status, "failed")))
+      .groupBy(backgroundJobs.type)
+      .orderBy(desc(failedCount), asc(backgroundJobs.type));
+
+    return rows.map((row) => ({
+      type: row.type,
+      count: row.count,
+      minAttempts: row.minAttempts,
+      maxAttempts: row.maxAttempts,
+      oldestCreatedAt: row.oldestCreatedAt,
+      latestUpdatedAt: row.latestUpdatedAt,
+    }));
   });
 }
 

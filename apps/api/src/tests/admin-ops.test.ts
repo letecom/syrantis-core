@@ -30,6 +30,19 @@ const repositoryState = vi.hoisted(() => ({
     failed: 0,
     oldestPendingMinutes: 12,
   },
+  workerFailedGroups: [] as Array<{
+    type: string;
+    count: number;
+    minAttempts: number | null;
+    maxAttempts: number | null;
+    oldestCreatedAt: Date | null;
+    latestUpdatedAt: Date | null;
+    payload_json?: unknown;
+    id?: string;
+    locked_by?: string;
+    last_error?: string;
+    stack?: string;
+  }>,
   recentSince: [] as Array<{
     type: "admin_ops.check_succeeded" | "admin_ops.check_failed" | "admin_ops.check_skipped";
     metadataJson: Record<string, unknown>;
@@ -48,6 +61,7 @@ const repositoryState = vi.hoisted(() => ({
   }>,
   failDbHealth: false,
   failWorkerSummary: false,
+  failWorkerFailedSummary: false,
 }));
 
 const validDiagnosticTraceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -69,6 +83,13 @@ function repository(): NonNullable<CreateAdminOpsServiceDependencies["repository
       }
 
       return repositoryState.workerSummary;
+    }),
+    getWorkerFailedSummaryGroups: vi.fn(async () => {
+      if (repositoryState.failWorkerFailedSummary) {
+        throw new Error("worker failed raw failure");
+      }
+
+      return repositoryState.workerFailedGroups;
     }),
     writeCheckActivityLog: vi.fn(async (input) => {
       repositoryState.createdLogs.push(input);
@@ -181,8 +202,13 @@ function expectSafePayload(value: unknown) {
     "leadLabel",
     "workspaceId",
     "workspace_id",
+    "job-id",
+    "locked_by",
+    "raw error",
+    "stack",
     "database raw failure",
     "worker raw failure",
+    "worker failed raw failure",
   ]) {
     expect(serialized).not.toContain(forbidden);
   }
@@ -196,11 +222,13 @@ beforeEach(() => {
     failed: 0,
     oldestPendingMinutes: 12,
   };
+  repositoryState.workerFailedGroups = [];
   repositoryState.recentSince = [];
   repositoryState.recentLogs = [];
   repositoryState.createdLogs = [];
   repositoryState.failDbHealth = false;
   repositoryState.failWorkerSummary = false;
+  repositoryState.failWorkerFailedSummary = false;
   vi.clearAllMocks();
 });
 
@@ -391,6 +419,184 @@ describe("admin ops routes", () => {
     expectSafePayload(repositoryState.createdLogs[0]?.metadataJson);
   });
 
+  it("worker-failed-summary returns ok when there are no failed jobs", async () => {
+    const response = await createOpsApp().request("/api/admin/ops/checks/worker-failed-summary", {
+      method: "POST",
+      headers: validSessionHeaders(),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data).toMatchObject({
+      checkId: "worker-failed-summary",
+      result: "succeeded",
+      errorCode: null,
+      errorSummary: null,
+      data: {
+        totalFailed: 0,
+        status: "ok",
+        groups: [],
+        interpretation: {
+          summary: "No failed worker jobs detected.",
+          hasOnlyHistoricalFailures: false,
+          hasFreshFailures: false,
+          recommendedNextAction: "none",
+        },
+      },
+    });
+    expect(repositoryState.createdLogs).toHaveLength(1);
+    expect(repositoryState.createdLogs[0]?.metadataJson).toMatchObject({
+      source: "admin_ui",
+      checkId: "worker-failed-summary",
+      result: "succeeded",
+      totalFailed: 0,
+      groupCount: 0,
+      hasFreshFailures: false,
+      hasOnlyHistoricalFailures: false,
+      recommendedNextAction: "none",
+    });
+    expectSafePayload(body);
+    expectSafePayload(repositoryState.createdLogs[0]?.metadataJson);
+  });
+
+  it("worker-failed-summary interprets historical failed jobs as degraded historical debt", async () => {
+    repositoryState.workerFailedGroups = [
+      {
+        type: "score_lead",
+        count: 5,
+        minAttempts: 1,
+        maxAttempts: 1,
+        oldestCreatedAt: new Date(Date.now() - 12 * 24 * 60 * 60 * 1_000),
+        latestUpdatedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1_000),
+      },
+    ];
+
+    const response = await createOpsApp().request("/api/admin/ops/checks/worker-failed-summary", {
+      method: "POST",
+      headers: validSessionHeaders(),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.data).toMatchObject({
+      totalFailed: 5,
+      status: "degraded",
+      groups: [
+        {
+          type: "score_lead",
+          count: 5,
+          minAttempts: 1,
+          maxAttempts: 1,
+          ageBucket: "historical",
+        },
+      ],
+      interpretation: {
+        hasOnlyHistoricalFailures: true,
+        hasFreshFailures: false,
+        recommendedNextAction: "review_historical_failures",
+      },
+    });
+    expect(repositoryState.createdLogs).toHaveLength(1);
+    expect(repositoryState.createdLogs[0]?.metadataJson).toMatchObject({
+      checkId: "worker-failed-summary",
+      totalFailed: 5,
+      groupCount: 1,
+      hasFreshFailures: false,
+      hasOnlyHistoricalFailures: true,
+      recommendedNextAction: "review_historical_failures",
+    });
+    expect(Object.keys(repositoryState.createdLogs[0]?.metadataJson ?? {}).sort()).toEqual([
+      "checkId",
+      "diagnosticTraceId",
+      "durationMs",
+      "groupCount",
+      "hasFreshFailures",
+      "hasOnlyHistoricalFailures",
+      "recommendedNextAction",
+      "result",
+      "source",
+      "totalFailed",
+    ]);
+  });
+
+  it("worker-failed-summary interprets fresh or recent failed jobs as active investigation", async () => {
+    repositoryState.workerFailedGroups = [
+      {
+        type: "score_lead",
+        count: 2,
+        minAttempts: 1,
+        maxAttempts: 3,
+        oldestCreatedAt: new Date(Date.now() - 3 * 60 * 60 * 1_000),
+        latestUpdatedAt: new Date(Date.now() - 2 * 60 * 60 * 1_000),
+      },
+      {
+        type: "generate_ai_draft",
+        count: 1,
+        minAttempts: 2,
+        maxAttempts: 2,
+        oldestCreatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1_000),
+        latestUpdatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1_000),
+      },
+    ];
+
+    const response = await createOpsApp().request("/api/admin/ops/checks/worker-failed-summary", {
+      method: "POST",
+      headers: validSessionHeaders(),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.data).toMatchObject({
+      totalFailed: 3,
+      status: "degraded",
+      groups: [
+        { type: "score_lead", count: 2, ageBucket: "fresh" },
+        { type: "generate_ai_draft", count: 1, ageBucket: "recent" },
+      ],
+      interpretation: {
+        hasOnlyHistoricalFailures: false,
+        hasFreshFailures: true,
+        recommendedNextAction: "investigate_recent_failures",
+      },
+    });
+    expect(repositoryState.createdLogs).toHaveLength(1);
+    expect(repositoryState.createdLogs[0]?.metadataJson).toMatchObject({
+      totalFailed: 3,
+      groupCount: 2,
+      hasFreshFailures: true,
+      hasOnlyHistoricalFailures: false,
+      recommendedNextAction: "investigate_recent_failures",
+    });
+  });
+
+  it("worker-failed-summary response keeps unsafe worker fields out of the DTO", async () => {
+    repositoryState.workerFailedGroups = [
+      {
+        type: "score_lead",
+        count: 1,
+        minAttempts: 1,
+        maxAttempts: 1,
+        oldestCreatedAt: new Date(Date.now() - 9 * 24 * 60 * 60 * 1_000),
+        latestUpdatedAt: new Date(Date.now() - 9 * 24 * 60 * 60 * 1_000),
+        payload_json: { hidden: true },
+        id: "job-id",
+        locked_by: "forbidden-worker",
+        last_error: "raw error",
+        stack: "forbidden stack",
+      },
+    ];
+
+    const response = await createOpsApp().request("/api/admin/ops/checks/worker-failed-summary", {
+      method: "POST",
+      headers: validSessionHeaders(),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expectSafePayload(body);
+    expectSafePayload(repositoryState.createdLogs[0]?.metadataJson);
+  });
+
   it("recent checks returns mapped DTO and not raw metadata", async () => {
     repositoryState.recentLogs = [
       {
@@ -408,6 +614,22 @@ describe("admin ops routes", () => {
           workspaceId: "forbidden-workspace",
         },
         createdAt: new Date("2026-05-08T10:02:00.000Z"),
+      },
+      {
+        type: "admin_ops.check_succeeded",
+        metadataJson: {
+          source: "admin_ui",
+          checkId: "worker-failed-summary",
+          result: "succeeded",
+          diagnosticTraceId: secondDiagnosticTraceId,
+          durationMs: 12,
+          totalFailed: 5,
+          groupCount: 1,
+          hasFreshFailures: false,
+          hasOnlyHistoricalFailures: true,
+          recommendedNextAction: "review_historical_failures",
+        },
+        createdAt: new Date("2026-05-08T10:01:00.000Z"),
       },
     ];
 
@@ -427,6 +649,15 @@ describe("admin ops routes", () => {
         durationMs: 5000,
         errorCode: "OPS_CHECK_TIMEOUT",
         errorSummary: "Check timed out.",
+      },
+      {
+        checkId: "worker-failed-summary",
+        result: "succeeded",
+        diagnosticTraceId: secondDiagnosticTraceId,
+        runAt: "2026-05-08T10:01:00.000Z",
+        durationMs: 12,
+        errorCode: null,
+        errorSummary: null,
       },
     ]);
     expectSafePayload(body);
@@ -487,6 +718,7 @@ describe("admin ops service safety", () => {
     "google-sheets-status",
     "google-sheets-test",
     "worker-queue-summary",
+    "worker-failed-summary",
   ] as AdminOpsCheckId[])("implements allowed check %s", async (checkId) => {
     const run = await service().runCheck({
       workspaceId: testUser.workspaceId,

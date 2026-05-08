@@ -18,6 +18,7 @@ const checks = [
   ["google-sheets-status", "Google Sheets status"],
   ["google-sheets-test", "Google Sheets test"],
   ["worker-queue-summary", "Worker queue summary"],
+  ["worker-failed-summary", "Worker Failed Summary"],
 ] as const satisfies Array<readonly [OpsCheckId, string]>;
 
 function formatValue(value: string | number | boolean | null | undefined) {
@@ -143,6 +144,23 @@ function readBoolean(data: Record<string, unknown>, key: string) {
   return typeof value === "boolean" ? value : null;
 }
 
+function readRecord(data: Record<string, unknown>, key: string) {
+  const value = data[key];
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+function readWorkerFailedGroups(data: Record<string, unknown>) {
+  const value = data.groups;
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => (typeof item === "object" && item !== null ? (item as Record<string, unknown>) : null))
+    .filter((item): item is Record<string, unknown> => Boolean(item));
+}
+
 function safeDataRows(result: OpsRunCheckResponse) {
   const data = result.data;
 
@@ -181,12 +199,76 @@ function safeDataRows(result: OpsRunCheckResponse) {
     ] as const;
   }
 
+  if (result.checkId === "worker-failed-summary") {
+    const interpretation = readRecord(data, "interpretation");
+
+    return [
+      ["Total failed", readNumber(data, "totalFailed")],
+      ["Status", readString(data, "status")],
+      [
+        "Recommended next action",
+        interpretation ? readString(interpretation, "recommendedNextAction") : null,
+      ],
+      ["Has fresh failures", interpretation ? readBoolean(interpretation, "hasFreshFailures") : null],
+      [
+        "Only historical failures",
+        interpretation ? readBoolean(interpretation, "hasOnlyHistoricalFailures") : null,
+      ],
+    ] as const;
+  }
+
   return [
     ["Pending", readNumber(data, "pending")],
     ["Running", readNumber(data, "running")],
     ["Failed", readNumber(data, "failed")],
     ["Oldest pending minutes", readNumber(data, "oldestPendingMinutes")],
   ] as const;
+}
+
+function WorkerFailedGroups({ result }: { result: OpsRunCheckResponse }) {
+  if (result.checkId !== "worker-failed-summary") {
+    return null;
+  }
+
+  const groups = readWorkerFailedGroups(result.data);
+
+  if (groups.length === 0) {
+    return <p className="mt-3 text-sm text-slate-600">No failed worker job groups.</p>;
+  }
+
+  return (
+    <div className="mt-4 grid gap-3">
+      {groups.map((group, index) => {
+        const type = readString(group, "type") ?? `group-${index + 1}`;
+
+        return (
+          <div className="rounded-md border border-line bg-white p-3" key={`${type}-${index}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="text-sm font-semibold text-slate-800">{type}</h4>
+              <span className="rounded-full border border-line bg-field px-2 py-1 text-xs font-semibold uppercase text-slate-600">
+                {formatValue(readString(group, "ageBucket"))}
+              </span>
+            </div>
+            <dl className="mt-3 grid gap-2 text-sm md:grid-cols-3">
+              {[
+                ["Count", readNumber(group, "count")],
+                ["Attempts", `${formatValue(readNumber(group, "minAttempts"))}-${formatValue(readNumber(group, "maxAttempts"))}`],
+                ["Oldest", formatTime(readString(group, "oldestCreatedAt"))],
+                ["Latest", formatTime(readString(group, "latestUpdatedAt"))],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-slate-500">{label}</dt>
+                  <dd className="mt-1 break-words font-medium text-slate-800">
+                    {formatValue(value)}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function LastResult({ result }: { result: OpsRunCheckResponse }) {
@@ -225,6 +307,7 @@ function LastResult({ result }: { result: OpsRunCheckResponse }) {
             </div>
           ))}
         </dl>
+        <WorkerFailedGroups result={result} />
       </div>
     </section>
   );
