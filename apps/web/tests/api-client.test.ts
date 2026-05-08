@@ -168,6 +168,30 @@ const opsRunCheckResponse = {
   },
 };
 
+const opsWorkerFailedSummaryResponse = {
+  success: true,
+  data: {
+    checkId: "worker-failed-summary",
+    result: "succeeded",
+    diagnosticTraceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    runAt: "2026-05-08T10:06:00.000Z",
+    durationMs: 6,
+    errorCode: null,
+    errorSummary: null,
+    data: {
+      totalFailed: 0,
+      status: "ok",
+      groups: [],
+      interpretation: {
+        summary: "No failed worker jobs detected.",
+        hasOnlyHistoricalFailures: false,
+        hasFreshFailures: false,
+        recommendedNextAction: "none",
+      },
+    },
+  },
+};
+
 const opsRecentChecksResponse = {
   success: true,
   data: {
@@ -408,6 +432,39 @@ describe("api client", () => {
     expect(JSON.stringify(init)).not.toContain("workspaceId");
     expect(JSON.stringify(init)).not.toContain("Authorization");
     expect(JSON.stringify(init)).not.toContain("Bearer");
+  });
+
+  it("calls the worker failed summary Ops check endpoint", async () => {
+    const request = vi.fn(() => mockResponse(opsWorkerFailedSummaryResponse));
+    vi.stubGlobal("fetch", request);
+
+    await expect(runOpsCheck("worker-failed-summary")).resolves.toEqual({
+      checkId: "worker-failed-summary",
+      result: "succeeded",
+      diagnosticTraceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      runAt: "2026-05-08T10:06:00.000Z",
+      durationMs: 6,
+      errorCode: null,
+      errorSummary: null,
+      data: {
+        totalFailed: 0,
+        status: "ok",
+        groups: [],
+        interpretation: {
+          summary: "No failed worker jobs detected.",
+          hasOnlyHistoricalFailures: false,
+          hasFreshFailures: false,
+          recommendedNextAction: "none",
+        },
+      },
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/admin/ops/checks/worker-failed-summary",
+      expect.objectContaining({
+        credentials: "include",
+        method: "POST",
+      }),
+    );
   });
 
   it("calls the recent Ops checks endpoint with bounded query params", async () => {

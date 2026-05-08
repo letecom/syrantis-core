@@ -6,6 +6,7 @@ export const adminOpsCheckIdSchema = z.enum([
   "google-sheets-status",
   "google-sheets-test",
   "worker-queue-summary",
+  "worker-failed-summary",
 ]);
 
 export const adminOpsResultSchema = z.enum(["succeeded", "failed", "skipped"]);
@@ -30,6 +31,32 @@ const workerQueueSummarySchema = z.object({
   running: z.number().int().min(0).nullable(),
   failed: z.number().int().min(0).nullable(),
   oldestPendingMinutes: z.number().int().min(0).nullable(),
+});
+
+export const adminOpsWorkerFailedSummaryDataSchema = z.object({
+  totalFailed: z.number().int().min(0),
+  status: z.enum(["ok", "degraded"]),
+  groups: z.array(
+    z.object({
+      type: z.string(),
+      count: z.number().int().min(0),
+      minAttempts: z.number().int().min(0).nullable(),
+      maxAttempts: z.number().int().min(0).nullable(),
+      oldestCreatedAt: isoStringSchema.nullable(),
+      latestUpdatedAt: isoStringSchema.nullable(),
+      ageBucket: z.enum(["fresh", "recent", "historical", "unknown"]),
+    }),
+  ),
+  interpretation: z.object({
+    summary: z.string(),
+    hasOnlyHistoricalFailures: z.boolean(),
+    hasFreshFailures: z.boolean(),
+    recommendedNextAction: z.enum([
+      "none",
+      "review_historical_failures",
+      "investigate_recent_failures",
+    ]),
+  }),
 });
 
 export const adminOpsHealthResponseSchema = z.object({
@@ -103,3 +130,6 @@ export type AdminOpsResult = z.infer<typeof adminOpsResultSchema>;
 export type AdminOpsHealthResponse = z.infer<typeof adminOpsHealthResponseSchema>;
 export type AdminOpsRunCheckResponse = z.infer<typeof adminOpsRunCheckResponseSchema>;
 export type AdminOpsRecentChecksResponse = z.infer<typeof adminOpsRecentChecksResponseSchema>;
+export type AdminOpsWorkerFailedSummaryData = z.infer<
+  typeof adminOpsWorkerFailedSummaryDataSchema
+>;

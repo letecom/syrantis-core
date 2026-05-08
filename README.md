@@ -41,7 +41,7 @@ Resend webhook delivery proof when real provider is enabled
         ↓
 Google Sheets push-back MVP + diagnostics
         ↓
-022E Manual Pushback Replay / 023C Setup Verification / 023E Ops Health
+022E Manual Pushback Replay / 023C Setup Verification / 023E Ops Health / 023H Worker Failed Review
         ↓
 023F API systemd supervisor foundation
         ↓
@@ -77,7 +77,7 @@ lead received
   → Google Sheets push-back MVP + diagnostics
   → 022E Manual Pushback Replay
   → Google Sheets setup verification in admin UI
-  → bounded admin ops health checks
+  → bounded admin ops health checks and safe worker failed-job review
 ```
 
 No CRM clone.
@@ -188,11 +188,14 @@ Current baseline through 023F:
 - admin ops uses `GET /api/admin/ops/health`, `POST /api/admin/ops/checks/:checkId`,
   and `GET /api/admin/ops/checks/recent`
 - admin ops check IDs are limited to `api-health`, `db-health`, `google-sheets-status`,
-  `google-sheets-test`, and `worker-queue-summary`
+  `google-sheets-test`, `worker-queue-summary`, and `worker-failed-summary`
+- Ops Panel includes worker queue summary plus a safe worker failed summary for aggregate failed
+  job review by type, attempt range, oldest/latest timestamps, and historical/recent interpretation
 - admin ops does not provide restart, shell execution, arbitrary SQL, logs, migrations, env edits,
   or dashboard charts
 - no migration was added for 023E
 - no new table was added for 023E
+- no migration or new table was added for 023H
 - 023F API Process Supervisor Foundation exists
 - production API runtime should be supervised by systemd through `ops/systemd/syrantis-api.service`
 - the systemd transition is human-only and documented in `docs/runbooks/api-systemd-supervisor.md`
@@ -1212,10 +1215,12 @@ Not implemented yet.
 | 023C     | Google Sheets Setup Verification Screen               | done   |
 | 023E     | Admin Ops Health & Test Panel                         | done   |
 | 023F     | API Process Supervisor Foundation                     | done   |
+| 023H     | Worker Queue Failed Job Review                        | done   |
 
 Near-term candidates:
 
-- 023H Worker Queue Cleanup / Failed Job Review
+- 023I Inbound Email Test Intake
+- 023J E2E Lead Automation Loop
 - 023G Admin Controlled API Restart, optional only if a restart UI is needed later
 
 ## Current Execution Focus
@@ -1233,22 +1238,27 @@ Current focus:
 - 023C Google Sheets Setup Verification is production-validated.
 - 023E Admin Ops Health & Test Panel is completed.
 - 023F API Process Supervisor Foundation is implemented locally and ready for human review.
+- 023H Worker Queue Failed Job Review is implemented locally and ready for human review.
 - 023A = see.
 - 023B = act.
 - 023D = expose safely.
 - 023C = configure.
 - 023E = diagnose safely.
 - 023F = supervise API runtime.
-- Next recommended step after 023F is 023H Worker Queue Cleanup / Failed Job Review.
+- 023H = interpret worker failed-job debt safely.
+- Next recommended step after 023H is 023I Inbound Email Test Intake or 023J E2E Lead Automation
+  Loop.
 - Reason: operators can now see pushback status, trigger manual replay, verify active Google
-  Sheets setup, run bounded ops checks, and move the API from manual startup to a reproducible
-  systemd service without exposing secrets or adding restart/shell/log controls.
+  Sheets setup, run bounded ops checks, distinguish historical worker failures from active worker
+  failures, and move the API from manual startup to a reproducible systemd service without exposing
+  secrets or adding restart/shell/log controls.
 
 Explicit next sequence:
 
 - human review for 023F
 - human-approved manual systemd transition for the API only
-- 023H Worker Queue Cleanup / Failed Job Review
+- human review for 023H
+- 023I Inbound Email Test Intake or 023J E2E Lead Automation Loop
 - 023G Admin Controlled API Restart only if a restart UI is wanted later
 
 ## Development Workflow
@@ -2012,6 +2022,7 @@ Later connector candidates:
 - push-back status read models exist for email sends and drafts
 - Ops Health is bounded diagnostics only; it does not restart services, run shell commands, run
   arbitrary SQL, read logs, or run migrations
+- Ops Panel includes safe worker queue summary and worker failed summary aggregates only
 - no client onboarding UI
 - no OAuth Google integration
 - no Dolibarr connector
@@ -2019,7 +2030,7 @@ Later connector candidates:
 - no WhatsApp integration
 - no Scout acquisition engine yet
 - API systemd supervisor foundation exists; human production transition and validation remain required
-- worker queue cleanup / failed job review remains a recommended next ops issue
+- worker failed-job review exists as safe aggregates only; retry/delete cleanup remains unapproved
 
 ## Future: Syrantis Scout / Acquisition Roadmap
 

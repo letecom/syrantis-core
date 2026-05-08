@@ -96,6 +96,7 @@ const opsHealthUrl = "/api/admin/ops/health";
 const opsRecentUrl = "/api/admin/ops/checks/recent?limit=20";
 const opsDbHealthUrl = "/api/admin/ops/checks/db-health";
 const opsGoogleSheetsTestUrl = "/api/admin/ops/checks/google-sheets-test";
+const opsWorkerFailedUrl = "/api/admin/ops/checks/worker-failed-summary";
 
 const replayResponse = {
   success: true,
@@ -248,6 +249,47 @@ const opsGoogleSheetsSkipped = {
       cooldownMinutes: 5,
       rawGoogle: "forbidden-ops-raw-google",
       private_key: "forbidden-ops-private-key",
+    },
+  },
+};
+
+const opsWorkerFailedSummary = {
+  success: true,
+  data: {
+    checkId: "worker-failed-summary",
+    result: "succeeded",
+    diagnosticTraceId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    runAt: "2026-05-08T10:04:00.000Z",
+    durationMs: 11,
+    errorCode: null,
+    errorSummary: null,
+    data: {
+      totalFailed: 5,
+      status: "degraded",
+      groups: [
+        {
+          type: "score_lead",
+          count: 5,
+          minAttempts: 1,
+          maxAttempts: 1,
+          oldestCreatedAt: "2026-05-02T10:00:00.000Z",
+          latestUpdatedAt: "2026-05-02T10:05:00.000Z",
+          ageBucket: "historical",
+          payload_json: { hidden: true },
+          id: "job-id",
+          locked_by: "forbidden-worker",
+          stack: "forbidden stack",
+        },
+      ],
+      interpretation: {
+        summary: "Only historical failed worker jobs detected.",
+        hasOnlyHistoricalFailures: true,
+        hasFreshFailures: false,
+        recommendedNextAction: "review_historical_failures",
+      },
+      payload_json: { hidden: true },
+      id: "job-id",
+      stack: "forbidden stack",
     },
   },
 };
@@ -939,6 +981,7 @@ describe("admin app", () => {
     expect(screen.getByRole("button", { name: "Google Sheets status" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Google Sheets test" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Worker queue summary" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Worker Failed Summary" })).toBeInTheDocument();
     const recent = await screen.findByLabelText("Recent checks");
     expect(within(recent).getByText("api-health")).toBeInTheDocument();
     expect(within(recent).getByText("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")).toBeInTheDocument();
@@ -965,6 +1008,34 @@ describe("admin app", () => {
     expect(within(result).getByText("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")).toBeInTheDocument();
     expect(within(result).getAllByText("8").length).toBeGreaterThan(0);
     expect(screen.queryByText("forbidden-run-workspace")).not.toBeInTheDocument();
+  });
+
+  it("Ops worker failed summary calls api-client POST and renders safe aggregates", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => {
+      if (url === opsWorkerFailedUrl) {
+        return mockJson(opsWorkerFailedSummary);
+      }
+
+      return opsDefaultResponse(url);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/ops");
+    await user.click(await screen.findByRole("button", { name: "Worker Failed Summary" }));
+
+    const result = await screen.findByLabelText("Last result");
+    expect(opsCheckPostCalls(request, opsWorkerFailedUrl)).toHaveLength(1);
+    expect(within(result).getByText("worker-failed-summary")).toBeInTheDocument();
+    expect(within(result).getByText("Total failed")).toBeInTheDocument();
+    expect(within(result).getAllByText("degraded").length).toBeGreaterThan(0);
+    expect(within(result).getByText("review_historical_failures")).toBeInTheDocument();
+    expect(within(result).getByText("score_lead")).toBeInTheDocument();
+    expect(within(result).getAllByText("5").length).toBeGreaterThan(0);
+    expect(screen.queryByText("payload_json")).not.toBeInTheDocument();
+    expect(screen.queryByText("job-id")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden stack")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-worker")).not.toBeInTheDocument();
   });
 
   it("Ops check button locks while running and prevents double submit", async () => {
@@ -1043,6 +1114,9 @@ describe("admin app", () => {
       "forbidden-run-workspace",
       "forbidden-ops-raw-google",
       "forbidden-ops-private-key",
+      "job-id",
+      "forbidden stack",
+      "forbidden-worker",
       "metadata_json",
       "payload_json",
     ]) {
