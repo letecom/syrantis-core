@@ -8,7 +8,7 @@ It is not a chatbot.
 
 It is not an uncontrolled agent system.
 
-It is a controlled action layer above CRMs, forms, sheets, and business tools. The client CRM remains the commercial source of truth. Syrantis handles intake, canonical lead context, AI scoring, AI draft generation, AI audit read model, approval readiness, human approval, send readiness, request-send, optional cancel-send while pending, worker execution, send status, send attempts, delivery proof, DB proof, Google Sheets push-back, push-back diagnostics, and manual push-back replay.
+It is a controlled action layer above CRMs, forms, sheets, and business tools. The client CRM remains the commercial source of truth. Syrantis handles intake, admin-only inbound email test intake, canonical lead context, AI scoring, AI draft generation, AI audit read model, approval readiness, human approval, send readiness, request-send, optional cancel-send while pending, worker execution, send status, send attempts, delivery proof, DB proof, Google Sheets push-back, push-back diagnostics, and manual push-back replay.
 
 ```txt
 Client CRM / form / sheet
@@ -45,6 +45,8 @@ Google Sheets push-back MVP + diagnostics
         ↓
 023F API systemd supervisor foundation
         ↓
+023I admin-only inbound email test harness
+        ↓
 Future CRM connector hardening / additional targets
 ```
 
@@ -78,6 +80,7 @@ lead received
   → 022E Manual Pushback Replay
   → Google Sheets setup verification in admin UI
   → bounded admin ops health checks and safe worker failed-job review
+  → admin-only inbound email test harness
 ```
 
 No CRM clone.
@@ -201,6 +204,18 @@ Current baseline through 023F:
 - the systemd transition is human-only and documented in `docs/runbooks/api-systemd-supervisor.md`
 - `nohup` remains documented only as manual rollback
 - worker supervision remains explicitly out of scope for 023F
+- 023I Inbound Email Test Intake exists at `POST /api/admin/intake/test-email`
+- 023I is an admin/founder-only, session-cookie, tenant-guarded test harness
+- 023I creates a synthetic lead, enqueues one pending `score_lead` job, writes one safe
+  `inbound_test.created` activity log, and returns a safe diagnostic DTO
+- 023I stores the database lead with existing `source=email` and marks the test source in
+  `normalized_json.source=inbound_email_test` because no migration/schema change is allowed
+- 023I does not add UI, public intake, API-key auth, Resend inbound webhook, MIME parsing, IMAP,
+  Gmail/Outlook OAuth, outbound email, auto-reply, worker restart, retry/delete/archive actions,
+  Caddy, Docker, systemd, migration, or production env changes
+- 023I production validation is not yet claimed; use `docs/runbooks/inbound-email-test-intake.md`
+  for the operator validation
+- public/API-key inbound intake remains future 023J if 023I is validated
 - no global dashboard exists
 - no `email_sends` list exists
 - frontend performs no provider calls
