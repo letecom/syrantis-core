@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { activityLogRoutes } from "./activity-logs.js";
+import { adminIntakeRoutes } from "./admin-intake.js";
 import { adminOpsRoutes } from "./admin-ops.js";
 import { approvalRoutes } from "./approvals.js";
 import { authRoutes } from "./auth.js";
@@ -20,6 +21,7 @@ export const routes = new Hono();
 routes.route("/", healthRoutes);
 routes.route("/api", healthRoutes);
 routes.route("/api/activity-logs", activityLogRoutes);
+routes.route("/api/admin/intake", adminIntakeRoutes);
 routes.route("/api/admin/ops", adminOpsRoutes);
 routes.route("/api/approvals", approvalRoutes);
 routes.route("/api/contacts", contactRoutes);
