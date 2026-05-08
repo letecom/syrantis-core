@@ -43,6 +43,8 @@ Google Sheets push-back MVP + diagnostics
         ↓
 022E Manual Pushback Replay / 023C Setup Verification / 023E Ops Health
         ↓
+023F API systemd supervisor foundation
+        ↓
 Future CRM connector hardening / additional targets
 ```
 
@@ -116,7 +118,27 @@ Rules:
 - agents never merge
 - agents never edit prod env
 
-Current baseline through 023E:
+## Production Runtime
+
+The production API should run under systemd using
+`ops/systemd/syrantis-api.service`, copied manually by a human operator to:
+
+```txt
+/etc/systemd/system/syrantis-api.service
+```
+
+The API continues to listen on `127.0.0.1:8787`, with Caddy proxying
+`api.syrantis.fr` and `admin.syrantis.fr` to that API. The production env file
+remains external to Git at `/opt/syrantis/env/core.prod.env`.
+
+Runbook:
+
+- `docs/runbooks/api-systemd-supervisor.md`
+
+Manual `nohup` startup is kept only as a human rollback path, not as the normal
+production runtime mode.
+
+Current baseline through 023F:
 
 - production default `SEND_EMAIL_PROVIDER=internal`
 - Resend provider exists only behind explicit env config
@@ -171,6 +193,11 @@ Current baseline through 023E:
   or dashboard charts
 - no migration was added for 023E
 - no new table was added for 023E
+- 023F API Process Supervisor Foundation exists
+- production API runtime should be supervised by systemd through `ops/systemd/syrantis-api.service`
+- the systemd transition is human-only and documented in `docs/runbooks/api-systemd-supervisor.md`
+- `nohup` remains documented only as manual rollback
+- worker supervision remains explicitly out of scope for 023F
 - no global dashboard exists
 - no `email_sends` list exists
 - frontend performs no provider calls
@@ -194,9 +221,9 @@ Current baseline through 023E:
   - Google Sheets push-back to `Pushback_Log!A:Q` succeeded after delivery proof
   - Full test loop produced a row in the Sheet
 
-Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, safe push-back diagnostics, manual push-back replay, push-back status read models, the minimal internal admin console foundation, the first bounded admin action panel, the 023D admin static deploy, the 023C Google Sheets setup verification screen, and the 023E bounded admin ops health panel.
+Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, safe push-back diagnostics, manual push-back replay, push-back status read models, the minimal internal admin console foundation, the first bounded admin action panel, the 023D admin static deploy, the 023C Google Sheets setup verification screen, the 023E bounded admin ops health panel, and the 023F API systemd supervisor foundation.
 
-Next recommended step after 023E implementation: 023F API Process Supervisor Foundation.
+Next recommended step after 023F implementation: 023H Worker Queue Cleanup / Failed Job Review. 023G Admin Controlled API Restart remains optional only if a restart UI is wanted later.
 
 Targeted API read-model tests after shared contract edits should run after:
 
@@ -1184,10 +1211,12 @@ Not implemented yet.
 | 023D     | Admin Static Deploy                                   | done   |
 | 023C     | Google Sheets Setup Verification Screen               | done   |
 | 023E     | Admin Ops Health & Test Panel                         | done   |
+| 023F     | API Process Supervisor Foundation                     | done   |
 
 Near-term candidates:
 
-- 023F API Process Supervisor Foundation
+- 023H Worker Queue Cleanup / Failed Job Review
+- 023G Admin Controlled API Restart, optional only if a restart UI is needed later
 
 ## Current Execution Focus
 
@@ -1202,22 +1231,25 @@ Current focus:
 - 023D Admin Static Deploy is production-validated.
 - `admin.syrantis.fr` is publicly browser-validated.
 - 023C Google Sheets Setup Verification is production-validated.
-- 023E Admin Ops Health & Test Panel is implemented locally and ready for human review.
+- 023E Admin Ops Health & Test Panel is completed.
+- 023F API Process Supervisor Foundation is implemented locally and ready for human review.
 - 023A = see.
 - 023B = act.
 - 023D = expose safely.
 - 023C = configure.
 - 023E = diagnose safely.
-- Next recommended step after 023E is 023F API Process Supervisor Foundation.
+- 023F = supervise API runtime.
+- Next recommended step after 023F is 023H Worker Queue Cleanup / Failed Job Review.
 - Reason: operators can now see pushback status, trigger manual replay, verify active Google
-  Sheets setup, and run bounded ops checks without exposing secrets or adding restart/shell/log
-  controls.
+  Sheets setup, run bounded ops checks, and move the API from manual startup to a reproducible
+  systemd service without exposing secrets or adding restart/shell/log controls.
 
 Explicit next sequence:
 
-- human review for 023E
-- human-approved production deploy/validation for the Ops Health panel
-- 023F API Process Supervisor Foundation
+- human review for 023F
+- human-approved manual systemd transition for the API only
+- 023H Worker Queue Cleanup / Failed Job Review
+- 023G Admin Controlled API Restart only if a restart UI is wanted later
 
 ## Development Workflow
 
@@ -1938,26 +1970,27 @@ Near-term:
 7. 023C Google Sheets Setup Verification Screen
 8. 023E Admin Ops Health & Test Panel
 9. 023F API Process Supervisor Foundation
+10. 023H Worker Queue Cleanup / Failed Job Review
 
 Acquisition:
 
-10. 024A Scout Doctrine & Data Model
-11. 024B Local Prospect Import MVP
-12. 024C Weakness Scoring Engine
-13. 024D AI Outreach Draft Generator
-14. 024E Outreach Compliance Guard
+11. 024A Scout Doctrine & Data Model
+12. 024B Local Prospect Import MVP
+13. 024C Weakness Scoring Engine
+14. 024D AI Outreach Draft Generator
+15. 024E Outreach Compliance Guard
 
 Channels:
 
-15. 025A WhatsApp Business Sandbox Research
-16. 025B WhatsApp Inbound Capture MVP
-17. 025C WhatsApp Opt-in Follow-up
+16. 025A WhatsApp Business Sandbox Research
+17. 025B WhatsApp Inbound Capture MVP
+18. 025C WhatsApp Opt-in Follow-up
 
 CRM:
 
-18. 026A Dolibarr Sandbox Setup
-19. 026B Dolibarr Push-back MVP
-20. 026C Dolibarr Diagnostics
+19. 026A Dolibarr Sandbox Setup
+20. 026B Dolibarr Push-back MVP
+21. 026C Dolibarr Diagnostics
 
 Not implemented:
 
@@ -1985,7 +2018,8 @@ Later connector candidates:
 - no generic CRM adapter
 - no WhatsApp integration
 - no Scout acquisition engine yet
-- API is currently manually started in production, future systemd/ops hardening is needed if not already formalized
+- API systemd supervisor foundation exists; human production transition and validation remain required
+- worker queue cleanup / failed job review remains a recommended next ops issue
 
 ## Future: Syrantis Scout / Acquisition Roadmap
 
