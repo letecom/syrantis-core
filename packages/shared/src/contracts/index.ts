@@ -1,4 +1,5 @@
 export * from "./activity-logs.js";
+export * from "./admin-ops.js";
 export * from "./ai-scoring.js";
 export * from "./approvals.js";
 export * from "./auth.js";
