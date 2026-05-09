@@ -4,10 +4,9 @@ import { backgroundJobs, leads } from "@syrantis/db";
 import type { AdminIntakeTestEmailRequest } from "@syrantis/shared";
 
 import { withWorkspaceDb, type WorkspaceDbTransaction } from "../lib/db.js";
+import { hasText, inboundEmailTestSource, safeStringLength } from "../services/intake-shared.js";
 import { createActivityLog } from "./activity-logs.js";
 import { enqueueScoreLeadJob, type BackgroundJobRow } from "./background-jobs.js";
-
-const intakeSource = "inbound_email_test";
 
 export type AdminIntakeCreatedLead = Pick<typeof leads.$inferSelect, "id" | "createdAt">;
 
@@ -23,14 +22,6 @@ export type AdminIntakeTestEmailRepositoryResult = {
   lead: AdminIntakeCreatedLead;
   job: BackgroundJobRow;
 };
-
-function safeStringLength(value: string | undefined): number {
-  return value?.length ?? 0;
-}
-
-function hasText(value: string | undefined): boolean {
-  return Boolean(value && value.length > 0);
-}
 
 function summarizeRawContent(data: AdminIntakeTestEmailRequest): string {
   const parts = [
@@ -68,8 +59,8 @@ export async function createAdminIntakeTestEmail(
         status: "new",
         rawContent: summarizeRawContent(input.data),
         normalizedJson: {
-          source: intakeSource,
-          origin: intakeSource,
+          source: inboundEmailTestSource,
+          origin: inboundEmailTestSource,
           testLabel: input.data.testLabel ?? null,
           diagnosticTraceId: input.diagnosticTraceId,
           hasBody,
@@ -101,7 +92,7 @@ export async function createAdminIntakeTestEmail(
       entityType: "lead",
       entityId: lead.id,
       metadataJson: {
-        source: intakeSource,
+        source: inboundEmailTestSource,
         testLabel: input.data.testLabel ?? null,
         diagnosticTraceId: input.diagnosticTraceId,
         hasBody,

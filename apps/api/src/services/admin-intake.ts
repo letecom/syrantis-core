@@ -11,6 +11,7 @@ import {
   type AdminIntakeTestEmailRepositoryInput,
   type AdminIntakeTestEmailRepositoryResult,
 } from "../repositories/admin-intake.js";
+import { buildPendingScoreLeadJobDto, hasText } from "./intake-shared.js";
 
 export type AdminIntakeTestEmailResult = AdminIntakeTestEmailResponse["data"];
 
@@ -29,10 +30,6 @@ export type AdminIntakeRepository = {
 const productionRepository: AdminIntakeRepository = {
   createTestEmail: createAdminIntakeTestEmail,
 };
-
-function hasText(value: string | undefined): boolean {
-  return Boolean(value && value.length > 0);
-}
 
 export function createProductionAdminIntakeService(
   repository: AdminIntakeRepository = productionRepository,
@@ -60,12 +57,7 @@ export function createProductionAdminIntakeService(
             contactNamePresent: hasText(input.data.contactName),
             createdAt: created.lead.createdAt.toISOString(),
           },
-          scoringJob: {
-            id: created.job.id ?? null,
-            status: "pending",
-            jobType: "score_lead",
-            enqueuedAt: created.job.createdAt.toISOString(),
-          },
+          scoringJob: buildPendingScoreLeadJobDto(created.job),
           workerBaseline: {
             failedJobsBefore: created.failedJobsBefore,
           },

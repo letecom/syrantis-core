@@ -35,6 +35,7 @@ export const ActivityLogActionSchema = z.enum([
   "lead.updated",
   "lead.score_requested",
   "inbound_test.created",
+  "public_inbound_message.created",
   "lead.scored",
   "ai_run.started",
   "ai_run.completed",

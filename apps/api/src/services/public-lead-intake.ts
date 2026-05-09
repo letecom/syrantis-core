@@ -1,14 +1,10 @@
-import { createHash } from "node:crypto";
-
 import type { PublicLeadIntakeInput } from "@syrantis/shared";
 
 import {
   createPublicLeadIntake,
-  findActiveWorkspaceApiKeyByHash,
   type PublicLeadIntakeResult
 } from "../repositories/public-lead-intake.js";
-
-const API_KEY_PREFIX = "syr_live_";
+import { authenticateWorkspaceApiKey, sha256 } from "./public-api-key-auth.js";
 
 export type PublicLeadIntakeServiceResult =
   | { result: "created"; leadId: string }
@@ -26,25 +22,6 @@ export type PublicLeadIntakeService = {
   }): Promise<PublicLeadIntakeServiceResult>;
 };
 
-function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
-}
-
-function extractPlaintextApiKey(authorizationHeader?: string | null): string | null {
-  if (!authorizationHeader) {
-    return null;
-  }
-
-  const match = /^Bearer\s+(.+)$/.exec(authorizationHeader.trim());
-  const plaintextApiKey = match?.[1] ?? null;
-
-  if (!plaintextApiKey || !plaintextApiKey.startsWith(API_KEY_PREFIX)) {
-    return null;
-  }
-
-  return plaintextApiKey;
-}
-
 function mapRepositoryResult(result: PublicLeadIntakeResult): PublicLeadIntakeServiceResult {
   return result;
 }
@@ -52,14 +29,7 @@ function mapRepositoryResult(result: PublicLeadIntakeResult): PublicLeadIntakeSe
 export function createProductionPublicLeadIntakeService(): PublicLeadIntakeService {
   return {
     async receivePublicLead(input): Promise<PublicLeadIntakeServiceResult> {
-      const plaintextApiKey = extractPlaintextApiKey(input.authorizationHeader);
-
-      if (!plaintextApiKey) {
-        return { result: "unauthorized" };
-      }
-
-      const keyHash = sha256(plaintextApiKey);
-      const apiKey = await findActiveWorkspaceApiKeyByHash(keyHash);
+      const apiKey = await authenticateWorkspaceApiKey(input.authorizationHeader);
 
       if (!apiKey) {
         return { result: "unauthorized" };
