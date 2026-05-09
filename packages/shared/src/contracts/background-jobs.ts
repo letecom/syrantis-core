@@ -16,6 +16,8 @@ export const SendEmailJobPayloadSchema = z.object({
 
 export const ScoreLeadJobPayloadSchema = z.object({
   leadId: z.string().uuid(),
+  diagnosticTraceId: z.string().uuid().optional(),
+  source: z.string().max(100).optional(),
 });
 
 export const GenerateAiDraftJobPayloadSchema = z.object({

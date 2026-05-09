@@ -8,7 +8,7 @@ It is not a chatbot.
 
 It is not an uncontrolled agent system.
 
-It is a controlled action layer above CRMs, forms, sheets, and business tools. The client CRM remains the commercial source of truth. Syrantis handles intake, admin-only inbound email test intake, canonical lead context, AI scoring, AI draft generation, AI audit read model, approval readiness, human approval, send readiness, request-send, optional cancel-send while pending, worker execution, send status, send attempts, delivery proof, DB proof, Google Sheets push-back, push-back diagnostics, and manual push-back replay.
+It is a controlled action layer above CRMs, forms, sheets, and business tools. The client CRM remains the commercial source of truth. Syrantis handles intake, admin-only inbound email test intake, public API-key inbound message intake, canonical lead context, AI scoring, AI draft generation, AI audit read model, approval readiness, human approval, send readiness, request-send, optional cancel-send while pending, worker execution, send status, send attempts, delivery proof, DB proof, Google Sheets push-back, push-back diagnostics, and manual push-back replay.
 
 ```txt
 Client CRM / form / sheet
@@ -47,6 +47,8 @@ Google Sheets push-back MVP + diagnostics
         ↓
 023I admin-only inbound email test harness
         ↓
+023J public API-key inbound message intake
+        ↓
 Future CRM connector hardening / additional targets
 ```
 
@@ -81,6 +83,7 @@ lead received
   → Google Sheets setup verification in admin UI
   → bounded admin ops health checks and safe worker failed-job review
   → admin-only inbound email test harness
+  → public API-key inbound message intake
 ```
 
 No CRM clone.
@@ -215,7 +218,19 @@ Current baseline through 023F:
   Caddy, Docker, systemd, migration, or production env changes
 - 023I production validation is not yet claimed; use `docs/runbooks/inbound-email-test-intake.md`
   for the operator validation
-- public/API-key inbound intake remains future 023J if 023I is validated
+- 023J Public API-Key Inbound Message Intake exists at `POST /api/intake/inbound-message`
+- 023J requires `Authorization: Bearer <workspace_api_key>` and resolves `workspaceId` only from
+  the existing workspace API key lookup primitive
+- 023J creates a public inbound message lead marker, enqueues one pending `score_lead` job, writes
+  one safe `public_inbound_message.created` activity log, and returns a safe diagnostic DTO
+- 023J stores the database lead with existing `source=email` and marks the public intake source in
+  `normalized_json.source=public_inbound_message` because no migration/schema change is allowed
+- 023J supports best-effort 24-hour idempotency via `externalId`
+- 023J does not add UI, MIME parsing, Resend inbound, Gmail/Outlook OAuth, IMAP, attachments, HTML
+  body, outbound email, auto-reply, worker runtime changes, Caddy, Docker, systemd, migration, or
+  production env changes
+- 023J production validation is not yet claimed; use `docs/runbooks/public-inbound-message-intake.md`
+  for operator validation
 - no global dashboard exists
 - no `email_sends` list exists
 - frontend performs no provider calls
@@ -1231,11 +1246,12 @@ Not implemented yet.
 | 023E     | Admin Ops Health & Test Panel                         | done   |
 | 023F     | API Process Supervisor Foundation                     | done   |
 | 023H     | Worker Queue Failed Job Review                        | done   |
+| 023I     | Inbound Email Test Intake                             | done   |
+| 023J     | Public API-Key Inbound Message Intake                 | done   |
 
 Near-term candidates:
 
-- 023I Inbound Email Test Intake
-- 023J E2E Lead Automation Loop
+- Future E2E lead automation loop
 - 023G Admin Controlled API Restart, optional only if a restart UI is needed later
 
 ## Current Execution Focus

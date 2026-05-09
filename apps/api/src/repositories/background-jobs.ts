@@ -21,6 +21,8 @@ export type EnqueueSendEmailJobInput = {
 export type EnqueueScoreLeadJobInput = {
   workspaceId: string;
   leadId: string;
+  diagnosticTraceId?: string;
+  source?: string;
   runAfter?: Date;
 };
 
@@ -143,6 +145,8 @@ export async function enqueueScoreLeadJob(
 ): Promise<BackgroundJobRow> {
   const payload: ScoreLeadJobPayload = {
     leadId: input.leadId,
+    ...(input.diagnosticTraceId !== undefined ? { diagnosticTraceId: input.diagnosticTraceId } : {}),
+    ...(input.source !== undefined ? { source: input.source } : {}),
   };
 
   const [job] = await tx

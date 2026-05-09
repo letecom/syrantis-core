@@ -10,6 +10,7 @@ export * from "./drafts.js";
 export * from "./email-sends.js";
 export * from "./errors.js";
 export * from "./health.js";
+export * from "./inbound-message.js";
 export * from "./google-sheets-setup.js";
 export * from "./integrations.js";
 export * from "./leads.js";
