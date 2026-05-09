@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  WorkspaceApiKeyCreateSuccessSchema,
+  WorkspaceApiKeyListResponseSchema,
+  WorkspaceApiKeySuccessSchema,
+} from "@syrantis/shared";
 
 const { stringify: encodeJsonBody } = JSON;
 
@@ -207,6 +212,10 @@ export type OpsCheckId = z.infer<typeof opsCheckIdSchema>;
 export type OpsHealthResponse = z.infer<typeof opsHealthSuccessSchema>["data"];
 export type OpsRunCheckResponse = z.infer<typeof opsRunCheckSuccessSchema>["data"];
 export type OpsRecentChecksResponse = z.infer<typeof opsRecentChecksSuccessSchema>["data"];
+export type WorkspaceApiKeySafe = z.infer<typeof WorkspaceApiKeyListResponseSchema>["data"][number];
+export type WorkspaceApiKeyCreateResponse = z.infer<
+  typeof WorkspaceApiKeyCreateSuccessSchema
+>["data"];
 
 export class ApiUnauthorizedError extends Error {
   constructor() {
@@ -315,10 +324,12 @@ export async function runOpsCheck(checkId: OpsCheckId): Promise<OpsRunCheckRespo
   return opsRunCheckSuccessSchema.parse(payload).data;
 }
 
-export async function getRecentOpsChecks(params: {
-  limit?: number;
-  checkId?: OpsCheckId;
-} = {}): Promise<OpsRecentChecksResponse> {
+export async function getRecentOpsChecks(
+  params: {
+    limit?: number;
+    checkId?: OpsCheckId;
+  } = {},
+): Promise<OpsRecentChecksResponse> {
   const search = new URLSearchParams();
 
   if (params.limit !== undefined) {
@@ -332,4 +343,28 @@ export async function getRecentOpsChecks(params: {
   const query = search.toString();
   const payload = await requestJson(`/api/admin/ops/checks/recent${query ? `?${query}` : ""}`);
   return opsRecentChecksSuccessSchema.parse(payload).data;
+}
+
+export async function listWorkspaceApiKeys(): Promise<WorkspaceApiKeySafe[]> {
+  const payload = await requestJson("/api/workspace-api-keys");
+  return WorkspaceApiKeyListResponseSchema.parse(payload).data;
+}
+
+export async function createWorkspaceApiKey(input: {
+  name: string;
+}): Promise<WorkspaceApiKeyCreateResponse> {
+  const payload = await requestJson("/api/workspace-api-keys", {
+    method: "POST",
+    body: encodeJsonBody({ name: input.name }),
+  });
+
+  return WorkspaceApiKeyCreateSuccessSchema.parse(payload).data;
+}
+
+export async function revokeWorkspaceApiKey(id: string): Promise<WorkspaceApiKeySafe> {
+  const payload = await requestJson(`/api/workspace-api-keys/${encodeURIComponent(id)}/revoke`, {
+    method: "POST",
+  });
+
+  return WorkspaceApiKeySuccessSchema.parse(payload).data;
 }

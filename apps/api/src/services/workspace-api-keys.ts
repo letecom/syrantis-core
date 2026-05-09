@@ -1,45 +1,48 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import {
-  WorkspaceApiKeyCreateOutputSchema,
-  WorkspaceApiKeyOutputSchema,
+  WorkspaceApiKeyCreateResponseSchema,
+  WorkspaceApiKeySafeDtoSchema,
   type WorkspaceApiKeyCreateInput,
-  type WorkspaceApiKeyCreateOutput,
-  type WorkspaceApiKeyOutput
+  type WorkspaceApiKeyCreateResponse,
+  type WorkspaceApiKeySafeDto,
 } from "@syrantis/shared";
 
-import type { WorkspaceApiKeyMutationResult, WorkspaceApiKeyRow } from "../repositories/workspace-api-keys.js";
+import type {
+  WorkspaceApiKeyMutationResult,
+  WorkspaceApiKeyRow,
+} from "../repositories/workspace-api-keys.js";
 import {
   createWorkspaceApiKey,
   findWorkspaceApiKeyById,
   listWorkspaceApiKeys,
-  revokeWorkspaceApiKey
+  revokeWorkspaceApiKey,
 } from "../repositories/workspace-api-keys.js";
 
 const API_KEY_PREFIX = "syr_live";
 
 export type WorkspaceApiKeyServiceMutationResult =
-  | { result: "ok"; key: WorkspaceApiKeyOutput }
+  | { result: "ok"; key: WorkspaceApiKeySafeDto }
   | { result: "not_found" }
   | { result: "conflict" };
 
 export type WorkspaceApiKeyServiceCreateResult =
-  | { result: "ok"; key: WorkspaceApiKeyCreateOutput }
+  | { result: "ok"; key: WorkspaceApiKeyCreateResponse }
   | { result: "not_found" }
   | { result: "conflict" };
 
 export type WorkspaceApiKeyService = {
-  listWorkspaceApiKeys(workspaceId: string): Promise<WorkspaceApiKeyOutput[]>;
-  getWorkspaceApiKey(workspaceId: string, id: string): Promise<WorkspaceApiKeyOutput | null>;
+  listWorkspaceApiKeys(workspaceId: string): Promise<WorkspaceApiKeySafeDto[]>;
+  getWorkspaceApiKey(workspaceId: string, id: string): Promise<WorkspaceApiKeySafeDto | null>;
   createWorkspaceApiKey(
     workspaceId: string,
     actorUserId: string,
-    input: WorkspaceApiKeyCreateInput
+    input: WorkspaceApiKeyCreateInput,
   ): Promise<WorkspaceApiKeyServiceCreateResult>;
   revokeWorkspaceApiKey(
     workspaceId: string,
     actorUserId: string,
-    id: string
+    id: string,
   ): Promise<WorkspaceApiKeyServiceMutationResult>;
 };
 
@@ -55,10 +58,9 @@ function hashApiKey(plaintextApiKey: string): string {
   return createHash("sha256").update(plaintextApiKey).digest("hex");
 }
 
-function mapWorkspaceApiKeyRow(row: WorkspaceApiKeyRow): WorkspaceApiKeyOutput {
-  return WorkspaceApiKeyOutputSchema.parse({
+function mapWorkspaceApiKeyRow(row: WorkspaceApiKeyRow): WorkspaceApiKeySafeDto {
+  return WorkspaceApiKeySafeDtoSchema.parse({
     id: row.id,
-    workspaceId: row.workspaceId,
     name: row.name,
     keyPrefix: row.keyPrefix,
     last4: row.last4,
@@ -66,18 +68,20 @@ function mapWorkspaceApiKeyRow(row: WorkspaceApiKeyRow): WorkspaceApiKeyOutput {
     lastUsedAt: toIsoDate(row.lastUsedAt),
     revokedAt: toIsoDate(row.revokedAt),
     createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString()
+    updatedAt: row.updatedAt.toISOString(),
   });
 }
 
-function mapMutationResult(result: WorkspaceApiKeyMutationResult): WorkspaceApiKeyServiceMutationResult {
+function mapMutationResult(
+  result: WorkspaceApiKeyMutationResult,
+): WorkspaceApiKeyServiceMutationResult {
   if (result.result !== "ok") {
     return result;
   }
 
   return {
     result: "ok",
-    key: mapWorkspaceApiKeyRow(result.key)
+    key: mapWorkspaceApiKeyRow(result.key),
   };
 }
 
@@ -101,7 +105,7 @@ export function createProductionWorkspaceApiKeyService(): WorkspaceApiKeyService
         name: input.name,
         keyHash: hashApiKey(plaintextApiKey),
         keyPrefix: API_KEY_PREFIX,
-        last4: plaintextApiKey.slice(-4)
+        last4: plaintextApiKey.slice(-4),
       });
 
       if (result.result !== "ok") {
@@ -110,15 +114,15 @@ export function createProductionWorkspaceApiKeyService(): WorkspaceApiKeyService
 
       return {
         result: "ok",
-        key: WorkspaceApiKeyCreateOutputSchema.parse({
+        key: WorkspaceApiKeyCreateResponseSchema.parse({
           ...mapWorkspaceApiKeyRow(result.key),
-          plaintextApiKey
-        })
+          plaintextApiKey,
+        }),
       };
     },
 
     async revokeWorkspaceApiKey(workspaceId, actorUserId, id) {
       return mapMutationResult(await revokeWorkspaceApiKey({ workspaceId, actorUserId, id }));
-    }
+    },
   };
 }

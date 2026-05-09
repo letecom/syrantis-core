@@ -1,7 +1,10 @@
 import { Hono } from "hono";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { InboundMessageIntakeResponseSchema, type InboundMessageIntakeRequest } from "@syrantis/shared";
+import {
+  InboundMessageIntakeResponseSchema,
+  type InboundMessageIntakeRequest,
+} from "@syrantis/shared";
 
 import { createActivityLog } from "../repositories/activity-logs.js";
 import { createInboundMessageIntake } from "../repositories/inbound-message-intake.js";
@@ -11,6 +14,8 @@ import type {
   InboundMessageIntakeService,
   InboundMessageIntakeServiceResult,
 } from "../services/inbound-message-intake.js";
+import { createProductionInboundMessageIntakeService } from "../services/inbound-message-intake.js";
+import { FixedWindowRateLimiter } from "../services/rate-limit.js";
 import type { AdminIntakeService } from "../services/admin-intake.js";
 import type { AuthService } from "../services/auth.js";
 import { SESSION_COOKIE_NAME } from "../lib/session-token.js";
@@ -21,7 +26,9 @@ const mockDb = vi.hoisted(() => ({
 }));
 
 vi.mock("../lib/db.js", () => ({
-  withWorkspaceDb: vi.fn(async (_workspaceId: string, fn: (tx: unknown) => Promise<unknown>) => fn(mockDb.tx)),
+  withWorkspaceDb: vi.fn(async (_workspaceId: string, fn: (tx: unknown) => Promise<unknown>) =>
+    fn(mockDb.tx),
+  ),
 }));
 
 vi.mock("../repositories/activity-logs.js", () => ({
@@ -33,6 +40,7 @@ vi.mock("../repositories/activity-logs.js", () => ({
 
 const workspaceId = "00000000-0000-4000-8000-000000000001";
 const validApiKey = "syr_live_valid_inbound_key";
+const revokedApiKey = "syr_live_revoked_inbound_key";
 const leadId = "00000000-0000-4000-8000-000000023201";
 const replayLeadId = "00000000-0000-4000-8000-000000023202";
 const jobId = "00000000-0000-4000-8000-000000023203";
@@ -51,7 +59,9 @@ function bearer(value: string) {
   };
 }
 
-function validPayload(overrides: Partial<InboundMessageIntakeRequest> = {}): InboundMessageIntakeRequest {
+function validPayload(
+  overrides: Partial<InboundMessageIntakeRequest> = {},
+): InboundMessageIntakeRequest {
   return {
     fromEmail: "lead@example.com",
     bodyText: "Need urgent boiler help.",
@@ -236,7 +246,11 @@ function createTestApp(service = createFakeInboundService()) {
   return { app, service };
 }
 
-async function postInbound(app: Hono, body: unknown, headers: Record<string, string> = bearer(validApiKey)) {
+async function postInbound(
+  app: Hono,
+  body: unknown,
+  headers: Record<string, string> = bearer(validApiKey),
+) {
   return app.request("/api/intake/inbound-message", {
     method: "POST",
     headers,
@@ -279,10 +293,7 @@ function createInsertBuilder(insertedValues: Record<string, unknown>[], response
   };
 }
 
-function createMockTx(input: {
-  selectResponses: unknown[][];
-  insertResponses: unknown[];
-}) {
+function createMockTx(input: { selectResponses: unknown[][]; insertResponses: unknown[] }) {
   const insertedValues: Record<string, unknown>[] = [];
   const selectResponses = [...input.selectResponses];
   const insertResponses = [...input.insertResponses];
@@ -367,6 +378,31 @@ describe("public inbound message intake route", () => {
     const response = await postInbound(app, validPayload(), bearer("syr_live_bad"));
 
     expect(response.status).toBe(401);
+  });
+
+  it("returns generic 401 for a revoked Bearer key and does not call intake", async () => {
+    const service = createFakeInboundService();
+    const app = new Hono();
+    app.route(
+      "/api/intake",
+      createInboundMessageIntakeRoutes({
+        authenticateApiKey: vi.fn(async (authorizationHeader?: string | null) => {
+          const match = /^Bearer\s+(.+)$/.exec(authorizationHeader ?? "");
+          return match?.[1] === revokedApiKey ? null : null;
+        }),
+        inboundMessageIntakeService: service,
+      }),
+    );
+
+    const response = await postInbound(app, validPayload(), bearer(revokedApiKey));
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      success: false,
+      error: "Unauthorized.",
+      code: "UNAUTHORIZED",
+    });
+    expect(service.receiveInboundMessage).not.toHaveBeenCalled();
   });
 
   it("rejects workspaceId in the body", async () => {
@@ -474,7 +510,10 @@ describe("public inbound message intake route", () => {
   it("creates a pending score_lead job with no PII in payload", async () => {
     const { app, service } = createTestApp();
 
-    await postInbound(app, validPayload({ subject: "Need urgent boiler quote", contactName: "Jean Client" }));
+    await postInbound(
+      app,
+      validPayload({ subject: "Need urgent boiler quote", contactName: "Jean Client" }),
+    );
 
     expect(service.jobs).toHaveLength(1);
     expect(service.jobs[0]).toMatchObject({
@@ -487,7 +526,10 @@ describe("public inbound message intake route", () => {
   it("writes safe activity metadata with no PII", async () => {
     const { app, service } = createTestApp();
 
-    await postInbound(app, validPayload({ subject: "Need urgent boiler quote", contactName: "Jean Client" }));
+    await postInbound(
+      app,
+      validPayload({ subject: "Need urgent boiler quote", contactName: "Jean Client" }),
+    );
 
     expect(service.activityLogs).toHaveLength(1);
     expect(service.activityLogs[0]).toMatchObject({
@@ -671,6 +713,7 @@ describe("public inbound message repository", () => {
       bodyLength: 24,
     });
     expectSafeSerialized(metadata);
+    expect(harness.tx.update).toHaveBeenCalled();
   });
 
   it("returns an idempotent replay without inserting a new lead or job", async () => {
@@ -718,5 +761,44 @@ describe("public inbound message repository", () => {
     ).rejects.toThrow("Failed to enqueue score_lead job.");
 
     expect(createActivityLog).not.toHaveBeenCalled();
+  });
+});
+
+describe("public inbound message intake service rate limit", () => {
+  it("uses API key id counters before falling back to workspace id", async () => {
+    const repository = {
+      create: vi.fn(async () => ({
+        result: "created" as const,
+        lead: { id: leadId, createdAt },
+        job: jobRow(),
+      })),
+    };
+    const service = createProductionInboundMessageIntakeService(
+      repository,
+      new FixedWindowRateLimiter(),
+    );
+
+    for (let index = 0; index < 10; index += 1) {
+      await expect(
+        service.receiveInboundMessage({
+          apiKey: { id: "00000000-0000-4000-8000-000000023207", workspaceId },
+          payload: validPayload({ externalId: `service-rate-${index}` }),
+        }),
+      ).resolves.toMatchObject({ result: "created" });
+    }
+
+    await expect(
+      service.receiveInboundMessage({
+        apiKey: { id: "00000000-0000-4000-8000-000000023207", workspaceId },
+        payload: validPayload({ externalId: "service-rate-10" }),
+      }),
+    ).resolves.toMatchObject({ result: "rate_limited", retryAfterSeconds: 60 });
+
+    await expect(
+      service.receiveInboundMessage({
+        apiKey: { id: "00000000-0000-4000-8000-000000023208", workspaceId },
+        payload: validPayload({ externalId: "service-rate-independent" }),
+      }),
+    ).resolves.toMatchObject({ result: "created" });
   });
 });

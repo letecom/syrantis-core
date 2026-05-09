@@ -49,6 +49,9 @@ export function AdminShell({ user, children }: AdminShellProps) {
             <NavLink className={navLinkClass} to="/app/pushback">
               Pushback
             </NavLink>
+            <NavLink className={navLinkClass} to="/app/api-keys">
+              API Keys
+            </NavLink>
             <NavLink className={navLinkClass} to="/app/google-sheets">
               Google Sheets
             </NavLink>
