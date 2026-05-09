@@ -1,14 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createWorkspaceApiKey,
   getGoogleSheetsSetupStatus,
   getCurrentUser,
   getOpsHealth,
   getRecentOpsChecks,
   getDraftPushbackStatus,
   getEmailSendPushbackStatus,
+  listWorkspaceApiKeys,
   login,
   replayEmailSendPushback,
+  revokeWorkspaceApiKey,
   runOpsCheck,
   testGoogleSheetsSetup,
 } from "../src/lib/api-client";
@@ -210,6 +213,62 @@ const opsRecentChecksResponse = {
     ],
     limit: 20,
     metadata_json: { hidden: true },
+  },
+};
+
+const workspaceApiKeysResponse = {
+  success: true,
+  data: [
+    {
+      id: "12121212-1212-4121-8121-121212121212",
+      name: "Website form production",
+      keyPrefix: "syr_live",
+      last4: "abcd",
+      status: "active",
+      lastUsedAt: "2026-05-09T10:00:00.000Z",
+      revokedAt: null,
+      createdAt: "2026-05-09T09:00:00.000Z",
+      updatedAt: "2026-05-09T09:00:00.000Z",
+      key_hash: "forbidden-hash",
+      workspaceId: "forbidden-workspace",
+      plaintextApiKey: "syr_live_forbidden_plaintext",
+    },
+  ],
+};
+
+const workspaceApiKeyCreateResponse = {
+  success: true,
+  data: {
+    id: "13131313-1313-4131-8131-131313131313",
+    name: "New intake",
+    keyPrefix: "syr_live",
+    last4: "wxyz",
+    status: "active",
+    lastUsedAt: null,
+    revokedAt: null,
+    createdAt: "2026-05-09T11:00:00.000Z",
+    updatedAt: "2026-05-09T11:00:00.000Z",
+    plaintextApiKey: "syr_live_created_wxyz",
+    keyHash: "forbidden-hash",
+    workspaceId: "forbidden-workspace",
+  },
+};
+
+const workspaceApiKeyRevokedResponse = {
+  success: true,
+  data: {
+    id: "12121212-1212-4121-8121-121212121212",
+    name: "Website form production",
+    keyPrefix: "syr_live",
+    last4: "abcd",
+    status: "revoked",
+    lastUsedAt: "2026-05-09T10:00:00.000Z",
+    revokedAt: "2026-05-09T12:00:00.000Z",
+    createdAt: "2026-05-09T09:00:00.000Z",
+    updatedAt: "2026-05-09T12:00:00.000Z",
+    plaintextApiKey: "syr_live_forbidden_plaintext",
+    key_hash: "forbidden-hash",
+    workspaceId: "forbidden-workspace",
   },
 };
 
@@ -465,6 +524,87 @@ describe("api client", () => {
         method: "POST",
       }),
     );
+  });
+
+  it("lists workspace API keys and strips unsafe fields", async () => {
+    const request = vi.fn(() => mockResponse(workspaceApiKeysResponse));
+    vi.stubGlobal("fetch", request);
+
+    await expect(listWorkspaceApiKeys()).resolves.toEqual([
+      {
+        id: "12121212-1212-4121-8121-121212121212",
+        name: "Website form production",
+        keyPrefix: "syr_live",
+        last4: "abcd",
+        status: "active",
+        lastUsedAt: "2026-05-09T10:00:00.000Z",
+        revokedAt: null,
+        createdAt: "2026-05-09T09:00:00.000Z",
+        updatedAt: "2026-05-09T09:00:00.000Z",
+      },
+    ]);
+    expect(request).toHaveBeenCalledWith(
+      "/api/workspace-api-keys",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("creates a workspace API key and returns plaintext only from create", async () => {
+    const request = vi.fn((_url: string, _init?: RequestInit) =>
+      mockResponse(workspaceApiKeyCreateResponse),
+    );
+    vi.stubGlobal("fetch", request);
+
+    await expect(createWorkspaceApiKey({ name: "New intake" })).resolves.toEqual({
+      id: "13131313-1313-4131-8131-131313131313",
+      name: "New intake",
+      keyPrefix: "syr_live",
+      last4: "wxyz",
+      status: "active",
+      lastUsedAt: null,
+      revokedAt: null,
+      createdAt: "2026-05-09T11:00:00.000Z",
+      updatedAt: "2026-05-09T11:00:00.000Z",
+      plaintextApiKey: "syr_live_created_wxyz",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/workspace-api-keys",
+      expect.objectContaining({
+        credentials: "include",
+        method: "POST",
+        body: JSON.stringify({ name: "New intake" }),
+      }),
+    );
+    expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("workspaceId");
+    expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("Authorization");
+  });
+
+  it("revokes a workspace API key without sending client tenant material", async () => {
+    const request = vi.fn((_url: string, _init?: RequestInit) =>
+      mockResponse(workspaceApiKeyRevokedResponse),
+    );
+    vi.stubGlobal("fetch", request);
+
+    await expect(revokeWorkspaceApiKey("12121212-1212-4121-8121-121212121212")).resolves.toEqual({
+      id: "12121212-1212-4121-8121-121212121212",
+      name: "Website form production",
+      keyPrefix: "syr_live",
+      last4: "abcd",
+      status: "revoked",
+      lastUsedAt: "2026-05-09T10:00:00.000Z",
+      revokedAt: "2026-05-09T12:00:00.000Z",
+      createdAt: "2026-05-09T09:00:00.000Z",
+      updatedAt: "2026-05-09T12:00:00.000Z",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/workspace-api-keys/12121212-1212-4121-8121-121212121212/revoke",
+      expect.objectContaining({
+        credentials: "include",
+        method: "POST",
+      }),
+    );
+    expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("workspaceId");
+    expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("Bearer");
   });
 
   it("calls the recent Ops checks endpoint with bounded query params", async () => {

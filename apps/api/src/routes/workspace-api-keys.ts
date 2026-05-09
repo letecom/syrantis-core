@@ -6,7 +6,8 @@ import {
   WorkspaceApiKeyCreateInputSchema,
   WorkspaceApiKeyCreateSuccessSchema,
   WorkspaceApiKeyListSuccessSchema,
-  WorkspaceApiKeySuccessSchema
+  WorkspaceApiKeySuccessSchema,
+  forbidden,
 } from "@syrantis/shared";
 
 import { getWorkspaceId } from "../lib/tenant.js";
@@ -16,7 +17,7 @@ import {
   createProductionWorkspaceApiKeyService,
   type WorkspaceApiKeyService,
   type WorkspaceApiKeyServiceCreateResult,
-  type WorkspaceApiKeyServiceMutationResult
+  type WorkspaceApiKeyServiceMutationResult,
 } from "../services/workspace-api-keys.js";
 import type { AppEnv } from "../types/hono.js";
 
@@ -25,19 +26,13 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}
 const invalidRequestResponse = ApiErrorSchema.parse({
   success: false,
   error: "Invalid request.",
-  code: "INVALID_REQUEST"
+  code: "INVALID_REQUEST",
 });
 
 const workspaceApiKeyNotFoundResponse = ApiErrorSchema.parse({
   success: false,
   error: "Workspace API key not found.",
-  code: "WORKSPACE_API_KEY_NOT_FOUND"
-});
-
-const workspaceApiKeyAlreadyRevokedResponse = ApiErrorSchema.parse({
-  success: false,
-  error: "Workspace API key is already revoked.",
-  code: "WORKSPACE_API_KEY_ALREADY_REVOKED"
+  code: "WORKSPACE_API_KEY_NOT_FOUND",
 });
 
 export type WorkspaceApiKeyRoutesDependencies = {
@@ -45,8 +40,42 @@ export type WorkspaceApiKeyRoutesDependencies = {
   workspaceApiKeyService?: WorkspaceApiKeyService;
 };
 
+function isAdminRole(role: string): boolean {
+  return role === "admin" || role === "founder";
+}
+
 function hasClientWorkspaceId(value: unknown): boolean {
-  return typeof value === "object" && value !== null && "workspaceId" in value;
+  if (Array.isArray(value)) {
+    return value.some(hasClientWorkspaceId);
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  return Object.entries(value).some(
+    ([key, childValue]) =>
+      key === "workspaceId" ||
+      key === "workspace_id" ||
+      key === "workspace-id" ||
+      key === "tenantId" ||
+      key === "tenant_id" ||
+      key === "tenant-id" ||
+      hasClientWorkspaceId(childValue),
+  );
+}
+
+function hasWorkspaceHeader(c: Context<AppEnv>): boolean {
+  return Boolean(
+    c.req.header("workspaceId") ??
+    c.req.header("workspace-id") ??
+    c.req.header("workspace_id") ??
+    c.req.header("x-workspace-id") ??
+    c.req.header("tenantId") ??
+    c.req.header("tenant-id") ??
+    c.req.header("tenant_id") ??
+    c.req.header("x-tenant-id"),
+  );
 }
 
 async function readJsonBody(c: Context<AppEnv>): Promise<unknown> {
@@ -64,34 +93,41 @@ function parseId(value: string): string | null {
 function mutationResponse(
   c: Context<AppEnv>,
   result: WorkspaceApiKeyServiceCreateResult | WorkspaceApiKeyServiceMutationResult,
-  successStatus: ContentfulStatusCode = 200
+  successStatus: ContentfulStatusCode = 200,
 ) {
   if (result.result === "not_found") {
     return c.json(workspaceApiKeyNotFoundResponse, 404);
   }
 
   if (result.result === "conflict") {
-    return c.json(workspaceApiKeyAlreadyRevokedResponse, 409);
+    return c.json(invalidRequestResponse, 409);
   }
 
   return c.json(
     ("plaintextApiKey" in result.key
       ? WorkspaceApiKeyCreateSuccessSchema.parse({ success: true, data: result.key })
       : WorkspaceApiKeySuccessSchema.parse({ success: true, data: result.key })) as unknown,
-    successStatus
+    successStatus,
   );
 }
 
 export function createWorkspaceApiKeyRoutes(dependencies: WorkspaceApiKeyRoutesDependencies = {}) {
   const routes = new Hono<AppEnv>();
-  const guard = dependencies.authService ? createTenantGuard(dependencies.authService) : tenantGuard;
-  const workspaceApiKeyService = dependencies.workspaceApiKeyService ?? createProductionWorkspaceApiKeyService();
+  const guard = dependencies.authService
+    ? createTenantGuard(dependencies.authService)
+    : tenantGuard;
+  const workspaceApiKeyService =
+    dependencies.workspaceApiKeyService ?? createProductionWorkspaceApiKeyService();
 
   routes.use("*", guard);
 
   routes.get("/", async (c) => {
-    if (hasClientWorkspaceId(c.req.query())) {
+    if (hasClientWorkspaceId(c.req.query()) || hasWorkspaceHeader(c)) {
       return c.json(invalidRequestResponse, 400);
+    }
+
+    if (!isAdminRole(c.get("currentUser").role)) {
+      return c.json(forbidden("ADMIN_REQUIRED"), 403);
     }
 
     const keys = await workspaceApiKeyService.listWorkspaceApiKeys(getWorkspaceId(c));
@@ -99,13 +135,13 @@ export function createWorkspaceApiKeyRoutes(dependencies: WorkspaceApiKeyRoutesD
     return c.json(
       WorkspaceApiKeyListSuccessSchema.parse({
         success: true,
-        data: keys
-      })
+        data: keys,
+      }),
     );
   });
 
   routes.post("/", async (c) => {
-    if (hasClientWorkspaceId(c.req.query())) {
+    if (hasClientWorkspaceId(c.req.query()) || hasWorkspaceHeader(c)) {
       return c.json(invalidRequestResponse, 400);
     }
 
@@ -113,6 +149,10 @@ export function createWorkspaceApiKeyRoutes(dependencies: WorkspaceApiKeyRoutesD
 
     if (hasClientWorkspaceId(body)) {
       return c.json(invalidRequestResponse, 400);
+    }
+
+    if (!isAdminRole(c.get("currentUser").role)) {
+      return c.json(forbidden("ADMIN_REQUIRED"), 403);
     }
 
     const parsedBody = WorkspaceApiKeyCreateInputSchema.safeParse(body);
@@ -124,15 +164,19 @@ export function createWorkspaceApiKeyRoutes(dependencies: WorkspaceApiKeyRoutesD
     const result = await workspaceApiKeyService.createWorkspaceApiKey(
       getWorkspaceId(c),
       c.get("userId"),
-      parsedBody.data
+      parsedBody.data,
     );
 
     return mutationResponse(c, result, 201);
   });
 
   routes.get("/:id", async (c) => {
-    if (hasClientWorkspaceId(c.req.query())) {
+    if (hasClientWorkspaceId(c.req.query()) || hasWorkspaceHeader(c)) {
       return c.json(invalidRequestResponse, 400);
+    }
+
+    if (!isAdminRole(c.get("currentUser").role)) {
+      return c.json(forbidden("ADMIN_REQUIRED"), 403);
     }
 
     const keyId = parseId(c.req.param("id"));
@@ -150,13 +194,13 @@ export function createWorkspaceApiKeyRoutes(dependencies: WorkspaceApiKeyRoutesD
     return c.json(
       WorkspaceApiKeySuccessSchema.parse({
         success: true,
-        data: key
-      })
+        data: key,
+      }),
     );
   });
 
   routes.post("/:id/revoke", async (c) => {
-    if (hasClientWorkspaceId(c.req.query())) {
+    if (hasClientWorkspaceId(c.req.query()) || hasWorkspaceHeader(c)) {
       return c.json(invalidRequestResponse, 400);
     }
 
@@ -172,7 +216,15 @@ export function createWorkspaceApiKeyRoutes(dependencies: WorkspaceApiKeyRoutesD
       return c.json(invalidRequestResponse, 400);
     }
 
-    const result = await workspaceApiKeyService.revokeWorkspaceApiKey(getWorkspaceId(c), c.get("userId"), keyId);
+    if (!isAdminRole(c.get("currentUser").role)) {
+      return c.json(forbidden("ADMIN_REQUIRED"), 403);
+    }
+
+    const result = await workspaceApiKeyService.revokeWorkspaceApiKey(
+      getWorkspaceId(c),
+      c.get("userId"),
+      keyId,
+    );
     return mutationResponse(c, result);
   });
 

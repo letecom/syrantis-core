@@ -10,7 +10,7 @@ import type { AuthService } from "../services/auth.js";
 import type {
   WorkspaceApiKeyService,
   WorkspaceApiKeyServiceCreateResult,
-  WorkspaceApiKeyServiceMutationResult
+  WorkspaceApiKeyServiceMutationResult,
 } from "../services/workspace-api-keys.js";
 
 const testUser: AuthMe = {
@@ -19,7 +19,7 @@ const testUser: AuthMe = {
   name: "Founder",
   role: "admin",
   workspaceId: "00000000-0000-4000-8000-000000000002",
-  workspaceName: "Syrantis Internal"
+  workspaceName: "Syrantis Internal",
 };
 
 const missingKeyId = "00000000-0000-4000-8000-000000000999";
@@ -41,52 +41,77 @@ function createStatefulAuthService(): AuthService {
       active = true;
       return { user: testUser, token: validSessionToken };
     }),
-    getCurrentUser: vi.fn(async (token: string) => (active && token === validSessionToken ? testUser : null)),
+    getCurrentUser: vi.fn(async (token: string) =>
+      active && token === validSessionToken ? testUser : null,
+    ),
     logout: vi.fn(async () => {
       active = false;
-    })
+    }),
   };
 }
 
+type StoredWorkspaceApiKey = WorkspaceApiKeyOutput & { workspaceId: string };
+
 function createFakeWorkspaceApiKeyService() {
-  const keys = new Map<string, WorkspaceApiKeyOutput>();
-  const activityActions: string[] = [];
+  const keys = new Map<string, StoredWorkspaceApiKey>();
+  const activityLogs: Array<{ action: string; metadataJson: Record<string, unknown> }> = [];
   let nextKeyId = 100;
 
-  const service: WorkspaceApiKeyService & { activityActions: string[] } = {
-    activityActions,
+  function toSafeKey(key: StoredWorkspaceApiKey): WorkspaceApiKeyOutput {
+    const { workspaceId: _workspaceId, ...safeKey } = key;
+    void _workspaceId;
+    return safeKey;
+  }
+
+  const service: WorkspaceApiKeyService & {
+    activityLogs: typeof activityLogs;
+    storedKeys: typeof keys;
+  } = {
+    activityLogs,
+    storedKeys: keys,
     listWorkspaceApiKeys: vi.fn(async (workspaceId: string) => {
-      return [...keys.values()].filter((key) => key.workspaceId === workspaceId);
+      return [...keys.values()].filter((key) => key.workspaceId === workspaceId).map(toSafeKey);
     }),
     getWorkspaceApiKey: vi.fn(async (workspaceId: string, id: string) => {
       const key = keys.get(id);
-      return key && key.workspaceId === workspaceId ? key : null;
+      return key && key.workspaceId === workspaceId ? toSafeKey(key) : null;
     }),
-    createWorkspaceApiKey: vi.fn(async (
-      workspaceId: string,
-      _actorUserId: string,
-      input: WorkspaceApiKeyCreateInput
-    ) => {
-      void _actorUserId;
-      const plaintextApiKey = `syr_live_${String(nextKeyId).padStart(6, "0")}_testonly`;
-      const key: WorkspaceApiKeyOutput = {
-        id: uuidFromNumber(nextKeyId),
-        workspaceId,
-        name: input.name,
-        keyPrefix: "syr_live",
-        last4: plaintextApiKey.slice(-4),
-        status: "active",
-        lastUsedAt: null,
-        revokedAt: null,
-        createdAt: "2026-05-02T10:00:00.000Z",
-        updatedAt: "2026-05-02T10:00:00.000Z"
-      };
+    createWorkspaceApiKey: vi.fn(
+      async (workspaceId: string, _actorUserId: string, input: WorkspaceApiKeyCreateInput) => {
+        void _actorUserId;
+        const plaintextApiKey = `syr_live_${String(nextKeyId).padStart(6, "0")}_testonly`;
+        const key: StoredWorkspaceApiKey = {
+          id: uuidFromNumber(nextKeyId),
+          workspaceId,
+          name: input.name,
+          keyPrefix: "syr_live",
+          last4: plaintextApiKey.slice(-4),
+          status: "active",
+          lastUsedAt: null,
+          revokedAt: null,
+          createdAt: "2026-05-02T10:00:00.000Z",
+          updatedAt: "2026-05-02T10:00:00.000Z",
+        };
 
-      nextKeyId += 1;
-      keys.set(key.id, key);
-      activityActions.push("workspace_api_key.created");
-      return { result: "ok", key: { ...key, plaintextApiKey } } as WorkspaceApiKeyServiceCreateResult;
-    }),
+        nextKeyId += 1;
+        keys.set(key.id, key);
+        activityLogs.push({
+          action: "workspace_api_key.created",
+          metadataJson: {
+            keyId: key.id,
+            name: key.name,
+            keyPrefix: key.keyPrefix,
+            last4: key.last4,
+            status: key.status,
+            source: "admin_ui",
+          },
+        });
+        return {
+          result: "ok",
+          key: { ...toSafeKey(key), plaintextApiKey },
+        } as WorkspaceApiKeyServiceCreateResult;
+      },
+    ),
     revokeWorkspaceApiKey: vi.fn(async (workspaceId: string, _actorUserId: string, id: string) => {
       void _actorUserId;
       const existing = keys.get(id);
@@ -96,40 +121,69 @@ function createFakeWorkspaceApiKeyService() {
       }
 
       if (existing.status === "revoked") {
-        return { result: "conflict" } as WorkspaceApiKeyServiceMutationResult;
+        return { result: "ok", key: toSafeKey(existing) } as WorkspaceApiKeyServiceMutationResult;
       }
 
-      const revoked: WorkspaceApiKeyOutput = {
+      const revoked: StoredWorkspaceApiKey = {
         ...existing,
         status: "revoked",
         revokedAt: "2026-05-02T11:00:00.000Z",
-        updatedAt: "2026-05-02T11:00:00.000Z"
+        updatedAt: "2026-05-02T11:00:00.000Z",
       };
       keys.set(id, revoked);
-      activityActions.push("workspace_api_key.revoked");
-      return { result: "ok", key: revoked } as WorkspaceApiKeyServiceMutationResult;
-    })
+      activityLogs.push({
+        action: "workspace_api_key.revoked",
+        metadataJson: {
+          keyId: revoked.id,
+          name: revoked.name,
+          keyPrefix: revoked.keyPrefix,
+          last4: revoked.last4,
+          status: revoked.status,
+          source: "admin_ui",
+        },
+      });
+      return { result: "ok", key: toSafeKey(revoked) } as WorkspaceApiKeyServiceMutationResult;
+    }),
   };
 
   return service;
 }
 
-function createTestApp(authService: AuthService, workspaceApiKeyService: WorkspaceApiKeyService): Hono {
+function expectNoSensitiveKeyMaterial(value: unknown) {
+  const serialized = JSON.stringify(value);
+
+  for (const forbidden of [
+    "key_hash",
+    "keyHash",
+    "plaintextKey",
+    "token",
+    "Authorization",
+    "Bearer",
+    testUser.workspaceId,
+  ]) {
+    expect(serialized).not.toContain(forbidden);
+  }
+}
+
+function createTestApp(
+  authService: AuthService,
+  workspaceApiKeyService: WorkspaceApiKeyService,
+): Hono {
   const app = new Hono();
   app.route("/auth", createAuthRoutes({ authService }));
   app.route(
     "/api/workspace-api-keys",
     createWorkspaceApiKeyRoutes({
       authService,
-      workspaceApiKeyService
-    })
+      workspaceApiKeyService,
+    }),
   );
   return app;
 }
 
 function validSessionHeaders() {
   return {
-    cookie: `${SESSION_COOKIE_NAME}=${validSessionToken}`
+    cookie: `${SESSION_COOKIE_NAME}=${validSessionToken}`,
   };
 }
 
@@ -138,11 +192,11 @@ async function createKey(app: Hono) {
     method: "POST",
     headers: {
       ...validSessionHeaders(),
-      "content-type": "application/json"
+      "content-type": "application/json",
     },
     body: JSON.stringify({
-      name: "Website form production"
-    })
+      name: "Website form production",
+    }),
   });
 }
 
@@ -156,7 +210,7 @@ describe("workspace API key routes", () => {
     expect(await response.json()).toEqual({
       success: false,
       error: "Unauthorized.",
-      code: "NO_SESSION"
+      code: "NO_SESSION",
     });
   });
 
@@ -170,11 +224,14 @@ describe("workspace API key routes", () => {
     expect(createJson.success).toBe(true);
     expect(createJson.data.name).toBe("Website form production");
     expect(createJson.data.keyPrefix).toBe("syr_live");
+    expect(createJson.data.last4).toBe(createJson.data.plaintextApiKey.slice(-4));
     expect(createJson.data.plaintextApiKey).toMatch(/^syr_live_/);
     expect(createJson.data).not.toHaveProperty("keyHash");
+    expect(createJson.data).not.toHaveProperty("key_hash");
+    expect(createJson.data).not.toHaveProperty("workspaceId");
 
     const listResponse = await app.request("/api/workspace-api-keys", {
-      headers: validSessionHeaders()
+      headers: validSessionHeaders(),
     });
     const listJson = await listResponse.json();
 
@@ -182,9 +239,12 @@ describe("workspace API key routes", () => {
     expect(listJson.data).toHaveLength(1);
     expect(listJson.data[0]).not.toHaveProperty("plaintextApiKey");
     expect(listJson.data[0]).not.toHaveProperty("keyHash");
+    expect(listJson.data[0]).not.toHaveProperty("key_hash");
+    expect(listJson.data[0]).not.toHaveProperty("workspaceId");
+    expectNoSensitiveKeyMaterial(listJson);
 
     const detailResponse = await app.request(`/api/workspace-api-keys/${createJson.data.id}`, {
-      headers: validSessionHeaders()
+      headers: validSessionHeaders(),
     });
     const detailJson = await detailResponse.json();
 
@@ -192,41 +252,57 @@ describe("workspace API key routes", () => {
     expect(detailJson.data.id).toBe(createJson.data.id);
     expect(detailJson.data).not.toHaveProperty("plaintextApiKey");
     expect(detailJson.data).not.toHaveProperty("keyHash");
+    expect(detailJson.data).not.toHaveProperty("workspaceId");
   });
 
-  it("rejects workspaceId in body and query", async () => {
+  it("rejects workspaceId in body, query, and header", async () => {
     const app = createTestApp(createStatefulAuthService(), createFakeWorkspaceApiKeyService());
 
     const bodyResponse = await app.request("/api/workspace-api-keys", {
       method: "POST",
       headers: {
         ...validSessionHeaders(),
-        "content-type": "application/json"
+        "content-type": "application/json",
       },
       body: JSON.stringify({
         name: "Bad key",
-        workspaceId: testUser.workspaceId
-      })
+        workspaceId: testUser.workspaceId,
+      }),
     });
 
     expect(bodyResponse.status).toBe(400);
 
-    const queryResponse = await app.request(`/api/workspace-api-keys?workspaceId=${testUser.workspaceId}`, {
-      headers: validSessionHeaders()
-    });
+    const queryResponse = await app.request(
+      `/api/workspace-api-keys?workspaceId=${testUser.workspaceId}`,
+      {
+        headers: validSessionHeaders(),
+      },
+    );
 
     expect(queryResponse.status).toBe(400);
+
+    const headerResponse = await app.request("/api/workspace-api-keys", {
+      headers: {
+        ...validSessionHeaders(),
+        "x-workspace-id": testUser.workspaceId,
+      },
+    });
+
+    expect(headerResponse.status).toBe(400);
   });
 
-  it("revokes a key, returns revoked detail, and rejects double revoke", async () => {
+  it("revokes a key, returns revoked detail, and treats double revoke as idempotent", async () => {
     const app = createTestApp(createStatefulAuthService(), createFakeWorkspaceApiKeyService());
     const createResponse = await createKey(app);
     const createJson = await createResponse.json();
 
-    const revokeResponse = await app.request(`/api/workspace-api-keys/${createJson.data.id}/revoke`, {
-      method: "POST",
-      headers: validSessionHeaders()
-    });
+    const revokeResponse = await app.request(
+      `/api/workspace-api-keys/${createJson.data.id}/revoke`,
+      {
+        method: "POST",
+        headers: validSessionHeaders(),
+      },
+    );
     const revokeJson = await revokeResponse.json();
 
     expect(revokeResponse.status).toBe(200);
@@ -234,7 +310,7 @@ describe("workspace API key routes", () => {
     expect(revokeJson.data.revokedAt).toBe("2026-05-02T11:00:00.000Z");
 
     const detailResponse = await app.request(`/api/workspace-api-keys/${createJson.data.id}`, {
-      headers: validSessionHeaders()
+      headers: validSessionHeaders(),
     });
     const detailJson = await detailResponse.json();
 
@@ -242,20 +318,27 @@ describe("workspace API key routes", () => {
     expect(detailJson.data.status).toBe("revoked");
     expect(detailJson.data).not.toHaveProperty("plaintextApiKey");
     expect(detailJson.data).not.toHaveProperty("keyHash");
+    expect(detailJson.data).not.toHaveProperty("workspaceId");
 
-    const doubleRevokeResponse = await app.request(`/api/workspace-api-keys/${createJson.data.id}/revoke`, {
-      method: "POST",
-      headers: validSessionHeaders()
-    });
+    const doubleRevokeResponse = await app.request(
+      `/api/workspace-api-keys/${createJson.data.id}/revoke`,
+      {
+        method: "POST",
+        headers: validSessionHeaders(),
+      },
+    );
+    const doubleRevokeJson = await doubleRevokeResponse.json();
 
-    expect(doubleRevokeResponse.status).toBe(409);
+    expect(doubleRevokeResponse.status).toBe(200);
+    expect(doubleRevokeJson.data.status).toBe("revoked");
+    expect(doubleRevokeJson.data).not.toHaveProperty("plaintextApiKey");
   });
 
   it("returns 404 for missing keys", async () => {
     const app = createTestApp(createStatefulAuthService(), createFakeWorkspaceApiKeyService());
 
     const response = await app.request(`/api/workspace-api-keys/${missingKeyId}`, {
-      headers: validSessionHeaders()
+      headers: validSessionHeaders(),
     });
 
     expect(response.status).toBe(404);
@@ -269,13 +352,59 @@ describe("workspace API key routes", () => {
 
     await app.request(`/api/workspace-api-keys/${createJson.data.id}/revoke`, {
       method: "POST",
-      headers: validSessionHeaders()
+      headers: validSessionHeaders(),
     });
 
-    expect(workspaceApiKeyService.activityActions).toEqual([
+    expect(workspaceApiKeyService.activityLogs.map((log) => log.action)).toEqual([
       "workspace_api_key.created",
-      "workspace_api_key.revoked"
+      "workspace_api_key.revoked",
     ]);
+    expect(workspaceApiKeyService.activityLogs[0]?.metadataJson).toEqual({
+      keyId: createJson.data.id,
+      name: "Website form production",
+      keyPrefix: "syr_live",
+      last4: createJson.data.last4,
+      status: "active",
+      source: "admin_ui",
+    });
+    expect(workspaceApiKeyService.activityLogs[1]?.metadataJson).toMatchObject({
+      keyId: createJson.data.id,
+      name: "Website form production",
+      keyPrefix: "syr_live",
+      last4: createJson.data.last4,
+      status: "revoked",
+      source: "admin_ui",
+    });
+    expectNoSensitiveKeyMaterial(workspaceApiKeyService.activityLogs);
+  });
+
+  it("stores only hash material outside the create response", async () => {
+    const workspaceApiKeyService = createFakeWorkspaceApiKeyService();
+    const app = createTestApp(createStatefulAuthService(), workspaceApiKeyService);
+    const createResponse = await createKey(app);
+    const createJson = await createResponse.json();
+    const stored = workspaceApiKeyService.storedKeys.get(createJson.data.id);
+
+    expect(stored).toBeDefined();
+    expect(stored).not.toHaveProperty("plaintextApiKey");
+    expect(JSON.stringify([...workspaceApiKeyService.storedKeys.values()])).not.toContain(
+      createJson.data.plaintextApiKey,
+    );
+  });
+
+  it("forbids non-admin sessions", async () => {
+    const authService = createStatefulAuthService();
+    vi.mocked(authService.getCurrentUser).mockResolvedValue({
+      ...testUser,
+      role: "operator",
+    });
+    const app = createTestApp(authService, createFakeWorkspaceApiKeyService());
+
+    const response = await app.request("/api/workspace-api-keys", {
+      headers: validSessionHeaders(),
+    });
+
+    expect(response.status).toBe(403);
   });
 
   it("returns 401 after logout", async () => {
@@ -284,13 +413,13 @@ describe("workspace API key routes", () => {
 
     const logoutResponse = await app.request("/auth/logout", {
       method: "POST",
-      headers: validSessionHeaders()
+      headers: validSessionHeaders(),
     });
 
     expect(logoutResponse.status).toBe(200);
 
     const response = await app.request("/api/workspace-api-keys", {
-      headers: validSessionHeaders()
+      headers: validSessionHeaders(),
     });
 
     expect(response.status).toBe(401);

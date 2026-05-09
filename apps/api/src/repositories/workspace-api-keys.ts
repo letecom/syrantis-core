@@ -42,19 +42,25 @@ export async function listWorkspaceApiKeys(workspaceId: string): Promise<Workspa
   });
 }
 
-export async function findWorkspaceApiKeyById(input: FindWorkspaceApiKeyByIdInput): Promise<WorkspaceApiKeyRow | null> {
+export async function findWorkspaceApiKeyById(
+  input: FindWorkspaceApiKeyByIdInput,
+): Promise<WorkspaceApiKeyRow | null> {
   return withWorkspaceDb(input.workspaceId, async (tx) => {
     const [key] = await tx
       .select()
       .from(workspaceApiKeys)
-      .where(and(eq(workspaceApiKeys.workspaceId, input.workspaceId), eq(workspaceApiKeys.id, input.id)))
+      .where(
+        and(eq(workspaceApiKeys.workspaceId, input.workspaceId), eq(workspaceApiKeys.id, input.id)),
+      )
       .limit(1);
 
     return key ?? null;
   });
 }
 
-export async function createWorkspaceApiKey(input: CreateWorkspaceApiKeyInput): Promise<WorkspaceApiKeyMutationResult> {
+export async function createWorkspaceApiKey(
+  input: CreateWorkspaceApiKeyInput,
+): Promise<WorkspaceApiKeyMutationResult> {
   return withWorkspaceDb(input.workspaceId, async (tx) => {
     const [key] = await tx
       .insert(workspaceApiKeys)
@@ -63,7 +69,7 @@ export async function createWorkspaceApiKey(input: CreateWorkspaceApiKeyInput): 
         name: input.name,
         keyHash: input.keyHash,
         keyPrefix: input.keyPrefix,
-        last4: input.last4
+        last4: input.last4,
       })
       .returning();
 
@@ -78,22 +84,29 @@ export async function createWorkspaceApiKey(input: CreateWorkspaceApiKeyInput): 
       entityType: "workspace_api_key",
       entityId: key.id,
       metadataJson: {
+        keyId: key.id,
         name: key.name,
         keyPrefix: key.keyPrefix,
-        last4: key.last4
-      }
+        last4: key.last4,
+        status: key.status,
+        source: "admin_ui",
+      },
     });
 
     return { result: "ok", key };
   });
 }
 
-export async function revokeWorkspaceApiKey(input: RevokeWorkspaceApiKeyInput): Promise<WorkspaceApiKeyMutationResult> {
+export async function revokeWorkspaceApiKey(
+  input: RevokeWorkspaceApiKeyInput,
+): Promise<WorkspaceApiKeyMutationResult> {
   return withWorkspaceDb(input.workspaceId, async (tx) => {
     const [existingKey] = await tx
       .select()
       .from(workspaceApiKeys)
-      .where(and(eq(workspaceApiKeys.workspaceId, input.workspaceId), eq(workspaceApiKeys.id, input.id)))
+      .where(
+        and(eq(workspaceApiKeys.workspaceId, input.workspaceId), eq(workspaceApiKeys.id, input.id)),
+      )
       .limit(1);
 
     if (!existingKey) {
@@ -101,16 +114,18 @@ export async function revokeWorkspaceApiKey(input: RevokeWorkspaceApiKeyInput): 
     }
 
     if (existingKey.status !== "active") {
-      return { result: "conflict" };
+      return { result: "ok", key: existingKey };
     }
 
     const [key] = await tx
       .update(workspaceApiKeys)
       .set({
         status: "revoked",
-        revokedAt: new Date()
+        revokedAt: new Date(),
       })
-      .where(and(eq(workspaceApiKeys.workspaceId, input.workspaceId), eq(workspaceApiKeys.id, input.id)))
+      .where(
+        and(eq(workspaceApiKeys.workspaceId, input.workspaceId), eq(workspaceApiKeys.id, input.id)),
+      )
       .returning();
 
     if (!key) {
@@ -124,10 +139,13 @@ export async function revokeWorkspaceApiKey(input: RevokeWorkspaceApiKeyInput): 
       entityType: "workspace_api_key",
       entityId: key.id,
       metadataJson: {
+        keyId: key.id,
         name: key.name,
         keyPrefix: key.keyPrefix,
-        last4: key.last4
-      }
+        last4: key.last4,
+        status: key.status,
+        source: "admin_ui",
+      },
     });
 
     return { result: "ok", key };

@@ -12,11 +12,12 @@ import {
   type InboundMessageIntakeRepositoryResult,
 } from "../repositories/inbound-message-intake.js";
 import type { PublicApiKeyLookupRow } from "../repositories/public-lead-intake.js";
-import { buildPendingScoreLeadJobDto, hasText, publicInboundMessageSource } from "./intake-shared.js";
-
-const rateLimitWindowMs = 60_000;
-const rateLimitMaxRequests = 10;
-const defaultRateLimitStore = new Map<string, { windowStartMs: number; count: number }>();
+import {
+  buildPendingScoreLeadJobDto,
+  hasText,
+  publicInboundMessageSource,
+} from "./intake-shared.js";
+import { defaultInboundMessageRateLimiter, type FixedWindowRateLimiter } from "./rate-limit.js";
 
 export type InboundMessageIntakeServiceResult =
   | { result: "created"; data: InboundMessageIntakeResponse["data"] }
@@ -34,34 +35,9 @@ export type InboundMessageIntakeRepository = {
   create(input: InboundMessageIntakeRepositoryInput): Promise<InboundMessageIntakeRepositoryResult>;
 };
 
-type RateLimitStore = Map<string, { windowStartMs: number; count: number }>;
-
 const productionRepository: InboundMessageIntakeRepository = {
   create: createInboundMessageIntake,
 };
-
-function checkRateLimit(input: {
-  key: string;
-  nowMs: number;
-  store: RateLimitStore;
-}): { allowed: true } | { allowed: false; retryAfterSeconds: number } {
-  const current = input.store.get(input.key);
-
-  if (!current || input.nowMs - current.windowStartMs >= rateLimitWindowMs) {
-    input.store.set(input.key, { windowStartMs: input.nowMs, count: 1 });
-    return { allowed: true };
-  }
-
-  if (current.count >= rateLimitMaxRequests) {
-    return {
-      allowed: false,
-      retryAfterSeconds: Math.max(1, Math.ceil((rateLimitWindowMs - (input.nowMs - current.windowStartMs)) / 1000)),
-    };
-  }
-
-  current.count += 1;
-  return { allowed: true };
-}
 
 function buildResponseData(input: {
   diagnosticTraceId: string;
@@ -98,16 +74,11 @@ function buildResponseData(input: {
 
 export function createProductionInboundMessageIntakeService(
   repository: InboundMessageIntakeRepository = productionRepository,
-  rateLimitStore: RateLimitStore = defaultRateLimitStore,
-  now: () => number = Date.now,
+  rateLimiter: FixedWindowRateLimiter = defaultInboundMessageRateLimiter,
 ): InboundMessageIntakeService {
   return {
     async receiveInboundMessage(input): Promise<InboundMessageIntakeServiceResult> {
-      const rateLimit = checkRateLimit({
-        key: input.apiKey.id ?? input.apiKey.workspaceId,
-        nowMs: now(),
-        store: rateLimitStore,
-      });
+      const rateLimit = rateLimiter.check(input.apiKey.id ?? input.apiKey.workspaceId);
 
       if (!rateLimit.allowed) {
         return {

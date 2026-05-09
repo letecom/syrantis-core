@@ -8,7 +8,7 @@ It is not a chatbot.
 
 It is not an uncontrolled agent system.
 
-It is a controlled action layer above CRMs, forms, sheets, and business tools. The client CRM remains the commercial source of truth. Syrantis handles intake, admin-only inbound email test intake, public API-key inbound message intake, canonical lead context, AI scoring, AI draft generation, AI audit read model, approval readiness, human approval, send readiness, request-send, optional cancel-send while pending, worker execution, send status, send attempts, delivery proof, DB proof, Google Sheets push-back, push-back diagnostics, and manual push-back replay.
+It is a controlled action layer above CRMs, forms, sheets, and business tools. The client CRM remains the commercial source of truth. Syrantis handles intake, admin-only inbound email test intake, public API-key inbound message intake, admin API key management, canonical lead context, AI scoring, AI draft generation, AI audit read model, approval readiness, human approval, send readiness, request-send, optional cancel-send while pending, worker execution, send status, send attempts, delivery proof, DB proof, Google Sheets push-back, push-back diagnostics, and manual push-back replay.
 
 ```txt
 Client CRM / form / sheet
@@ -49,6 +49,8 @@ Google Sheets push-back MVP + diagnostics
         ↓
 023J public API-key inbound message intake
         ↓
+023K API key management and public intake hardening
+        ↓
 Future CRM connector hardening / additional targets
 ```
 
@@ -84,6 +86,7 @@ lead received
   → bounded admin ops health checks and safe worker failed-job review
   → admin-only inbound email test harness
   → public API-key inbound message intake
+  → admin API key management and public intake hardening
 ```
 
 No CRM clone.
@@ -231,6 +234,17 @@ Current baseline through 023F:
   production env changes
 - 023J production validation is not yet claimed; use `docs/runbooks/public-inbound-message-intake.md`
   for operator validation
+- 023K API Key Management & Public Intake Hardening exists
+- admin UI now supports API key management at `/app/api-keys`
+- API key list/detail DTOs expose only safe fields: id, name, keyPrefix, last4, status, lastUsedAt,
+  revokedAt, createdAt, and updatedAt
+- API key create returns `plaintextApiKey` only once and stores only hash material server-side
+- API key revoke is idempotent and revoked keys return generic `401` from public inbound message intake
+- public inbound message intake rate limiting is now a testable in-memory fixed-window service with
+  10 requests per 60 seconds per API key
+- API key rotation remains operational: create new key, update the external integration, revoke old key
+- 023K added no migration, Redis, backend rotate endpoint, Caddy, Docker, systemd, worker runtime, or prod env change
+- use `docs/runbooks/api-key-management.md` for create, copy-once, use, revoke, and rotation procedure
 - no global dashboard exists
 - no `email_sends` list exists
 - frontend performs no provider calls
@@ -1248,6 +1262,7 @@ Not implemented yet.
 | 023H     | Worker Queue Failed Job Review                        | done   |
 | 023I     | Inbound Email Test Intake                             | done   |
 | 023J     | Public API-Key Inbound Message Intake                 | done   |
+| 023K     | API Key Management & Public Intake Hardening          | done   |
 
 Near-term candidates:
 

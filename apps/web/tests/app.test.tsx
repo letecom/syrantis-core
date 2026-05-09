@@ -92,6 +92,9 @@ const replayUrl = `/api/email-sends/${emailSendId}/pushback-replay`;
 const statusUrl = `/api/email-sends/${emailSendId}/pushback-status`;
 const googleSheetsStatusUrl = "/api/integrations/google-sheets/setup-status";
 const googleSheetsTestUrl = "/api/integrations/google-sheets/setup-test";
+const workspaceApiKeysUrl = "/api/workspace-api-keys";
+const workspaceApiKeyRevokeUrl =
+  "/api/workspace-api-keys/12121212-1212-4121-8121-121212121212/revoke";
 const opsHealthUrl = "/api/admin/ops/health";
 const opsRecentUrl = "/api/admin/ops/checks/recent?limit=20";
 const opsDbHealthUrl = "/api/admin/ops/checks/db-health";
@@ -163,6 +166,64 @@ const googleSheetsTestFailure = {
     errorSummary: "Google Sheets authentication or authorization failed.",
     verification: null,
     client_email: "forbidden-failure-client-email",
+  },
+};
+
+const workspaceApiKeys = {
+  success: true,
+  data: [
+    {
+      id: "12121212-1212-4121-8121-121212121212",
+      name: "Website form production",
+      keyPrefix: "syr_live",
+      last4: "abcd",
+      status: "active",
+      lastUsedAt: "2026-05-09T10:00:00.000Z",
+      revokedAt: null,
+      createdAt: "2026-05-09T09:00:00.000Z",
+      updatedAt: "2026-05-09T09:00:00.000Z",
+      key_hash: "forbidden-hash",
+      plaintextApiKey: "syr_live_forbidden_plaintext",
+    },
+  ],
+};
+
+const workspaceApiKeysEmpty = {
+  success: true,
+  data: [],
+};
+
+const workspaceApiKeyCreate = {
+  success: true,
+  data: {
+    id: "13131313-1313-4131-8131-131313131313",
+    name: "Make inbound",
+    keyPrefix: "syr_live",
+    last4: "wxyz",
+    status: "active",
+    lastUsedAt: null,
+    revokedAt: null,
+    createdAt: "2026-05-09T11:00:00.000Z",
+    updatedAt: "2026-05-09T11:00:00.000Z",
+    plaintextApiKey: "syr_live_created_wxyz",
+    keyHash: "forbidden-hash",
+  },
+};
+
+const workspaceApiKeyRevoked = {
+  success: true,
+  data: {
+    id: "12121212-1212-4121-8121-121212121212",
+    name: "Website form production",
+    keyPrefix: "syr_live",
+    last4: "abcd",
+    status: "revoked",
+    lastUsedAt: "2026-05-09T10:00:00.000Z",
+    revokedAt: "2026-05-09T12:00:00.000Z",
+    createdAt: "2026-05-09T09:00:00.000Z",
+    updatedAt: "2026-05-09T12:00:00.000Z",
+    plaintextApiKey: "syr_live_forbidden_plaintext",
+    key_hash: "forbidden-hash",
   },
 };
 
@@ -343,7 +404,9 @@ function googleSheetsTestPostCalls(request: ReturnType<typeof vi.fn>) {
 }
 
 function opsCheckPostCalls(request: ReturnType<typeof vi.fn>, url: string) {
-  return request.mock.calls.filter(([calledUrl, init]) => calledUrl === url && init?.method === "POST");
+  return request.mock.calls.filter(
+    ([calledUrl, init]) => calledUrl === url && init?.method === "POST",
+  );
 }
 
 function opsDefaultResponse(url: string) {
@@ -453,6 +516,7 @@ describe("admin app", () => {
     expect(screen.getByText("Admin User")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Pushback" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "API Keys" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Google Sheets" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ops" })).toBeInTheDocument();
   });
@@ -964,8 +1028,128 @@ describe("admin app", () => {
     expect(screen.queryByText("forbidden-failure-client-email")).not.toBeInTheDocument();
   });
 
+  it("renders API keys page list with safe key material", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === workspaceApiKeysUrl) {
+        return mockJson(workspaceApiKeys);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/api-keys");
+
+    expect(await screen.findByRole("heading", { name: "API Keys" })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Create API keys for public machine-to-machine intake. Keys are shown once.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "API Keys" })).toBeInTheDocument();
+    expect(await screen.findByText("Website form production")).toBeInTheDocument();
+    expect(screen.getByText("syr_live...abcd")).toBeInTheDocument();
+    expect(screen.getByText("active")).toBeInTheDocument();
+    expect(screen.getByText("May 9, 2026, 10:00 AM")).toBeInTheDocument();
+    expect(screen.queryByText("forbidden-hash")).not.toBeInTheDocument();
+    expect(screen.queryByText("syr_live_forbidden_plaintext")).not.toBeInTheDocument();
+  });
+
+  it("renders API keys empty state", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === workspaceApiKeysUrl) {
+        return mockJson(workspaceApiKeysEmpty);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/api-keys");
+
+    expect(await screen.findByText("No API keys yet.")).toBeInTheDocument();
+  });
+
+  it("creates an API key, copies it, and clears the one-time value on close", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const request = vi.fn((url: string, init?: RequestInit) => {
+      if (url === workspaceApiKeysUrl && init?.method === "POST") {
+        return mockJson(workspaceApiKeyCreate);
+      }
+
+      if (url === workspaceApiKeysUrl) {
+        return mockJson(workspaceApiKeysEmpty);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/api-keys");
+    await user.click(await screen.findByRole("button", { name: "Create API key" }));
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByLabelText("Name"), "Make inbound");
+    await user.click(within(dialog).getByRole("button", { name: "Create API key" }));
+
+    expect(await screen.findByText("syr_live_created_wxyz")).toBeInTheDocument();
+    expect(
+      screen.getByText("Copy this key now. It will never be shown again."),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+    expect(writeText).toHaveBeenCalledWith("syr_live_created_wxyz");
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByText("syr_live_created_wxyz")).not.toBeInTheDocument();
+    expect(JSON.stringify(request.mock.calls[1]?.[1])).not.toContain("Authorization");
+    expect(JSON.stringify(request.mock.calls[1]?.[1])).not.toContain("Bearer");
+  });
+
+  it("requires confirmation before revoking an API key and shows revoked state", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    let revoked = false;
+    const request = vi.fn((url: string, init?: RequestInit) => {
+      if (url === workspaceApiKeyRevokeUrl && init?.method === "POST") {
+        revoked = true;
+        return mockJson(workspaceApiKeyRevoked);
+      }
+
+      if (url === workspaceApiKeysUrl) {
+        return mockJson(
+          revoked ? { success: true, data: [workspaceApiKeyRevoked.data] } : workspaceApiKeys,
+        );
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/api-keys");
+    await user.click(await screen.findByRole("button", { name: "Revoke" }));
+
+    expect(confirm).toHaveBeenCalledWith(
+      "This immediately breaks integrations using this key. Continue?",
+    );
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        workspaceApiKeyRevokeUrl,
+        expect.objectContaining({ credentials: "include", method: "POST" }),
+      ),
+    );
+    expect(await screen.findByText("revoked")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
+  });
+
   it("renders the Ops page with health cards, checks, and recent checks", async () => {
-    vi.stubGlobal("fetch", vi.fn((url: string) => opsDefaultResponse(url)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => opsDefaultResponse(url)),
+    );
 
     renderApp("/app/ops");
 
@@ -1129,6 +1313,7 @@ describe("admin app", () => {
       "../src/App.tsx",
       "../src/components/AdminShell.tsx",
       "../src/components/ProtectedRoute.tsx",
+      "../src/pages/ApiKeysPage.tsx",
       "../src/pages/DashboardPage.tsx",
       "../src/pages/GoogleSheetsPage.tsx",
       "../src/pages/LoginPage.tsx",
