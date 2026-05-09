@@ -1,4 +1,5 @@
-import { FormEvent, useState } from "react";
+import type { FormEvent } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {

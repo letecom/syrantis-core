@@ -550,7 +550,7 @@ describe("api client", () => {
   });
 
   it("creates a workspace API key and returns plaintext only from create", async () => {
-    const request = vi.fn((_url: string, _init?: RequestInit) =>
+    const request = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
       mockResponse(workspaceApiKeyCreateResponse),
     );
     vi.stubGlobal("fetch", request);
@@ -580,7 +580,7 @@ describe("api client", () => {
   });
 
   it("revokes a workspace API key without sending client tenant material", async () => {
-    const request = vi.fn((_url: string, _init?: RequestInit) =>
+    const request = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
       mockResponse(workspaceApiKeyRevokedResponse),
     );
     vi.stubGlobal("fetch", request);
