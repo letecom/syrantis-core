@@ -1,5 +1,6 @@
 import {
   GenerateAiDraftJobPayloadSchema,
+  PushbackLeadScoreJobPayloadSchema,
   ScoreLeadJobPayloadSchema,
   SendEmailJobPayloadSchema,
 } from "@syrantis/shared";
@@ -12,11 +13,9 @@ import {
   failBackgroundJob,
   type BackgroundJobRow,
 } from "../repositories/background-jobs.js";
-import {
-  handleSendEmailJob,
-  SendEmailRetryScheduledError,
-} from "./send-email-job-handler.js";
+import { handleSendEmailJob, SendEmailRetryScheduledError } from "./send-email-job-handler.js";
 import { handleGenerateAiDraftJob } from "./generate-ai-draft-job-handler.js";
+import { handleLeadScorePushbackJob } from "./lead-score-pushback-job-handler.js";
 import { handleScoreLeadJob } from "./score-lead-job-handler.js";
 
 export type ProcessNextBackgroundJobInput = {
@@ -162,6 +161,58 @@ export async function processNextBackgroundJob(
             type: job.type,
             workerId: input.workerId,
             leadId: payload.leadId,
+          },
+        });
+
+        return completed;
+      });
+
+      return { status: "completed", job: completedJob };
+    }
+
+    if (job.type === "pushback_lead_score") {
+      const payload = PushbackLeadScoreJobPayloadSchema.parse(job.payloadJson);
+
+      await withWorkspaceDb(job.workspaceId, async (tx) => {
+        await createActivityLog(tx, {
+          workspaceId: job.workspaceId,
+          actorUserId: null,
+          action: "background_job.claimed",
+          entityType: "background_job",
+          entityId: job.id,
+          metadataJson: {
+            jobId: job.id,
+            type: job.type,
+            workerId: input.workerId,
+            attempts: job.attempts,
+          },
+        });
+      });
+
+      await handleLeadScorePushbackJob({
+        workspaceId: job.workspaceId,
+        jobId: job.id,
+        payload,
+      });
+
+      const completedJob = await withWorkspaceDb(job.workspaceId, async (tx) => {
+        const completed = await completeBackgroundJob(tx, {
+          workspaceId: job.workspaceId,
+          jobId: job.id,
+        });
+
+        await createActivityLog(tx, {
+          workspaceId: job.workspaceId,
+          actorUserId: null,
+          action: "background_job.completed",
+          entityType: "background_job",
+          entityId: job.id,
+          metadataJson: {
+            jobId: job.id,
+            type: job.type,
+            workerId: input.workerId,
+            leadId: payload.leadId,
+            scoreId: payload.scoreId,
           },
         });
 

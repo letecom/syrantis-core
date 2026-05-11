@@ -11,14 +11,14 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
-  varchar
+  varchar,
 } from "drizzle-orm/pg-core";
 
 const emptyJson = sql`'{}'::jsonb`;
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 };
 
 export const workspaces = pgTable(
@@ -28,18 +28,21 @@ export const workspaces = pgTable(
     name: varchar("name", { length: 255 }).notNull(),
     slug: varchar("slug", { length: 120 }).notNull().unique(),
     status: varchar("status", { length: 24 }).notNull().default("active"),
-    featuresJson: jsonb("features_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
+    featuresJson: jsonb("features_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(emptyJson),
     stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
     stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }),
-    ...timestamps
+    ...timestamps,
   },
   (table) => [
     check("workspaces_status_check", sql`${table.status} in ('active', 'paused', 'archived')`),
     index("workspaces_status_idx").on(table.status),
     index("workspaces_created_at_idx").on(table.createdAt),
     index("workspaces_stripe_customer_id_idx").on(table.stripeCustomerId),
-    index("workspaces_stripe_subscription_id_idx").on(table.stripeSubscriptionId)
-  ]
+    index("workspaces_stripe_subscription_id_idx").on(table.stripeSubscriptionId),
+  ],
 );
 
 export const users = pgTable(
@@ -54,7 +57,7 @@ export const users = pgTable(
     name: varchar("name", { length: 255 }),
     role: varchar("role", { length: 24 }).notNull().default("operator"),
     status: varchar("status", { length: 24 }).notNull().default("active"),
-    ...timestamps
+    ...timestamps,
   },
   (table) => [
     check("users_role_check", sql`${table.role} in ('founder', 'admin', 'operator', 'client')`),
@@ -62,8 +65,8 @@ export const users = pgTable(
     index("users_workspace_id_idx").on(table.workspaceId),
     index("users_workspace_role_idx").on(table.workspaceId, table.role),
     index("users_status_idx").on(table.status),
-    index("users_created_at_idx").on(table.createdAt)
-  ]
+    index("users_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const sessions = pgTable(
@@ -80,7 +83,7 @@ export const sessions = pgTable(
     status: varchar("status", { length: 24 }).notNull().default("active"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    revokedAt: timestamp("revoked_at", { withTimezone: true })
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
   (table) => [
     check("sessions_status_check", sql`${table.status} in ('active', 'revoked', 'expired')`),
@@ -88,8 +91,8 @@ export const sessions = pgTable(
     index("sessions_user_id_idx").on(table.userId),
     index("sessions_status_idx").on(table.status),
     index("sessions_expires_at_idx").on(table.expiresAt),
-    index("sessions_created_at_idx").on(table.createdAt)
-  ]
+    index("sessions_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const organizations = pgTable(
@@ -106,18 +109,18 @@ export const organizations = pgTable(
     email: varchar("email", { length: 320 }),
     status: varchar("status", { length: 32 }).notNull().default("prospect"),
     configJson: jsonb("config_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
-    ...timestamps
+    ...timestamps,
   },
   (table) => [
     check(
       "organizations_status_check",
-      sql`${table.status} in ('prospect', 'active_client', 'inactive', 'archived')`
+      sql`${table.status} in ('prospect', 'active_client', 'inactive', 'archived')`,
     ),
     index("organizations_workspace_id_idx").on(table.workspaceId),
     index("organizations_workspace_status_idx").on(table.workspaceId, table.status),
     index("organizations_email_idx").on(table.email),
-    index("organizations_created_at_idx").on(table.createdAt)
-  ]
+    index("organizations_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const contacts = pgTable(
@@ -134,16 +137,19 @@ export const contacts = pgTable(
     phone: varchar("phone", { length: 80 }),
     roleTitle: varchar("role_title", { length: 160 }),
     optOut: boolean("opt_out").notNull().default(false),
-    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
-    ...timestamps
+    metadataJson: jsonb("metadata_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(emptyJson),
+    ...timestamps,
   },
   (table) => [
     index("contacts_workspace_id_idx").on(table.workspaceId),
     index("contacts_organization_id_idx").on(table.organizationId),
     index("contacts_email_idx").on(table.email),
     index("contacts_opt_out_idx").on(table.optOut),
-    index("contacts_created_at_idx").on(table.createdAt)
-  ]
+    index("contacts_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const leads = pgTable(
@@ -158,23 +164,32 @@ export const leads = pgTable(
     source: varchar("source", { length: 24 }).notNull().default("manual"),
     status: varchar("status", { length: 24 }).notNull().default("new"),
     rawContent: text("raw_content"),
-    normalizedJson: jsonb("normalized_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
+    normalizedJson: jsonb("normalized_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(emptyJson),
     score: integer("score"),
     scoreReason: text("score_reason"),
     receivedAt: timestamp("received_at", { withTimezone: true }),
-    ...timestamps
+    ...timestamps,
   },
   (table) => [
-    check("leads_status_check", sql`${table.status} in ('new', 'scored', 'drafted', 'responded', 'lost', 'won')`),
-    check("leads_source_check", sql`${table.source} in ('email', 'form', 'phone', 'manual', 'import')`),
+    check(
+      "leads_status_check",
+      sql`${table.status} in ('new', 'scored', 'drafted', 'responded', 'lost', 'won')`,
+    ),
+    check(
+      "leads_source_check",
+      sql`${table.source} in ('email', 'form', 'phone', 'manual', 'import')`,
+    ),
     index("leads_workspace_id_idx").on(table.workspaceId),
     index("leads_organization_id_idx").on(table.organizationId),
     index("leads_contact_id_idx").on(table.contactId),
     index("leads_workspace_status_idx").on(table.workspaceId, table.status),
     index("leads_source_idx").on(table.source),
     index("leads_received_at_idx").on(table.receivedAt),
-    index("leads_created_at_idx").on(table.createdAt)
-  ]
+    index("leads_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const opportunities = pgTable(
@@ -194,12 +209,12 @@ export const opportunities = pgTable(
     quoteSentAt: timestamp("quote_sent_at", { withTimezone: true }),
     wonAt: timestamp("won_at", { withTimezone: true }),
     lostAt: timestamp("lost_at", { withTimezone: true }),
-    ...timestamps
+    ...timestamps,
   },
   (table) => [
     check(
       "opportunities_status_check",
-      sql`${table.status} in ('open', 'quote_sent', 'followup_due', 'won', 'lost', 'archived')`
+      sql`${table.status} in ('open', 'quote_sent', 'followup_due', 'won', 'lost', 'archived')`,
     ),
     index("opportunities_workspace_id_idx").on(table.workspaceId),
     index("opportunities_organization_id_idx").on(table.organizationId),
@@ -207,8 +222,8 @@ export const opportunities = pgTable(
     index("opportunities_lead_id_idx").on(table.leadId),
     index("opportunities_workspace_status_idx").on(table.workspaceId, table.status),
     index("opportunities_quote_sent_at_idx").on(table.quoteSentAt),
-    index("opportunities_created_at_idx").on(table.createdAt)
-  ]
+    index("opportunities_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const tasks = pgTable(
@@ -227,12 +242,21 @@ export const tasks = pgTable(
     title: varchar("title", { length: 255 }).notNull(),
     description: text("description"),
     dueAt: timestamp("due_at", { withTimezone: true }),
-    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
-    ...timestamps
+    metadataJson: jsonb("metadata_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(emptyJson),
+    ...timestamps,
   },
   (table) => [
-    check("tasks_type_check", sql`${table.type} in ('followup', 'approval', 'review', 'call', 'note', 'setup')`),
-    check("tasks_status_check", sql`${table.status} in ('pending', 'in_progress', 'done', 'cancelled')`),
+    check(
+      "tasks_type_check",
+      sql`${table.type} in ('followup', 'approval', 'review', 'call', 'note', 'setup')`,
+    ),
+    check(
+      "tasks_status_check",
+      sql`${table.status} in ('pending', 'in_progress', 'done', 'cancelled')`,
+    ),
     index("tasks_workspace_id_idx").on(table.workspaceId),
     index("tasks_organization_id_idx").on(table.organizationId),
     index("tasks_contact_id_idx").on(table.contactId),
@@ -241,8 +265,8 @@ export const tasks = pgTable(
     index("tasks_workspace_status_idx").on(table.workspaceId, table.status),
     index("tasks_type_idx").on(table.type),
     index("tasks_due_at_idx").on(table.dueAt),
-    index("tasks_created_at_idx").on(table.createdAt)
-  ]
+    index("tasks_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const drafts = pgTable(
@@ -261,13 +285,16 @@ export const drafts = pgTable(
     subject: text("subject"),
     textBody: text("text_body"),
     htmlBody: text("html_body"),
-    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
-    ...timestamps
+    metadataJson: jsonb("metadata_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(emptyJson),
+    ...timestamps,
   },
   (table) => [
     check(
       "drafts_status_check",
-      sql`${table.status} in ('draft', 'pending_approval', 'approved', 'rejected', 'archived')`
+      sql`${table.status} in ('draft', 'pending_approval', 'approved', 'rejected', 'archived')`,
     ),
     index("drafts_workspace_id_idx").on(table.workspaceId),
     index("drafts_task_id_idx").on(table.taskId),
@@ -276,8 +303,8 @@ export const drafts = pgTable(
     index("drafts_contact_id_idx").on(table.contactId),
     index("drafts_workspace_status_idx").on(table.workspaceId, table.status),
     index("drafts_channel_idx").on(table.channel),
-    index("drafts_created_at_idx").on(table.createdAt)
-  ]
+    index("drafts_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const approvals = pgTable(
@@ -300,17 +327,29 @@ export const approvals = pgTable(
     rejectedAt: timestamp("rejected_at", { withTimezone: true }),
     rejectionReason: text("rejection_reason"),
     riskLevel: varchar("risk_level", { length: 24 }).notNull().default("medium"),
-    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
-    ...timestamps
+    metadataJson: jsonb("metadata_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(emptyJson),
+    ...timestamps,
   },
   (table) => [
-    check("approvals_status_check", sql`${table.status} in ('pending', 'approved', 'rejected', 'expired', 'revoked')`),
-    check("approvals_entity_type_check", sql`${table.entityType} in ('draft', 'task', 'report', 'template')`),
+    check(
+      "approvals_status_check",
+      sql`${table.status} in ('pending', 'approved', 'rejected', 'expired', 'revoked')`,
+    ),
+    check(
+      "approvals_entity_type_check",
+      sql`${table.entityType} in ('draft', 'task', 'report', 'template')`,
+    ),
     check(
       "approvals_approval_type_check",
-      sql`${table.approvalType} in ('manual', 'template_trusted', 'score_based')`
+      sql`${table.approvalType} in ('manual', 'template_trusted', 'score_based')`,
     ),
-    check("approvals_risk_level_check", sql`${table.riskLevel} in ('low', 'medium', 'high', 'critical')`),
+    check(
+      "approvals_risk_level_check",
+      sql`${table.riskLevel} in ('low', 'medium', 'high', 'critical')`,
+    ),
     index("approvals_workspace_id_idx").on(table.workspaceId),
     index("approvals_entity_idx").on(table.entityType, table.entityId),
     index("approvals_draft_id_idx").on(table.draftId),
@@ -320,8 +359,8 @@ export const approvals = pgTable(
     index("approvals_rejected_by_idx").on(table.rejectedBy),
     index("approvals_workspace_status_idx").on(table.workspaceId, table.status),
     index("approvals_approval_type_idx").on(table.approvalType),
-    index("approvals_created_at_idx").on(table.createdAt)
-  ]
+    index("approvals_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const externalConnections = pgTable(
@@ -338,22 +377,31 @@ export const externalConnections = pgTable(
     externalAccountId: varchar("external_account_id", { length: 255 }),
     externalAccountLabel: varchar("external_account_label", { length: 255 }),
     configJson: jsonb("config_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
-    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
+    metadataJson: jsonb("metadata_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(emptyJson),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
-    ...timestamps
+    ...timestamps,
   },
   (table) => [
     check(
       "external_connections_provider_check",
-      sql`${table.provider} in ('manual', 'generic', 'hubspot', 'pipedrive', 'odoo', 'zoho', 'sellsy', 'google_sheets', 'airtable', 'notion', 'make', 'zapier', 'custom')`
+      sql`${table.provider} in ('manual', 'generic', 'hubspot', 'pipedrive', 'odoo', 'zoho', 'sellsy', 'google_sheets', 'airtable', 'notion', 'make', 'zapier', 'custom')`,
     ),
-    check("external_connections_status_check", sql`${table.status} in ('setup', 'active', 'paused', 'error', 'archived')`),
-    check("external_connections_auth_type_check", sql`${table.authType} in ('none', 'external', 'secret_ref', 'oauth2', 'api_key')`),
+    check(
+      "external_connections_status_check",
+      sql`${table.status} in ('setup', 'active', 'paused', 'error', 'archived')`,
+    ),
+    check(
+      "external_connections_auth_type_check",
+      sql`${table.authType} in ('none', 'external', 'secret_ref', 'oauth2', 'api_key')`,
+    ),
     index("external_connections_workspace_id_idx").on(table.workspaceId),
     index("external_connections_provider_idx").on(table.provider),
     index("external_connections_status_idx").on(table.status),
-    index("external_connections_created_at_idx").on(table.createdAt)
-  ]
+    index("external_connections_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const externalObjectMappings = pgTable(
@@ -375,39 +423,48 @@ export const externalObjectMappings = pgTable(
     externalUrl: text("external_url"),
     externalUpdatedAt: timestamp("external_updated_at", { withTimezone: true }),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
-    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
-    ...timestamps
+    metadataJson: jsonb("metadata_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(emptyJson),
+    ...timestamps,
   },
   (table) => [
     check(
       "external_object_mappings_external_object_type_check",
-      sql`${table.externalObjectType} in ('lead', 'contact', 'organization', 'deal', 'task', 'note', 'form_submission', 'row', 'email', 'custom')`
+      sql`${table.externalObjectType} in ('lead', 'contact', 'organization', 'deal', 'task', 'note', 'form_submission', 'row', 'email', 'custom')`,
     ),
     check(
       "external_object_mappings_syrantis_entity_type_check",
-      sql`${table.syrantisEntityType} in ('organization', 'contact', 'lead', 'task', 'approval')`
+      sql`${table.syrantisEntityType} in ('organization', 'contact', 'lead', 'task', 'approval')`,
     ),
     check(
       "external_object_mappings_sync_direction_check",
-      sql`${table.syncDirection} in ('inbound', 'outbound', 'bidirectional')`
+      sql`${table.syncDirection} in ('inbound', 'outbound', 'bidirectional')`,
     ),
     check(
       "external_object_mappings_sync_status_check",
-      sql`${table.syncStatus} in ('active', 'stale', 'conflict', 'archived')`
+      sql`${table.syncStatus} in ('active', 'stale', 'conflict', 'archived')`,
     ),
     index("external_object_mappings_workspace_id_idx").on(table.workspaceId),
     index("external_object_mappings_connection_id_idx").on(table.connectionId),
-    index("external_object_mappings_entity_idx").on(table.syrantisEntityType, table.syrantisEntityId),
-    index("external_object_mappings_external_object_idx").on(table.externalObjectType, table.externalObjectId),
+    index("external_object_mappings_entity_idx").on(
+      table.syrantisEntityType,
+      table.syrantisEntityId,
+    ),
+    index("external_object_mappings_external_object_idx").on(
+      table.externalObjectType,
+      table.externalObjectId,
+    ),
     index("external_object_mappings_created_at_idx").on(table.createdAt),
     uniqueIndex("external_object_mappings_unique_idx").on(
       table.workspaceId,
       table.connectionId,
       table.externalObjectType,
       table.externalObjectId,
-      table.syrantisEntityType
-    )
-  ]
+      table.syrantisEntityType,
+    ),
+  ],
 );
 
 export const integrationEvents = pgTable(
@@ -428,25 +485,28 @@ export const integrationEvents = pgTable(
     syrantisEntityId: uuid("syrantis_entity_id"),
     message: text("message"),
     payloadHash: varchar("payload_hash", { length: 255 }),
-    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+    metadataJson: jsonb("metadata_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(emptyJson),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check(
       "integration_events_direction_check",
-      sql`${table.direction} in ('inbound', 'outbound', 'internal')`
+      sql`${table.direction} in ('inbound', 'outbound', 'internal')`,
     ),
     check(
       "integration_events_status_check",
-      sql`${table.status} in ('received', 'processed', 'failed', 'skipped')`
+      sql`${table.status} in ('received', 'processed', 'failed', 'skipped')`,
     ),
     index("integration_events_workspace_id_idx").on(table.workspaceId),
     index("integration_events_connection_id_idx").on(table.connectionId),
     index("integration_events_mapping_id_idx").on(table.mappingId),
     index("integration_events_event_type_idx").on(table.eventType),
     index("integration_events_status_idx").on(table.status),
-    index("integration_events_created_at_idx").on(table.createdAt)
-  ]
+    index("integration_events_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const workspaceApiKeys = pgTable(
@@ -463,15 +523,15 @@ export const workspaceApiKeys = pgTable(
     status: varchar("status", { length: 24 }).notNull().default("active"),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
-    ...timestamps
+    ...timestamps,
   },
   (table) => [
     check("workspace_api_keys_status_check", sql`${table.status} in ('active', 'revoked')`),
     index("workspace_api_keys_workspace_id_idx").on(table.workspaceId),
     index("workspace_api_keys_status_idx").on(table.status),
     index("workspace_api_keys_created_at_idx").on(table.createdAt),
-    uniqueIndex("workspace_api_keys_key_hash_idx").on(table.keyHash)
-  ]
+    uniqueIndex("workspace_api_keys_key_hash_idx").on(table.keyHash),
+  ],
 );
 
 export const emailSends = pgTable(
@@ -511,29 +571,32 @@ export const emailSends = pgTable(
     bouncedAt: timestamp("bounced_at", { withTimezone: true }),
     complainedAt: timestamp("complained_at", { withTimezone: true }),
     deliveryErrorCode: text("delivery_error_code"),
-    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
-    ...timestamps
+    metadataJson: jsonb("metadata_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(emptyJson),
+    ...timestamps,
   },
   (table) => [
     check(
       "email_sends_status_check",
-      sql`${table.status} in ('pending', 'queued', 'sent', 'failed', 'cancelled')`
+      sql`${table.status} in ('pending', 'queued', 'sent', 'failed', 'cancelled')`,
     ),
     check(
       "email_sends_delivery_status_check",
-      sql`${table.deliveryStatus} is null or ${table.deliveryStatus} in ('delivered', 'bounced', 'complained')`
+      sql`${table.deliveryStatus} is null or ${table.deliveryStatus} in ('delivered', 'bounced', 'complained')`,
     ),
     check(
       "email_sends_delivered_requires_delivered_at",
-      sql`${table.deliveryStatus} <> 'delivered' or ${table.deliveredAt} is not null`
+      sql`${table.deliveryStatus} <> 'delivered' or ${table.deliveredAt} is not null`,
     ),
     check(
       "email_sends_bounced_requires_bounced_at",
-      sql`${table.deliveryStatus} <> 'bounced' or ${table.bouncedAt} is not null`
+      sql`${table.deliveryStatus} <> 'bounced' or ${table.bouncedAt} is not null`,
     ),
     check(
       "email_sends_complained_requires_complained_at",
-      sql`${table.deliveryStatus} <> 'complained' or ${table.complainedAt} is not null`
+      sql`${table.deliveryStatus} <> 'complained' or ${table.complainedAt} is not null`,
     ),
     index("email_sends_workspace_id_idx").on(table.workspaceId),
     index("email_sends_approval_id_idx").on(table.approvalId),
@@ -546,8 +609,8 @@ export const emailSends = pgTable(
     index("email_sends_idempotency_key_idx").on(table.idempotencyKey),
     index("email_sends_sent_at_idx").on(table.sentAt),
     index("email_sends_failed_at_idx").on(table.failedAt),
-    index("email_sends_created_at_idx").on(table.createdAt)
-  ]
+    index("email_sends_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const backgroundJobs = pgTable(
@@ -558,7 +621,10 @@ export const backgroundJobs = pgTable(
       .notNull()
       .references(() => workspaces.id),
     type: varchar("type", { length: 80 }).notNull(),
-    payloadJson: jsonb("payload_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
+    payloadJson: jsonb("payload_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(emptyJson),
     status: varchar("status", { length: 24 }).notNull().default("pending"),
     attempts: integer("attempts").notNull().default(0),
     maxAttempts: integer("max_attempts").notNull().default(3),
@@ -570,14 +636,17 @@ export const backgroundJobs = pgTable(
     failedAt: timestamp("failed_at", { withTimezone: true }),
     lastErrorCode: varchar("last_error_code", { length: 120 }),
     lastErrorMessage: text("last_error_message"),
-    ...timestamps
+    ...timestamps,
   },
   (table) => [
     check(
       "background_jobs_status_check",
-      sql`${table.status} in ('pending', 'running', 'completed', 'failed', 'cancelled')`
+      sql`${table.status} in ('pending', 'running', 'completed', 'failed', 'cancelled')`,
     ),
-    check("background_jobs_type_check", sql`${table.type} in ('send_email', 'score_lead', 'generate_ai_draft')`),
+    check(
+      "background_jobs_type_check",
+      sql`${table.type} in ('send_email', 'score_lead', 'generate_ai_draft', 'pushback_lead_score')`,
+    ),
     check("background_jobs_attempts_check", sql`${table.attempts} >= 0`),
     check("background_jobs_max_attempts_check", sql`${table.maxAttempts} >= 1`),
     index("background_jobs_workspace_id_idx").on(table.workspaceId),
@@ -588,8 +657,8 @@ export const backgroundJobs = pgTable(
     index("background_jobs_pending_send_email_scheduled_at_idx")
       .on(table.type, table.scheduledAt, table.createdAt)
       .where(sql`${table.status} = 'pending' AND ${table.type} = 'send_email'`),
-    index("background_jobs_created_at_idx").on(table.createdAt)
-  ]
+    index("background_jobs_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const emailEvents = pgTable(
@@ -607,12 +676,12 @@ export const emailEvents = pgTable(
     rawPayload: jsonb("raw_payload").$type<Record<string, unknown>>().notNull(),
     recipientEmail: varchar("recipient_email", { length: 320 }),
     timestamp: timestamp("timestamp", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check(
       "email_events_event_type_check",
-      sql`${table.eventType} in ('delivered', 'bounce', 'complaint', 'open', 'click', 'reply')`
+      sql`${table.eventType} in ('delivered', 'bounce', 'complaint', 'open', 'click', 'reply')`,
     ),
     index("email_events_workspace_id_idx").on(table.workspaceId),
     index("email_events_email_send_id_idx").on(table.emailSendId),
@@ -621,8 +690,8 @@ export const emailEvents = pgTable(
     index("email_events_event_type_idx").on(table.eventType),
     index("email_events_event_hash_idx").on(table.eventHash),
     index("email_events_timestamp_idx").on(table.timestamp),
-    index("email_events_created_at_idx").on(table.createdAt)
-  ]
+    index("email_events_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const activityLogs = pgTable(
@@ -638,18 +707,24 @@ export const activityLogs = pgTable(
     type: varchar("type", { length: 80 }).notNull(),
     severity: varchar("severity", { length: 24 }).notNull().default("info"),
     message: text("message").notNull(),
-    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+    metadataJson: jsonb("metadata_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(emptyJson),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    check("activity_logs_severity_check", sql`${table.severity} in ('debug', 'info', 'warn', 'error', 'critical')`),
+    check(
+      "activity_logs_severity_check",
+      sql`${table.severity} in ('debug', 'info', 'warn', 'error', 'critical')`,
+    ),
     index("activity_logs_workspace_id_idx").on(table.workspaceId),
     index("activity_logs_user_id_idx").on(table.userId),
     index("activity_logs_entity_idx").on(table.entityType, table.entityId),
     index("activity_logs_type_idx").on(table.type),
     index("activity_logs_severity_idx").on(table.severity),
-    index("activity_logs_created_at_idx").on(table.createdAt)
-  ]
+    index("activity_logs_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const aiRuns = pgTable(
@@ -686,12 +761,12 @@ export const aiRuns = pgTable(
     costEstimateCents: integer("cost_estimate_cents").notNull().default(0),
     finishReason: varchar("finish_reason", { length: 50 }),
     costEstimateMicroUsd: integer("cost_estimate_micro_usd").notNull().default(0),
-    ...timestamps
+    ...timestamps,
   },
   (table) => [
     check(
       "ai_runs_status_check",
-      sql`${table.status} in ('pending', 'running', 'success', 'error', 'cached', 'fallback')`
+      sql`${table.status} in ('pending', 'running', 'success', 'error', 'cached', 'fallback')`,
     ),
     index("ai_runs_workspace_id_idx").on(table.workspaceId),
     index("ai_runs_job_id_idx").on(table.jobId),
@@ -702,8 +777,8 @@ export const aiRuns = pgTable(
     index("ai_runs_git_commit_idx").on(table.gitCommit),
     index("ai_runs_input_hash_idx").on(table.inputHash),
     index("ai_runs_status_idx").on(table.status),
-    index("ai_runs_created_at_idx").on(table.createdAt)
-  ]
+    index("ai_runs_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const leadScores = pgTable(
@@ -725,17 +800,20 @@ export const leadScores = pgTable(
     confidence: integer("confidence").notNull(),
     model: varchar("model", { length: 120 }).notNull(),
     promptTemplateId: varchar("prompt_template_id", { length: 80 }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check("lead_scores_score_check", sql`${table.score} between 0 and 100`),
-    check("lead_scores_qualification_check", sql`${table.qualification} in ('cold', 'warm', 'hot')`),
+    check(
+      "lead_scores_qualification_check",
+      sql`${table.qualification} in ('cold', 'warm', 'hot')`,
+    ),
     check("lead_scores_confidence_check", sql`${table.confidence} between 0 and 100`),
     index("lead_scores_workspace_id_idx").on(table.workspaceId),
     index("lead_scores_lead_id_idx").on(table.leadId),
     index("lead_scores_ai_run_id_idx").on(table.aiRunId),
-    index("lead_scores_created_at_idx").on(table.createdAt)
-  ]
+    index("lead_scores_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const templates = pgTable(
@@ -751,18 +829,27 @@ export const templates = pgTable(
     subject: text("subject"),
     bodyText: text("body_text"),
     bodyHtml: text("body_html"),
-    variablesJson: jsonb("variables_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
-    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
-    ...timestamps
+    variablesJson: jsonb("variables_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(emptyJson),
+    metadataJson: jsonb("metadata_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(emptyJson),
+    ...timestamps,
   },
   (table) => [
-    check("templates_type_check", sql`${table.type} in ('reply', 'followup', 'diagnostic', 'report', 'other')`),
+    check(
+      "templates_type_check",
+      sql`${table.type} in ('reply', 'followup', 'diagnostic', 'report', 'other')`,
+    ),
     check("templates_status_check", sql`${table.status} in ('active', 'draft', 'archived')`),
     index("templates_workspace_id_idx").on(table.workspaceId),
     index("templates_workspace_type_idx").on(table.workspaceId, table.type),
     index("templates_workspace_status_idx").on(table.workspaceId, table.status),
-    index("templates_created_at_idx").on(table.createdAt)
-  ]
+    index("templates_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const notes = pgTable(
@@ -776,17 +863,20 @@ export const notes = pgTable(
     entityId: uuid("entity_id").notNull(),
     authorId: uuid("author_id").references(() => users.id),
     body: text("body").notNull(),
-    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default(emptyJson),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+    metadataJson: jsonb("metadata_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(emptyJson),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check(
       "notes_entity_type_check",
-      sql`${table.entityType} in ('organization', 'contact', 'lead', 'opportunity', 'task')`
+      sql`${table.entityType} in ('organization', 'contact', 'lead', 'opportunity', 'task')`,
     ),
     index("notes_workspace_id_idx").on(table.workspaceId),
     index("notes_entity_idx").on(table.entityType, table.entityId),
     index("notes_author_id_idx").on(table.authorId),
-    index("notes_created_at_idx").on(table.createdAt)
-  ]
+    index("notes_created_at_idx").on(table.createdAt),
+  ],
 );

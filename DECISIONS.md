@@ -155,3 +155,14 @@ Task cancellation uses `PATCH status = cancelled`. No physical task deletion, ap
 Decision: `updated_at` is maintained by PostgreSQL through the `syrantis_set_updated_at` trigger, not by application repositories.
 
 Repositories should not manually patch `updated_at` unless a future issue explicitly documents an exception.
+
+## 2026-05-11 - Lead Score Pushback Is a Separate Job
+
+Decision: Google Sheets pushback for successful lead scoring runs as a separate
+`pushback_lead_score` background job.
+
+The `score_lead` worker commits the `lead_scores` row first, then best-effort enqueues pushback
+with an IDs-only payload. Pushback enqueue or Google Sheets failure must not fail the scoring job.
+
+The first version is append-only to `Score_Log`; it uses activity-log-based idempotence and accepts
+the known duplicate-row race if Sheet append succeeds but the succeeded activity log write fails.

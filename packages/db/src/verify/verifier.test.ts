@@ -8,25 +8,27 @@ import {
   policyInvariantSql,
   rlsInvariantSql,
   triggerFunctionInvariantSql,
-  triggerInvariantSql
+  triggerInvariantSql,
 } from "./queries.js";
 import { getInvariantKey, schemaInvariantRegistry } from "./registry.js";
 import { formatSchemaVerifyJson, getSchemaVerifyExitCode } from "./reporter.js";
 import type { ColumnCatalogRow, RlsCatalogRow, SchemaCatalog, TriggerCatalogRow } from "./types.js";
 import { verifySchemaInvariants } from "./verifier.js";
 
-function isRlsCatalogRow(value: RlsCatalogRow | Record<string, RlsCatalogRow | null>): value is RlsCatalogRow {
+function isRlsCatalogRow(
+  value: RlsCatalogRow | Record<string, RlsCatalogRow | null>,
+): value is RlsCatalogRow {
   return "rlsEnabled" in value;
 }
 
 function isColumnCatalogRow(
-  value: ColumnCatalogRow | Record<string, ColumnCatalogRow | null>
+  value: ColumnCatalogRow | Record<string, ColumnCatalogRow | null>,
 ): value is ColumnCatalogRow {
   return "dataType" in value;
 }
 
 function isTriggerCatalogRow(
-  value: TriggerCatalogRow | Record<string, TriggerCatalogRow | null>
+  value: TriggerCatalogRow | Record<string, TriggerCatalogRow | null>,
 ): value is TriggerCatalogRow {
   return "enabled" in value;
 }
@@ -70,7 +72,9 @@ function buildCatalog(input: {
       return input.rls ?? { rlsEnabled: true, rlsForced: true };
     },
     hasPolicy: async ({ policyName }) =>
-      typeof input.policy === "object" ? (input.policy[policyName] ?? false) : (input.policy ?? true),
+      typeof input.policy === "object"
+        ? (input.policy[policyName] ?? false)
+        : (input.policy ?? true),
     hasTriggerFunction: async ({ functionName }) =>
       typeof input.triggerFunction === "object"
         ? (input.triggerFunction[functionName] ?? false)
@@ -87,17 +91,17 @@ function buildCatalog(input: {
       return (
         input.trigger ?? {
           enabled: true,
-          functionName: "enforce_email_sends_terminal_delivery_immutability"
+          functionName: "enforce_email_sends_terminal_delivery_immutability",
         }
       );
-    }
+    },
   };
 }
 
 const emailSendProofCheckConstraints = {
   email_sends_sent_requires_sent_at: true,
   email_sends_failed_requires_failed_at: true,
-  email_sends_failed_requires_last_error_code: true
+  email_sends_failed_requires_last_error_code: true,
 };
 
 const allCheckConstraints = {
@@ -105,7 +109,8 @@ const allCheckConstraints = {
   email_sends_delivery_status_check: true,
   email_sends_delivered_requires_delivered_at: true,
   email_sends_bounced_requires_bounced_at: true,
-  email_sends_complained_requires_complained_at: true
+  email_sends_complained_requires_complained_at: true,
+  background_jobs_type_check: true,
 };
 
 const deliveryColumns = [
@@ -113,7 +118,7 @@ const deliveryColumns = [
   ["delivered_at", "timestamp with time zone"],
   ["bounced_at", "timestamp with time zone"],
   ["complained_at", "timestamp with time zone"],
-  ["delivery_error_code", "text"]
+  ["delivery_error_code", "text"],
 ] as const;
 
 const allColumns = {
@@ -122,7 +127,7 @@ const allColumns = {
   delivered_at: { dataType: "timestamp with time zone", isNullable: true },
   bounced_at: { dataType: "timestamp with time zone", isNullable: true },
   complained_at: { dataType: "timestamp with time zone", isNullable: true },
-  delivery_error_code: { dataType: "text", isNullable: true }
+  delivery_error_code: { dataType: "text", isNullable: true },
 };
 
 const expectedRlsTables = [
@@ -140,7 +145,7 @@ const expectedRlsTables = [
   "email_sends",
   "background_jobs",
   "ai_runs",
-  "lead_scores"
+  "lead_scores",
 ];
 
 describe("schema invariant registry", () => {
@@ -158,8 +163,8 @@ describe("schema invariant registry", () => {
           invariant.table === "background_jobs" &&
           invariant.column === "scheduled_at" &&
           invariant.dataType === "timestamp with time zone" &&
-          invariant.isNullable
-      )
+          invariant.isNullable,
+      ),
     );
   });
 
@@ -170,8 +175,8 @@ describe("schema invariant registry", () => {
           invariant.kind === "index" &&
           invariant.migration === "0015" &&
           invariant.table === "background_jobs" &&
-          invariant.indexName === "background_jobs_pending_send_email_scheduled_at_idx"
-      )
+          invariant.indexName === "background_jobs_pending_send_email_scheduled_at_idx",
+      ),
     );
   });
 
@@ -182,8 +187,8 @@ describe("schema invariant registry", () => {
           invariant.kind === "index" &&
           invariant.migration === "0016" &&
           invariant.table === "email_sends" &&
-          invariant.indexName === "email_sends_provider_message_id_unique_idx"
-      )
+          invariant.indexName === "email_sends_provider_message_id_unique_idx",
+      ),
     );
 
     for (const constraintName of Object.keys(emailSendProofCheckConstraints)) {
@@ -193,9 +198,9 @@ describe("schema invariant registry", () => {
             invariant.kind === "check_constraint" &&
             invariant.migration === "0016" &&
             invariant.table === "email_sends" &&
-            invariant.constraintName === constraintName
+            invariant.constraintName === constraintName,
         ),
-        `missing registry entry for ${constraintName}`
+        `missing registry entry for ${constraintName}`,
       );
     }
   });
@@ -210,9 +215,9 @@ describe("schema invariant registry", () => {
             invariant.table === "email_sends" &&
             invariant.column === column &&
             invariant.dataType === dataType &&
-            invariant.isNullable
+            invariant.isNullable,
         ),
-        `missing registry entry for ${column}`
+        `missing registry entry for ${column}`,
       );
     }
 
@@ -220,7 +225,7 @@ describe("schema invariant registry", () => {
       "email_sends_delivery_status_check",
       "email_sends_delivered_requires_delivered_at",
       "email_sends_bounced_requires_bounced_at",
-      "email_sends_complained_requires_complained_at"
+      "email_sends_complained_requires_complained_at",
     ]) {
       assert.ok(
         schemaInvariantRegistry.some(
@@ -228,9 +233,9 @@ describe("schema invariant registry", () => {
             invariant.kind === "check_constraint" &&
             invariant.migration === "0017" &&
             invariant.table === "email_sends" &&
-            invariant.constraintName === constraintName
+            invariant.constraintName === constraintName,
         ),
-        `missing registry entry for ${constraintName}`
+        `missing registry entry for ${constraintName}`,
       );
     }
 
@@ -240,8 +245,8 @@ describe("schema invariant registry", () => {
           invariant.kind === "rls" &&
           invariant.migration === "0017" &&
           invariant.table === "email_sends" &&
-          invariant.policyName === "email_sends_provider_message_lookup"
-      )
+          invariant.policyName === "email_sends_provider_message_lookup",
+      ),
     );
   });
 
@@ -252,8 +257,8 @@ describe("schema invariant registry", () => {
           invariant.kind === "trigger_function" &&
           invariant.migration === "0018" &&
           invariant.schema === "public" &&
-          invariant.functionName === "enforce_email_sends_terminal_delivery_immutability"
-      )
+          invariant.functionName === "enforce_email_sends_terminal_delivery_immutability",
+      ),
     );
 
     assert.ok(
@@ -264,15 +269,27 @@ describe("schema invariant registry", () => {
           invariant.schema === "public" &&
           invariant.table === "email_sends" &&
           invariant.triggerName === "email_sends_terminal_delivery_immutability_trg" &&
-          invariant.functionName === "enforce_email_sends_terminal_delivery_immutability"
-      )
+          invariant.functionName === "enforce_email_sends_terminal_delivery_immutability",
+      ),
+    );
+  });
+
+  it("includes the 0019 pushback_lead_score background job type invariant", () => {
+    assert.ok(
+      schemaInvariantRegistry.some(
+        (invariant) =>
+          invariant.kind === "check_constraint" &&
+          invariant.migration === "0019" &&
+          invariant.table === "background_jobs" &&
+          invariant.constraintName === "background_jobs_type_check",
+      ),
     );
   });
 
   it("includes RLS tenant isolation invariants for expected tenant tables", () => {
     const rlsInvariants = schemaInvariantRegistry.filter(
       (invariant) =>
-        invariant.kind === "rls" && invariant.policyName.startsWith("tenant_isolation_")
+        invariant.kind === "rls" && invariant.policyName.startsWith("tenant_isolation_"),
     );
 
     assert.equal(rlsInvariants.length, expectedRlsTables.length);
@@ -283,9 +300,9 @@ describe("schema invariant registry", () => {
           (invariant) =>
             invariant.kind === "rls" &&
             invariant.table === table &&
-            invariant.policyName === `tenant_isolation_${table}`
+            invariant.policyName === `tenant_isolation_${table}`,
         ),
-        `missing RLS registry entry for ${table}`
+        `missing RLS registry entry for ${table}`,
       );
     }
   });
@@ -297,14 +314,14 @@ describe("schema invariant verifier", () => {
       buildCatalog({
         column: allColumns,
         index: true,
-        checkConstraint: true
+        checkConstraint: true,
       }),
-      schemaInvariantRegistry
+      schemaInvariantRegistry,
     );
 
     assert.equal(result.success, true);
-    assert.equal(result.checked, 33);
-    assert.equal(result.passed.length, 33);
+    assert.equal(result.checked, 34);
+    assert.equal(result.passed.length, 34);
     assert.equal(result.failed.length, 0);
   });
 
@@ -314,9 +331,9 @@ describe("schema invariant verifier", () => {
     const result = await verifySchemaInvariants(
       buildCatalog({
         rls: { rlsEnabled: true, rlsForced: true },
-        policy: true
+        policy: true,
       }),
-      rlsInvariants
+      rlsInvariants,
     );
 
     assert.equal(result.success, true);
@@ -332,9 +349,9 @@ describe("schema invariant verifier", () => {
     const result = await verifySchemaInvariants(
       buildCatalog({
         rls: { rlsEnabled: false, rlsForced: true },
-        policy: true
+        policy: true,
       }),
-      [rlsInvariant]
+      [rlsInvariant],
     );
 
     assert.equal(result.success, false);
@@ -344,7 +361,7 @@ describe("schema invariant verifier", () => {
       object: `${rlsInvariant.table}.${rlsInvariant.policyName}`,
       reason: "rls_disabled",
       expected: true,
-      actual: false
+      actual: false,
     });
   });
 
@@ -355,9 +372,9 @@ describe("schema invariant verifier", () => {
     const result = await verifySchemaInvariants(
       buildCatalog({
         rls: { rlsEnabled: true, rlsForced: false },
-        policy: true
+        policy: true,
       }),
-      [rlsInvariant]
+      [rlsInvariant],
     );
 
     assert.equal(result.success, false);
@@ -367,7 +384,7 @@ describe("schema invariant verifier", () => {
       object: `${rlsInvariant.table}.${rlsInvariant.policyName}`,
       reason: "rls_force_disabled",
       expected: true,
-      actual: false
+      actual: false,
     });
   });
 
@@ -378,9 +395,9 @@ describe("schema invariant verifier", () => {
     const result = await verifySchemaInvariants(
       buildCatalog({
         rls: { rlsEnabled: true, rlsForced: true },
-        policy: false
+        policy: false,
       }),
-      [rlsInvariant]
+      [rlsInvariant],
     );
 
     assert.equal(result.success, false);
@@ -390,7 +407,7 @@ describe("schema invariant verifier", () => {
       object: `${rlsInvariant.table}.${rlsInvariant.policyName}`,
       reason: "policy_missing",
       expected: rlsInvariant.policyName,
-      actual: false
+      actual: false,
     });
   });
 
@@ -401,9 +418,9 @@ describe("schema invariant verifier", () => {
     const result = await verifySchemaInvariants(
       buildCatalog({
         rls: null,
-        policy: true
+        policy: true,
       }),
-      [rlsInvariant]
+      [rlsInvariant],
     );
 
     assert.equal(result.success, false);
@@ -413,7 +430,7 @@ describe("schema invariant verifier", () => {
       object: `${rlsInvariant.table}.${rlsInvariant.policyName}`,
       reason: "missing",
       expected: true,
-      actual: null
+      actual: null,
     });
   });
 
@@ -422,9 +439,9 @@ describe("schema invariant verifier", () => {
       buildCatalog({
         column: null,
         index: true,
-        checkConstraint: true
+        checkConstraint: true,
       }),
-      schemaInvariantRegistry
+      schemaInvariantRegistry,
     );
 
     assert.equal(result.success, false);
@@ -434,7 +451,7 @@ describe("schema invariant verifier", () => {
       object: "background_jobs.scheduled_at",
       reason: "missing",
       expected: "timestamp with time zone",
-      actual: null
+      actual: null,
     });
   });
 
@@ -443,9 +460,9 @@ describe("schema invariant verifier", () => {
       buildCatalog({
         column: { dataType: "timestamp without time zone", isNullable: true },
         index: true,
-        checkConstraint: true
+        checkConstraint: true,
       }),
-      schemaInvariantRegistry
+      schemaInvariantRegistry,
     );
 
     assert.equal(result.success, false);
@@ -458,9 +475,9 @@ describe("schema invariant verifier", () => {
       buildCatalog({
         column: { dataType: "timestamp with time zone", isNullable: false },
         index: true,
-        checkConstraint: true
+        checkConstraint: true,
       }),
-      schemaInvariantRegistry
+      schemaInvariantRegistry,
     );
 
     assert.equal(result.success, false);
@@ -473,9 +490,9 @@ describe("schema invariant verifier", () => {
       buildCatalog({
         column: allColumns,
         index: false,
-        checkConstraint: true
+        checkConstraint: true,
       }),
-      schemaInvariantRegistry
+      schemaInvariantRegistry,
     );
 
     assert.equal(result.success, false);
@@ -485,7 +502,7 @@ describe("schema invariant verifier", () => {
       object: "background_jobs_pending_send_email_scheduled_at_idx",
       reason: "missing",
       expected: true,
-      actual: false
+      actual: false,
     });
   });
 
@@ -495,11 +512,11 @@ describe("schema invariant verifier", () => {
         column: allColumns,
         index: {
           background_jobs_pending_send_email_scheduled_at_idx: true,
-          email_sends_provider_message_id_unique_idx: false
+          email_sends_provider_message_id_unique_idx: false,
         },
-        checkConstraint: true
+        checkConstraint: true,
       }),
-      schemaInvariantRegistry
+      schemaInvariantRegistry,
     );
 
     assert.equal(result.success, false);
@@ -509,7 +526,7 @@ describe("schema invariant verifier", () => {
       object: "email_sends_provider_message_id_unique_idx",
       reason: "missing",
       expected: true,
-      actual: false
+      actual: false,
     });
   });
 
@@ -521,15 +538,15 @@ describe("schema invariant verifier", () => {
           index: true,
           checkConstraint: {
             ...allCheckConstraints,
-            [constraintName]: false
-          }
+            [constraintName]: false,
+          },
         }),
-        schemaInvariantRegistry
+        schemaInvariantRegistry,
       );
 
       assert.equal(result.success, false);
       const invariant = schemaInvariantRegistry.find(
-        (entry) => entry.kind === "check_constraint" && entry.constraintName === constraintName
+        (entry) => entry.kind === "check_constraint" && entry.constraintName === constraintName,
       );
       assert.ok(invariant);
 
@@ -539,7 +556,7 @@ describe("schema invariant verifier", () => {
         object: constraintName,
         reason: "missing",
         expected: true,
-        actual: false
+        actual: false,
       });
     });
   }
@@ -549,7 +566,7 @@ describe("schema invariant verifier", () => {
       (invariant) =>
         invariant.kind === "column" &&
         invariant.migration === "0017" &&
-        invariant.table === "email_sends"
+        invariant.table === "email_sends",
     );
     assert.ok(deliveryColumnInvariant?.kind === "column");
 
@@ -559,9 +576,9 @@ describe("schema invariant verifier", () => {
         index: true,
         checkConstraint: true,
         rls: { rlsEnabled: true, rlsForced: true },
-        policy: true
+        policy: true,
       }),
-      [deliveryColumnInvariant]
+      [deliveryColumnInvariant],
     );
 
     assert.equal(result.success, false);
@@ -571,7 +588,7 @@ describe("schema invariant verifier", () => {
       object: `email_sends.${deliveryColumnInvariant.column}`,
       reason: "missing",
       expected: deliveryColumnInvariant.dataType,
-      actual: null
+      actual: null,
     });
   });
 
@@ -580,7 +597,7 @@ describe("schema invariant verifier", () => {
       (invariant) =>
         invariant.kind === "check_constraint" &&
         invariant.migration === "0017" &&
-        invariant.table === "email_sends"
+        invariant.table === "email_sends",
     );
     assert.ok(deliveryConstraintInvariant?.kind === "check_constraint");
 
@@ -590,9 +607,9 @@ describe("schema invariant verifier", () => {
         index: true,
         checkConstraint: false,
         rls: { rlsEnabled: true, rlsForced: true },
-        policy: true
+        policy: true,
       }),
-      [deliveryConstraintInvariant]
+      [deliveryConstraintInvariant],
     );
 
     assert.equal(result.success, false);
@@ -602,7 +619,7 @@ describe("schema invariant verifier", () => {
       object: deliveryConstraintInvariant.constraintName,
       reason: "missing",
       expected: true,
-      actual: false
+      actual: false,
     });
   });
 
@@ -611,16 +628,16 @@ describe("schema invariant verifier", () => {
       (invariant) =>
         invariant.kind === "rls" &&
         invariant.migration === "0017" &&
-        invariant.table === "email_sends"
+        invariant.table === "email_sends",
     );
     assert.ok(lookupPolicyInvariant);
 
     const result = await verifySchemaInvariants(
       buildCatalog({
         rls: { rlsEnabled: true, rlsForced: true },
-        policy: false
+        policy: false,
       }),
-      [lookupPolicyInvariant]
+      [lookupPolicyInvariant],
     );
 
     assert.equal(result.success, false);
@@ -630,13 +647,13 @@ describe("schema invariant verifier", () => {
       object: "email_sends.email_sends_provider_message_lookup",
       reason: "policy_missing",
       expected: "email_sends_provider_message_lookup",
-      actual: false
+      actual: false,
     });
   });
 
   it("reports drift when the 0018 trigger function is absent", async () => {
     const [triggerFunctionInvariant] = schemaInvariantRegistry.filter(
-      (invariant) => invariant.kind === "trigger_function" && invariant.migration === "0018"
+      (invariant) => invariant.kind === "trigger_function" && invariant.migration === "0018",
     );
     assert.ok(triggerFunctionInvariant?.kind === "trigger_function");
 
@@ -645,10 +662,10 @@ describe("schema invariant verifier", () => {
         triggerFunction: false,
         trigger: {
           enabled: true,
-          functionName: "enforce_email_sends_terminal_delivery_immutability"
-        }
+          functionName: "enforce_email_sends_terminal_delivery_immutability",
+        },
       }),
-      [triggerFunctionInvariant]
+      [triggerFunctionInvariant],
     );
 
     assert.equal(result.success, false);
@@ -658,22 +675,22 @@ describe("schema invariant verifier", () => {
       object: "enforce_email_sends_terminal_delivery_immutability",
       reason: "missing",
       expected: true,
-      actual: false
+      actual: false,
     });
   });
 
   it("reports drift when the 0018 trigger is absent", async () => {
     const [triggerInvariant] = schemaInvariantRegistry.filter(
-      (invariant) => invariant.kind === "trigger" && invariant.migration === "0018"
+      (invariant) => invariant.kind === "trigger" && invariant.migration === "0018",
     );
     assert.ok(triggerInvariant?.kind === "trigger");
 
     const result = await verifySchemaInvariants(
       buildCatalog({
         triggerFunction: true,
-        trigger: null
+        trigger: null,
       }),
-      [triggerInvariant]
+      [triggerInvariant],
     );
 
     assert.equal(result.success, false);
@@ -683,13 +700,13 @@ describe("schema invariant verifier", () => {
       object: "email_sends.email_sends_terminal_delivery_immutability_trg",
       reason: "missing",
       expected: true,
-      actual: null
+      actual: null,
     });
   });
 
   it("reports drift when the 0018 trigger is disabled", async () => {
     const [triggerInvariant] = schemaInvariantRegistry.filter(
-      (invariant) => invariant.kind === "trigger" && invariant.migration === "0018"
+      (invariant) => invariant.kind === "trigger" && invariant.migration === "0018",
     );
     assert.ok(triggerInvariant?.kind === "trigger");
 
@@ -698,10 +715,10 @@ describe("schema invariant verifier", () => {
         triggerFunction: true,
         trigger: {
           enabled: false,
-          functionName: "enforce_email_sends_terminal_delivery_immutability"
-        }
+          functionName: "enforce_email_sends_terminal_delivery_immutability",
+        },
       }),
-      [triggerInvariant]
+      [triggerInvariant],
     );
 
     assert.equal(result.success, false);
@@ -711,13 +728,13 @@ describe("schema invariant verifier", () => {
       object: "email_sends.email_sends_terminal_delivery_immutability_trg",
       reason: "trigger_disabled",
       expected: true,
-      actual: false
+      actual: false,
     });
   });
 
   it("reports drift when the 0018 trigger points to the wrong function", async () => {
     const [triggerInvariant] = schemaInvariantRegistry.filter(
-      (invariant) => invariant.kind === "trigger" && invariant.migration === "0018"
+      (invariant) => invariant.kind === "trigger" && invariant.migration === "0018",
     );
     assert.ok(triggerInvariant?.kind === "trigger");
 
@@ -726,10 +743,10 @@ describe("schema invariant verifier", () => {
         triggerFunction: true,
         trigger: {
           enabled: true,
-          functionName: "syrantis_set_updated_at"
-        }
+          functionName: "syrantis_set_updated_at",
+        },
       }),
-      [triggerInvariant]
+      [triggerInvariant],
     );
 
     assert.equal(result.success, false);
@@ -739,7 +756,7 @@ describe("schema invariant verifier", () => {
       object: "email_sends.email_sends_terminal_delivery_immutability_trg",
       reason: "trigger_function_mismatch",
       expected: "enforce_email_sends_terminal_delivery_immutability",
-      actual: "syrantis_set_updated_at"
+      actual: "syrantis_set_updated_at",
     });
   });
 
@@ -748,14 +765,14 @@ describe("schema invariant verifier", () => {
       buildCatalog({
         column: null,
         index: false,
-        checkConstraint: false
+        checkConstraint: false,
       }),
-      schemaInvariantRegistry
+      schemaInvariantRegistry,
     );
 
     assert.equal(getSchemaVerifyExitCode(result), 1);
-    assert.equal(result.checked, 33);
-    assert.equal(result.failed.length, 15);
+    assert.equal(result.checked, 34);
+    assert.equal(result.failed.length, 16);
   });
 
   it("keeps verification SQL limited to PostgreSQL catalog metadata", () => {
@@ -772,7 +789,7 @@ describe("schema invariant verifier", () => {
     assert.match(combinedSql, /relkind = 'r'/);
     assert.doesNotMatch(
       combinedSql,
-      /from\s+(organizations|contacts|leads|tasks|approvals|activity_logs|drafts|email_sends|background_jobs|ai_runs|lead_scores|external_connections|external_object_mappings|integration_events|workspace_api_keys)\b/i
+      /from\s+(organizations|contacts|leads|tasks|approvals|activity_logs|drafts|email_sends|background_jobs|ai_runs|lead_scores|external_connections|external_object_mappings|integration_events|workspace_api_keys)\b/i,
     );
   });
 
@@ -783,9 +800,9 @@ describe("schema invariant verifier", () => {
         index: true,
         checkConstraint: true,
         rls: { rlsEnabled: true, rlsForced: true },
-        policy: true
+        policy: true,
       }),
-      schemaInvariantRegistry
+      schemaInvariantRegistry,
     );
 
     const parsed = JSON.parse(formatSchemaVerifyJson(result)) as {
@@ -796,8 +813,8 @@ describe("schema invariant verifier", () => {
     };
 
     assert.equal(parsed.success, true);
-    assert.equal(parsed.checked, 33);
-    assert.equal(parsed.passed, 33);
+    assert.equal(parsed.checked, 34);
+    assert.equal(parsed.passed, 34);
     assert.deepEqual(parsed.failed, []);
   });
 });

@@ -3,6 +3,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { backgroundJobs } from "@syrantis/db";
 import type {
   GenerateAiDraftJobPayload,
+  PushbackLeadScoreJobPayload,
   ScoreLeadJobPayload,
   SendEmailJobPayload,
 } from "@syrantis/shared";
@@ -29,6 +30,14 @@ export type EnqueueScoreLeadJobInput = {
 export type EnqueueGenerateAiDraftJobInput = {
   workspaceId: string;
   leadId: string;
+  runAfter?: Date;
+};
+
+export type EnqueuePushbackLeadScoreJobInput = {
+  workspaceId: string;
+  leadId: string;
+  scoreId: string;
+  diagnosticTraceId?: string | null;
   runAfter?: Date;
 };
 
@@ -125,10 +134,10 @@ export async function enqueueSendEmailJob(
     .values({
       workspaceId: input.workspaceId,
       type: "send_email",
-        payloadJson: payload,
-        status: "pending",
-        runAfter: input.runAfter ?? new Date(),
-        scheduledAt: null,
+      payloadJson: payload,
+      status: "pending",
+      runAfter: input.runAfter ?? new Date(),
+      scheduledAt: null,
     })
     .returning();
 
@@ -145,7 +154,9 @@ export async function enqueueScoreLeadJob(
 ): Promise<BackgroundJobRow> {
   const payload: ScoreLeadJobPayload = {
     leadId: input.leadId,
-    ...(input.diagnosticTraceId !== undefined ? { diagnosticTraceId: input.diagnosticTraceId } : {}),
+    ...(input.diagnosticTraceId !== undefined
+      ? { diagnosticTraceId: input.diagnosticTraceId }
+      : {}),
     ...(input.source !== undefined ? { source: input.source } : {}),
   };
 
@@ -154,10 +165,10 @@ export async function enqueueScoreLeadJob(
     .values({
       workspaceId: input.workspaceId,
       type: "score_lead",
-        payloadJson: payload,
-        status: "pending",
-        runAfter: input.runAfter ?? new Date(),
-        scheduledAt: null,
+      payloadJson: payload,
+      status: "pending",
+      runAfter: input.runAfter ?? new Date(),
+      scheduledAt: null,
     })
     .returning();
 
@@ -201,15 +212,45 @@ export async function enqueueGenerateAiDraftJob(
     .values({
       workspaceId: input.workspaceId,
       type: "generate_ai_draft",
-        payloadJson: payload,
-        status: "pending",
-        runAfter: input.runAfter ?? new Date(),
-        scheduledAt: null,
+      payloadJson: payload,
+      status: "pending",
+      runAfter: input.runAfter ?? new Date(),
+      scheduledAt: null,
     })
     .returning();
 
   if (!job) {
     throw new Error("Failed to enqueue generate_ai_draft job.");
+  }
+
+  return job;
+}
+
+export async function enqueuePushbackLeadScoreJob(
+  tx: WorkspaceDbTransaction,
+  input: EnqueuePushbackLeadScoreJobInput,
+): Promise<BackgroundJobRow> {
+  const payload: PushbackLeadScoreJobPayload = {
+    leadId: input.leadId,
+    scoreId: input.scoreId,
+    diagnosticTraceId: input.diagnosticTraceId ?? null,
+    source: "score_lead",
+  };
+
+  const [job] = await tx
+    .insert(backgroundJobs)
+    .values({
+      workspaceId: input.workspaceId,
+      type: "pushback_lead_score",
+      payloadJson: payload,
+      status: "pending",
+      runAfter: input.runAfter ?? new Date(),
+      scheduledAt: null,
+    })
+    .returning();
+
+  if (!job) {
+    throw new Error("Failed to enqueue pushback_lead_score job.");
   }
 
   return job;
@@ -292,7 +333,9 @@ export async function completeBackgroundJob(
       lastErrorCode: null,
       lastErrorMessage: null,
     })
-    .where(and(eq(backgroundJobs.id, input.jobId), eq(backgroundJobs.workspaceId, input.workspaceId)))
+    .where(
+      and(eq(backgroundJobs.id, input.jobId), eq(backgroundJobs.workspaceId, input.workspaceId)),
+    )
     .returning();
 
   if (!job) {
@@ -315,7 +358,9 @@ export async function failBackgroundJob(
       lastErrorCode: input.errorCode,
       lastErrorMessage: compactErrorMessage(input.errorMessage),
     })
-    .where(and(eq(backgroundJobs.id, input.jobId), eq(backgroundJobs.workspaceId, input.workspaceId)))
+    .where(
+      and(eq(backgroundJobs.id, input.jobId), eq(backgroundJobs.workspaceId, input.workspaceId)),
+    )
     .returning();
 
   if (!job) {
