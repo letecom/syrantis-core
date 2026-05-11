@@ -55,6 +55,7 @@ The shared contract is `LeadScoreStatusDtoSchema`.
 
 Safe response fields:
 
+- `leadId`
 - `scoreStatus`
 - `latestJob.id`
 - `latestJob.status`

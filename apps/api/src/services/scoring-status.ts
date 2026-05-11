@@ -118,12 +118,14 @@ function processingNoteForStatus(status: LeadScoreStatus): string {
 
 function mapRecord(
   result: Extract<FindScoringStatusRecordResult, { result: "ok" }>,
+  leadId: string,
 ): LeadScoreStatusDto {
   const latestJob = result.record.jobs[0] ? mapJob(result.record.jobs[0]) : null;
   const latestScore = result.record.scores[0] ? mapScore(result.record.scores[0]) : null;
   const scoreStatus = calculateStatus({ latestJob, latestScore });
 
   return LeadScoreStatusDtoSchema.parse({
+    leadId,
     scoreStatus,
     latestJob,
     latestScore,
@@ -147,7 +149,7 @@ export function createProductionScoringStatusService(): ScoringStatusService {
 
       return {
         result: "ok",
-        status: mapRecord(result),
+        status: mapRecord(result, leadId),
       };
     },
   };
