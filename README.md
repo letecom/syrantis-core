@@ -95,6 +95,29 @@ No chatbot.
 
 No uncontrolled agent.
 
+## Gmail Client Intake / 023L
+
+023L provides a repeatable client validation pack for:
+
+```txt
+Gmail -> Apps Script -> Google Sheet Intake Log -> public inbound message intake -> lead
+  -> score_lead job -> worker -> lead_scores
+```
+
+It uses the existing 023J public API-key intake contract and does not add backend Gmail OAuth,
+routes, migrations, UI, worker changes, or runtime configuration. The workspace API key stays in
+Google Apps Script Script Properties, never in the Apps Script source or Sheet.
+
+Templates and runbook:
+
+- `docs/runbooks/gmail-client-e2e.md`
+- `docs/templates/gmail-to-syrantis-intake.gs`
+- `docs/templates/google-sheet-intake-log.csv`
+- `docs/templates/google-sheet-intake-log.md`
+
+The Intake Log must not contain API keys, `bodyText`, body summaries, raw payloads, raw API
+responses, or workspace context.
+
 ## Current State
 
 Production server:

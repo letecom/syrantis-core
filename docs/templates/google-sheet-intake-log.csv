@@ -1,0 +1,1 @@
+timestamp,source,gmailMessageId,gmailThreadId,fromEmail,contactName,subject,receivedAt,httpStatus,success,isReplay,diagnosticTraceId,leadId,scoringJobId,externalId,errorCode,errorMessageSafe,retryCount
