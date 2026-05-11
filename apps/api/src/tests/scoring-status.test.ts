@@ -110,6 +110,7 @@ describe("scoring status service", () => {
 
     const status = await readStatus();
 
+    expect(status.leadId).toBe(leadId);
     expect(status.scoreStatus).toBe(expectedStatus);
     expect(status.counts).toEqual({
       totalScoringJobs: jobs.length,
@@ -143,6 +144,7 @@ describe("scoring status service", () => {
     const status = await readStatus();
 
     expect(status.scoreStatus).toBe("failed_with_previous_score");
+    expect(status.leadId).toBe(leadId);
     expect(status.latestJob?.id).toBe(jobId);
     expect(status.latestScore?.id).toBe(scoreId);
     expect(status.latestScore?.score).toBe(94);

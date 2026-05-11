@@ -301,6 +301,7 @@ function createFakeAuthServiceForUser(user: AuthMe): AuthService {
 }
 
 const scoreStatusDto: LeadScoreStatusDto = {
+  leadId: currentWorkspaceLeadId,
   scoreStatus: "completed",
   latestJob: {
     id: scoreStatusJobId,
@@ -526,10 +527,13 @@ describe("lead routes", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
+    const body = await response.json();
+
+    expect(body).toEqual({
       success: true,
       data: scoreStatusDto,
     });
+    expect(body.data.leadId).toBe(currentWorkspaceLeadId);
     expect(scoringStatusService.getStatus).toHaveBeenCalledWith(
       testUser.workspaceId,
       currentWorkspaceLeadId,

@@ -9,6 +9,7 @@ The route replaces manual SQL checks for:
 
 - latest `score_lead` job state
 - latest safe `lead_scores` row
+- requested lead id
 - total scoring jobs and scores for the lead
 - derived score status
 

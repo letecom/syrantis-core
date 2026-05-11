@@ -43,6 +43,7 @@ export const LeadScoreStatusLatestScoreSchema = z.object({
 });
 
 export const LeadScoreStatusDtoSchema = z.object({
+  leadId: z.string().uuid(),
   scoreStatus: LeadScoreStatusSchema,
   latestJob: LeadScoreStatusJobSchema.nullable(),
   latestScore: LeadScoreStatusLatestScoreSchema.nullable(),
