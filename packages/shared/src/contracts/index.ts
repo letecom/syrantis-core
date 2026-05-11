@@ -13,6 +13,7 @@ export * from "./health.js";
 export * from "./inbound-message.js";
 export * from "./google-sheets-setup.js";
 export * from "./integrations.js";
+export * from "./lead-score-status.js";
 export * from "./leads.js";
 export * from "./organizations.js";
 export * from "./public-leads.js";

@@ -51,8 +51,21 @@ Google Sheets push-back MVP + diagnostics
         ↓
 023K API key management and public intake hardening
         ↓
+023M Lead Score Read Model
+        ↓
 Future CRM connector hardening / additional targets
 ```
+
+## Lead Score Read Model / 023M
+
+023M adds `GET /api/leads/:id/score-status`, an admin/founder session route for safe read-only
+lead scoring state. It reports the latest `score_lead` job, latest safe score, derived status, and
+counts without exposing lead content, raw job payloads, raw score payloads, AI internals,
+`workspaceId`, or `last_error_message`.
+
+The route adds no migration, UI, worker change, provider call, AI call, public API-key access, or
+activity log on GET. Scoring jobs are linked by `background_jobs.payload_json->>'leadId'`, never by
+`background_jobs.entity_id`. 023N will use this read model as the basis for score pushback.
 
 ## Product Positioning
 

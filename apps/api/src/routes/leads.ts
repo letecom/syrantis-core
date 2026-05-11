@@ -8,9 +8,11 @@ import {
   LeadDraftGenerationRequestSuccessSchema,
   LeadListQuerySchema,
   LeadListSuccessSchema,
+  LeadScoreStatusSuccessSchema,
   LeadScoreRequestSuccessSchema,
   LeadSuccessSchema,
-  UpdateLeadInputSchema
+  UpdateLeadInputSchema,
+  forbidden,
 } from "@syrantis/shared";
 
 import { getWorkspaceId } from "../lib/tenant.js";
@@ -18,17 +20,21 @@ import { createTenantGuard, tenantGuard } from "../middleware/tenant.js";
 import type { AuthService } from "../services/auth.js";
 import {
   createProductionLeadScoreService,
-  type LeadScoreService
+  type LeadScoreService,
 } from "../services/lead-scores.js";
 import {
+  createProductionScoringStatusService,
+  type ScoringStatusService,
+} from "../services/scoring-status.js";
+import {
   createProductionLeadDraftGenerationService,
-  type LeadDraftGenerationService
+  type LeadDraftGenerationService,
 } from "../services/lead-draft-generation.js";
 import {
   createProductionLeadService,
   type LeadService,
   type LeadServiceListResult,
-  type LeadServiceMutationResult
+  type LeadServiceMutationResult,
 } from "../services/leads.js";
 import type { AppEnv } from "../types/hono.js";
 
@@ -37,32 +43,37 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}
 const invalidRequestResponse = ApiErrorSchema.parse({
   success: false,
   error: "Invalid request.",
-  code: "INVALID_REQUEST"
+  code: "INVALID_REQUEST",
 });
 
 const leadNotFoundResponse = ApiErrorSchema.parse({
   success: false,
   error: "Lead not found.",
-  code: "LEAD_NOT_FOUND"
+  code: "LEAD_NOT_FOUND",
 });
 
 const leadConflictResponse = ApiErrorSchema.parse({
   success: false,
   error: "Lead conflict.",
-  code: "LEAD_CONFLICT"
+  code: "LEAD_CONFLICT",
 });
 
 const LeadScoreHistoryRouteQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
-  cursor: z.string().datetime().optional()
+  cursor: z.string().datetime().optional(),
 });
 
 export type LeadRoutesDependencies = {
   authService?: AuthService;
   leadService?: LeadService;
   leadScoreService?: LeadScoreService;
+  scoringStatusService?: ScoringStatusService;
   leadDraftGenerationService?: LeadDraftGenerationService;
 };
+
+function isAdminRole(role: string): boolean {
+  return role === "admin" || role === "founder";
+}
 
 function hasClientWorkspaceId(value: unknown): boolean {
   return typeof value === "object" && value !== null && "workspaceId" in value;
@@ -84,15 +95,15 @@ function listResponse(c: Context<AppEnv>, result: LeadServiceListResult) {
   return c.json(
     LeadListSuccessSchema.parse({
       success: true,
-      data: result.leads
-    })
+      data: result.leads,
+    }),
   );
 }
 
 function mutationResponse(
   c: Context<AppEnv>,
   result: LeadServiceMutationResult,
-  successStatus: ContentfulStatusCode = 200
+  successStatus: ContentfulStatusCode = 200,
 ) {
   if (result.result === "not_found") {
     return c.json(leadNotFoundResponse, 404);
@@ -105,17 +116,21 @@ function mutationResponse(
   return c.json(
     LeadSuccessSchema.parse({
       success: true,
-      data: result.lead
+      data: result.lead,
     }),
-    successStatus
+    successStatus,
   );
 }
 
 export function createLeadRoutes(dependencies: LeadRoutesDependencies = {}) {
   const routes = new Hono<AppEnv>();
-  const guard = dependencies.authService ? createTenantGuard(dependencies.authService) : tenantGuard;
+  const guard = dependencies.authService
+    ? createTenantGuard(dependencies.authService)
+    : tenantGuard;
   const leadService = dependencies.leadService ?? createProductionLeadService();
   const leadScoreService = dependencies.leadScoreService ?? createProductionLeadScoreService();
+  const scoringStatusService =
+    dependencies.scoringStatusService ?? createProductionScoringStatusService();
   const leadDraftGenerationService =
     dependencies.leadDraftGenerationService ?? createProductionLeadDraftGenerationService();
 
@@ -151,7 +166,11 @@ export function createLeadRoutes(dependencies: LeadRoutesDependencies = {}) {
       return c.json(invalidRequestResponse, 400);
     }
 
-    const result = await leadService.createLead(getWorkspaceId(c), c.get("userId"), parsedBody.data);
+    const result = await leadService.createLead(
+      getWorkspaceId(c),
+      c.get("userId"),
+      parsedBody.data,
+    );
     return mutationResponse(c, result, 201);
   });
 
@@ -183,10 +202,10 @@ export function createLeadRoutes(dependencies: LeadRoutesDependencies = {}) {
         success: true,
         data: {
           jobId: result.jobId,
-          leadId: result.leadId
-        }
+          leadId: result.leadId,
+        },
       }),
-      202
+      202,
     );
   });
 
@@ -214,7 +233,7 @@ export function createLeadRoutes(dependencies: LeadRoutesDependencies = {}) {
     const result = await leadDraftGenerationService.requestLeadDraftGeneration(
       getWorkspaceId(c),
       c.get("userId"),
-      leadId
+      leadId,
     );
 
     if (result.result === "not_found") {
@@ -226,10 +245,10 @@ export function createLeadRoutes(dependencies: LeadRoutesDependencies = {}) {
         success: true,
         data: {
           jobId: result.jobId,
-          leadId: result.leadId
-        }
+          leadId: result.leadId,
+        },
       }),
-      202
+      202,
     );
   });
 
@@ -246,11 +265,34 @@ export function createLeadRoutes(dependencies: LeadRoutesDependencies = {}) {
       return c.json(leadNotFoundResponse, 404);
     }
 
+    return c.json({
+      success: true,
+      data: result.score,
+    });
+  });
+
+  routes.get("/:id/score-status", async (c) => {
+    const leadId = parseId(c.req.param("id"));
+
+    if (!leadId || hasClientWorkspaceId(c.req.query())) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    if (!isAdminRole(c.get("currentUser").role)) {
+      return c.json(forbidden("ADMIN_REQUIRED"), 403);
+    }
+
+    const result = await scoringStatusService.getStatus(getWorkspaceId(c), leadId);
+
+    if (result.result === "not_found") {
+      return c.json(leadNotFoundResponse, 404);
+    }
+
     return c.json(
-      {
+      LeadScoreStatusSuccessSchema.parse({
         success: true,
-        data: result.score
-      }
+        data: result.status,
+      }),
     );
   });
 
@@ -267,19 +309,21 @@ export function createLeadRoutes(dependencies: LeadRoutesDependencies = {}) {
       return c.json(invalidRequestResponse, 400);
     }
 
-    const result = await leadScoreService.listLeadScores(getWorkspaceId(c), leadId, parsedQuery.data);
+    const result = await leadScoreService.listLeadScores(
+      getWorkspaceId(c),
+      leadId,
+      parsedQuery.data,
+    );
 
     if (result.result === "not_found") {
       return c.json(leadNotFoundResponse, 404);
     }
 
-    return c.json(
-      {
-        success: true,
-        data: result.scores,
-        ...(result.nextCursor ? { nextCursor: result.nextCursor } : {})
-      }
-    );
+    return c.json({
+      success: true,
+      data: result.scores,
+      ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
+    });
   });
 
   routes.get("/:id", async (c) => {
@@ -298,8 +342,8 @@ export function createLeadRoutes(dependencies: LeadRoutesDependencies = {}) {
     return c.json(
       LeadSuccessSchema.parse({
         success: true,
-        data: lead
-      })
+        data: lead,
+      }),
     );
   });
 
@@ -322,7 +366,12 @@ export function createLeadRoutes(dependencies: LeadRoutesDependencies = {}) {
       return c.json(invalidRequestResponse, 400);
     }
 
-    const result = await leadService.updateLead(getWorkspaceId(c), c.get("userId"), leadId, parsedBody.data);
+    const result = await leadService.updateLead(
+      getWorkspaceId(c),
+      c.get("userId"),
+      leadId,
+      parsedBody.data,
+    );
     return mutationResponse(c, result);
   });
 
