@@ -9,6 +9,7 @@ const jobId = "00000000-0000-4000-8000-000000002001";
 const staleJobId = "00000000-0000-4000-8000-000000002002";
 const emailSendId = "00000000-0000-4000-8000-000000002101";
 const leadId = "00000000-0000-4000-8000-000000002102";
+const scoreId = "00000000-0000-4000-8000-000000002103";
 const workerId = "test-worker-1";
 
 type RawBackgroundJobRow = {
@@ -126,7 +127,9 @@ function createClaimHarness(initialJobs: RawBackgroundJobRow[]) {
   };
 }
 
-async function importBackgroundJobsRepositoryWithClaimHarness(harness: ReturnType<typeof createClaimHarness>) {
+async function importBackgroundJobsRepositoryWithClaimHarness(
+  harness: ReturnType<typeof createClaimHarness>,
+) {
   vi.resetModules();
   vi.doMock("../lib/worker-db.js", () => ({
     getWorkerDbClient: vi.fn(() => ({
@@ -294,7 +297,10 @@ describe("Resend email provider", () => {
   });
 
   it("resend.provider.success returns messageId", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => resendResponse()));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => resendResponse()),
+    );
     const { ResendProvider } = await import("../services/email/resend-provider.js");
 
     await expect(
@@ -320,7 +326,10 @@ describe("Resend email provider", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { ResendProvider } = await import("../services/email/resend-provider.js");
 
-    await new ResendProvider({ apiKey: "test-key", retryDelayMs: { rateLimit: 0, server: 0 } }).send({
+    await new ResendProvider({
+      apiKey: "test-key",
+      retryDelayMs: { rateLimit: 0, server: 0 },
+    }).send({
       emailSendId,
       to: "client@example.com",
       from: "Syrantis <noreply@send.syrantis.fr>",
@@ -343,7 +352,10 @@ describe("Resend email provider", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { ResendProvider } = await import("../services/email/resend-provider.js");
 
-    await new ResendProvider({ apiKey: "test-key", retryDelayMs: { rateLimit: 0, server: 0 } }).send({
+    await new ResendProvider({
+      apiKey: "test-key",
+      retryDelayMs: { rateLimit: 0, server: 0 },
+    }).send({
       emailSendId,
       to: "client@example.com",
       from: "Syrantis <noreply@send.syrantis.fr>",
@@ -361,7 +373,8 @@ describe("Resend email provider", () => {
     const timeout = Object.assign(new Error("aborted"), { name: "AbortError" });
     const fetchMock = vi.fn().mockRejectedValue(timeout);
     vi.stubGlobal("fetch", fetchMock);
-    const { EmailProviderTimeoutError, ResendProvider } = await import("../services/email/resend-provider.js");
+    const { EmailProviderTimeoutError, ResendProvider } =
+      await import("../services/email/resend-provider.js");
 
     await expect(
       new ResendProvider({ apiKey: "test-key", retryDelayMs: { rateLimit: 0, server: 0 } }).send({
@@ -378,7 +391,8 @@ describe("Resend email provider", () => {
   it("resend.provider.429 retries once then throws", async () => {
     const fetchMock = vi.fn(async () => resendResponse({ status: 429 }));
     vi.stubGlobal("fetch", fetchMock);
-    const { EmailProviderHttpError, ResendProvider } = await import("../services/email/resend-provider.js");
+    const { EmailProviderHttpError, ResendProvider } =
+      await import("../services/email/resend-provider.js");
 
     await expect(
       new ResendProvider({ apiKey: "test-key", retryDelayMs: { rateLimit: 0, server: 0 } }).send({
@@ -395,7 +409,8 @@ describe("Resend email provider", () => {
   it("resend.provider.500 retries once then throws", async () => {
     const fetchMock = vi.fn(async () => resendResponse({ status: 500 }));
     vi.stubGlobal("fetch", fetchMock);
-    const { EmailProviderHttpError, ResendProvider } = await import("../services/email/resend-provider.js");
+    const { EmailProviderHttpError, ResendProvider } =
+      await import("../services/email/resend-provider.js");
 
     await expect(
       new ResendProvider({ apiKey: "test-key", retryDelayMs: { rateLimit: 0, server: 0 } }).send({
@@ -412,7 +427,8 @@ describe("Resend email provider", () => {
   it("resend.provider.400 throws immediately without retry", async () => {
     const fetchMock = vi.fn(async () => resendResponse({ status: 400 }));
     vi.stubGlobal("fetch", fetchMock);
-    const { EmailProviderHttpError, ResendProvider } = await import("../services/email/resend-provider.js");
+    const { EmailProviderHttpError, ResendProvider } =
+      await import("../services/email/resend-provider.js");
 
     await expect(
       new ResendProvider({ apiKey: "test-key", retryDelayMs: { rateLimit: 0, server: 0 } }).send({
@@ -429,7 +445,8 @@ describe("Resend email provider", () => {
   it("resend.allowlist.reject throws before fetch", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const { EmailRecipientNotAllowedError, ResendProvider } = await import("../services/email/resend-provider.js");
+    const { EmailRecipientNotAllowedError, ResendProvider } =
+      await import("../services/email/resend-provider.js");
 
     await expect(
       new ResendProvider({
@@ -451,7 +468,8 @@ describe("Resend email provider", () => {
     vi.stubEnv("RESEND_TO_ALLOWLIST", "allowed@example.test");
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const { EmailRecipientNotAllowedError, ResendProvider } = await import("../services/email/resend-provider.js");
+    const { EmailRecipientNotAllowedError, ResendProvider } =
+      await import("../services/email/resend-provider.js");
 
     await expect(
       new ResendProvider({
@@ -476,7 +494,8 @@ describe("send_email retry config", () => {
   });
 
   it("uses max attempts 3 and exponential backoff defaults", async () => {
-    const { computeSendBackoffMs, resolveSendRetryConfig } = await import("../services/send-retry-config.js");
+    const { computeSendBackoffMs, resolveSendRetryConfig } =
+      await import("../services/send-retry-config.js");
     const config = resolveSendRetryConfig({});
 
     expect(config).toEqual({
@@ -499,7 +518,8 @@ describe("send_email retry config", () => {
   });
 
   it.each([400, 401, 403, 404, 422])("classifies HTTP %s as permanent", async (statusCode) => {
-    const { isPermanentSendHttpStatus, isRetryableSendError } = await import("../services/send-retry-config.js");
+    const { isPermanentSendHttpStatus, isRetryableSendError } =
+      await import("../services/send-retry-config.js");
     const error = Object.assign(new Error("EMAIL_PROVIDER_HTTP_ERROR"), {
       code: "EMAIL_PROVIDER_HTTP_ERROR",
       statusCode,
@@ -512,8 +532,14 @@ describe("send_email retry config", () => {
   it("classifies network and timeout provider errors as retryable", async () => {
     const { isRetryableSendError } = await import("../services/send-retry-config.js");
 
-    expect(isRetryableSendError(Object.assign(new Error("timeout"), { code: "EMAIL_PROVIDER_TIMEOUT" }))).toBe(true);
-    expect(isRetryableSendError(Object.assign(new Error("network"), { code: "EMAIL_PROVIDER_NETWORK_ERROR" }))).toBe(true);
+    expect(
+      isRetryableSendError(Object.assign(new Error("timeout"), { code: "EMAIL_PROVIDER_TIMEOUT" })),
+    ).toBe(true);
+    expect(
+      isRetryableSendError(
+        Object.assign(new Error("network"), { code: "EMAIL_PROVIDER_NETWORK_ERROR" }),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -525,14 +551,16 @@ describe("background job claim repository", () => {
 
   it("claimNext returns null when no job is due", async () => {
     const harness = createClaimHarness([]);
-    const { claimNextBackgroundJob } = await importBackgroundJobsRepositoryWithClaimHarness(harness);
+    const { claimNextBackgroundJob } =
+      await importBackgroundJobsRepositoryWithClaimHarness(harness);
 
     await expect(claimNextBackgroundJob({ workerId })).resolves.toBeNull();
   });
 
   it("claimNext moves a pending job to running with lock metadata and attempts incremented", async () => {
     const harness = createClaimHarness([rawJob()]);
-    const { claimNextBackgroundJob } = await importBackgroundJobsRepositoryWithClaimHarness(harness);
+    const { claimNextBackgroundJob } =
+      await importBackgroundJobsRepositoryWithClaimHarness(harness);
 
     const job = await claimNextBackgroundJob({ workerId });
 
@@ -553,14 +581,16 @@ describe("background job claim repository", () => {
         scheduled_at: new Date("2026-05-01T12:11:00.000Z"),
       }),
     ]);
-    const { claimNextBackgroundJob } = await importBackgroundJobsRepositoryWithClaimHarness(harness);
+    const { claimNextBackgroundJob } =
+      await importBackgroundJobsRepositoryWithClaimHarness(harness);
 
     await expect(claimNextBackgroundJob({ workerId })).resolves.toBeNull();
   });
 
   it("claimNext processes pending send_email job with scheduled_at null", async () => {
     const harness = createClaimHarness([rawJob({ scheduled_at: null })]);
-    const { claimNextBackgroundJob } = await importBackgroundJobsRepositoryWithClaimHarness(harness);
+    const { claimNextBackgroundJob } =
+      await importBackgroundJobsRepositoryWithClaimHarness(harness);
 
     await expect(claimNextBackgroundJob({ workerId })).resolves.toMatchObject({
       id: jobId,
@@ -574,7 +604,8 @@ describe("background job claim repository", () => {
         scheduled_at: new Date("2026-05-01T12:09:00.000Z"),
       }),
     ]);
-    const { claimNextBackgroundJob } = await importBackgroundJobsRepositoryWithClaimHarness(harness);
+    const { claimNextBackgroundJob } =
+      await importBackgroundJobsRepositoryWithClaimHarness(harness);
 
     await expect(claimNextBackgroundJob({ workerId })).resolves.toMatchObject({
       id: jobId,
@@ -589,7 +620,8 @@ describe("background job claim repository", () => {
         scheduled_at: new Date("2026-05-01T12:09:00.000Z"),
       }),
     ]);
-    const { claimNextBackgroundJob } = await importBackgroundJobsRepositoryWithClaimHarness(harness);
+    const { claimNextBackgroundJob } =
+      await importBackgroundJobsRepositoryWithClaimHarness(harness);
 
     await expect(claimNextBackgroundJob({ workerId })).resolves.toBeNull();
   });
@@ -601,7 +633,8 @@ describe("background job claim repository", () => {
         locked_at: new Date("2026-05-01T12:09:00.000Z"),
       }),
     ]);
-    const { claimNextBackgroundJob } = await importBackgroundJobsRepositoryWithClaimHarness(harness);
+    const { claimNextBackgroundJob } =
+      await importBackgroundJobsRepositoryWithClaimHarness(harness);
 
     await expect(claimNextBackgroundJob({ workerId })).resolves.toBeNull();
   });
@@ -615,7 +648,8 @@ describe("background job claim repository", () => {
         locked_at: new Date("2026-05-01T12:04:00.000Z"),
       }),
     ]);
-    const { claimNextBackgroundJob } = await importBackgroundJobsRepositoryWithClaimHarness(harness);
+    const { claimNextBackgroundJob } =
+      await importBackgroundJobsRepositoryWithClaimHarness(harness);
 
     const job = await claimNextBackgroundJob({ workerId });
 
@@ -1012,23 +1046,34 @@ describe("background worker service", () => {
     claimedJob: BackgroundJobRow | null;
     emailSendStatus?: string;
     scoreHandlerError?: string;
+    pushbackHandlerError?: string;
   }) {
     const emailTx = input.emailSendStatus
       ? createEmailSendTx(input.emailSendStatus)
       : createEmailSendTx("pending");
     const activityLogs: Array<Record<string, unknown>> = [];
-    const completedJob = jobRow({ status: "completed", completedAt: new Date("2026-05-01T12:02:00.000Z") });
+    const completedJob = jobRow({
+      status: "completed",
+      completedAt: new Date("2026-05-01T12:02:00.000Z"),
+    });
     const failedJob = jobRow({ status: "failed", failedAt: new Date("2026-05-01T12:02:00.000Z") });
     const claimNextBackgroundJob = vi.fn(async () => input.claimedJob);
     const completeBackgroundJob = vi.fn(async () => completedJob);
-    const failBackgroundJob = vi.fn(async (_tx: unknown, failInput: { errorCode: string; errorMessage: string }) => ({
-      ...failedJob,
-      lastErrorCode: failInput.errorCode,
-      lastErrorMessage: failInput.errorMessage,
-    }));
+    const failBackgroundJob = vi.fn(
+      async (_tx: unknown, failInput: { errorCode: string; errorMessage: string }) => ({
+        ...failedJob,
+        lastErrorCode: failInput.errorCode,
+        lastErrorMessage: failInput.errorMessage,
+      }),
+    );
     const handleScoreLeadJob = vi.fn(async () => {
       if (input.scoreHandlerError) {
         throw new Error(input.scoreHandlerError);
+      }
+    });
+    const handleLeadScorePushbackJob = vi.fn(async () => {
+      if (input.pushbackHandlerError) {
+        throw new Error(input.pushbackHandlerError);
       }
     });
 
@@ -1046,6 +1091,9 @@ describe("background worker service", () => {
     vi.doMock("../services/score-lead-job-handler.js", () => ({
       handleScoreLeadJob,
     }));
+    vi.doMock("../services/lead-score-pushback-job-handler.js", () => ({
+      handleLeadScorePushbackJob,
+    }));
     vi.doMock("../lib/db.js", () => ({
       withWorkspaceDb: vi.fn(async (_workspaceId: string, fn: (tx: unknown) => Promise<unknown>) =>
         fn(emailTx.tx),
@@ -1062,13 +1110,16 @@ describe("background worker service", () => {
       completeBackgroundJob,
       failBackgroundJob,
       handleScoreLeadJob,
+      handleLeadScorePushbackJob,
     };
   }
 
   it("returns idle when no job is claimed", async () => {
     const worker = await importWorkerWithMocks({ claimedJob: null });
 
-    await expect(worker.processNextBackgroundJob({ workerId })).resolves.toEqual({ status: "idle" });
+    await expect(worker.processNextBackgroundJob({ workerId })).resolves.toEqual({
+      status: "idle",
+    });
   });
 
   it("processNext completes valid send_email job and queues email_send", async () => {
@@ -1155,6 +1206,78 @@ describe("background worker service", () => {
     );
   });
 
+  it("processNext routes pushback_lead_score to the lead score pushback handler", async () => {
+    const payloadJson = {
+      leadId,
+      scoreId,
+      diagnosticTraceId: null,
+      source: "score_lead",
+    };
+    const worker = await importWorkerWithMocks({
+      claimedJob: jobRow({
+        type: "pushback_lead_score",
+        payloadJson,
+      }),
+    });
+
+    const result = await worker.processNextBackgroundJob({ workerId });
+
+    expect(result).toMatchObject({ status: "completed" });
+    expect(worker.handleLeadScorePushbackJob).toHaveBeenCalledWith({
+      workspaceId: testUser.workspaceId,
+      jobId,
+      payload: payloadJson,
+    });
+    expect(worker.completeBackgroundJob).toHaveBeenCalledWith(
+      worker.emailTx.tx,
+      expect.objectContaining({ workspaceId: testUser.workspaceId, jobId }),
+    );
+    expect(worker.activityLogs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: "background_job.claimed" }),
+        expect.objectContaining({
+          action: "background_job.completed",
+          metadataJson: expect.objectContaining({
+            type: "pushback_lead_score",
+            leadId,
+            scoreId,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("processNext marks only the pushback_lead_score job failed on Google Sheets failure", async () => {
+    const worker = await importWorkerWithMocks({
+      claimedJob: jobRow({
+        type: "pushback_lead_score",
+        payloadJson: {
+          leadId,
+          scoreId,
+          diagnosticTraceId: null,
+          source: "score_lead",
+        },
+      }),
+      pushbackHandlerError: "GOOGLE_SHEETS_APPEND_FAILED",
+    });
+
+    const result = await worker.processNextBackgroundJob({ workerId });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      errorCode: "GOOGLE_SHEETS_APPEND_FAILED",
+    });
+    expect(worker.handleScoreLeadJob).not.toHaveBeenCalled();
+    expect(worker.failBackgroundJob).toHaveBeenCalledWith(
+      worker.emailTx.tx,
+      expect.objectContaining({
+        workspaceId: testUser.workspaceId,
+        jobId,
+        errorCode: "GOOGLE_SHEETS_APPEND_FAILED",
+      }),
+    );
+  });
+
   it("processNext sanitizes arbitrary handler failure messages", async () => {
     const worker = await importWorkerWithMocks({
       claimedJob: jobRow({
@@ -1217,7 +1340,9 @@ describe("background worker governance checks", () => {
 
     expect(repository).toContain("FOR UPDATE SKIP LOCKED");
     expect(implementation).toContain("real concurrency behavior of `FOR UPDATE SKIP LOCKED`");
-    expect(implementation).toContain("without `app.current_workspace_id`, `background_jobs` returns zero rows");
+    expect(implementation).toContain(
+      "without `app.current_workspace_id`, `background_jobs` returns zero rows",
+    );
   });
 
   it("does not add Resend, external HTTP calls, DELETE, jobs routes, or tenantGuard to 019B code", () => {

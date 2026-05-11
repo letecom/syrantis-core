@@ -1,10 +1,7 @@
 import { Hono } from "hono";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type {
-  LeadOutput,
-  LeadScoreReadModel,
-} from "@syrantis/shared";
+import type { LeadOutput, LeadScoreReadModel } from "@syrantis/shared";
 
 import { SESSION_COOKIE_NAME } from "../lib/session-token.js";
 import { createActivityLog } from "../repositories/activity-logs.js";
@@ -25,10 +22,7 @@ import {
   OpenRouterProvider,
 } from "../services/ai/openrouter-provider.js";
 import { redactLeadForScoring } from "../services/ai/pii-redaction.js";
-import {
-  calculateAiCostMicroUsd,
-  resolveAllowedAiModel,
-} from "../services/ai/pricing.js";
+import { calculateAiCostMicroUsd, resolveAllowedAiModel } from "../services/ai/pricing.js";
 import type { AiProvider } from "../services/ai/providers.js";
 import { handleScoreLeadJob } from "../services/score-lead-job-handler.js";
 import type { LeadScoreService } from "../services/lead-scores.js";
@@ -64,6 +58,7 @@ const leadId = "00000000-0000-4000-8000-000000003001";
 const otherWorkspaceLeadId = "00000000-0000-4000-8000-000000003002";
 const noScoreLeadId = "00000000-0000-4000-8000-000000003099";
 const jobId = "00000000-0000-4000-8000-000000003101";
+const pushbackJobId = "00000000-0000-4000-8000-000000003102";
 const aiRunId = "00000000-0000-4000-8000-000000003201";
 const leadScoreId = "00000000-0000-4000-8000-000000003301";
 const leadScoreId2 = "00000000-0000-4000-8000-000000003302";
@@ -124,9 +119,7 @@ function createTestApp(leadService: LeadService, leadScoreService?: LeadScoreSer
 }
 
 function createRouteLeadScoreService(): LeadScoreService {
-  const scores = new Map<string, LeadScoreReadModel[]>([
-    [leadId, [leadScoreOutput()]],
-  ]);
+  const scores = new Map<string, LeadScoreReadModel[]>([[leadId, [leadScoreOutput()]]]);
 
   return {
     getLatestLeadScore: vi.fn(async (workspaceId: string, id: string) => {
@@ -156,7 +149,7 @@ function createRouteLeadScoreService(): LeadScoreService {
       const cursor = query.cursor ? new Date(query.cursor) : null;
       const filtered = cursor ? rows.filter((score) => new Date(score.scoredAt) < cursor) : rows;
       const page = filtered.slice(0, query.limit);
-      const next = filtered.length > query.limit ? page[page.length - 1]?.scoredAt ?? null : null;
+      const next = filtered.length > query.limit ? (page[page.length - 1]?.scoredAt ?? null) : null;
 
       return {
         result: "ok" as const,
@@ -314,6 +307,21 @@ function validScoreJson(overrides: Record<string, unknown> = {}) {
   });
 }
 
+function pushbackJobRow() {
+  return {
+    id: pushbackJobId,
+    workspaceId: testUser.workspaceId,
+    type: "pushback_lead_score",
+    payloadJson: {
+      leadId,
+      scoreId: leadScoreId,
+      diagnosticTraceId: null,
+      source: "score_lead",
+    },
+    status: "pending",
+  };
+}
+
 function repeatedText(value: string, minLength: number): string {
   return value.repeat(Math.ceil(minLength / value.length));
 }
@@ -372,7 +380,9 @@ describe("OpenRouter provider hardening", () => {
   });
 
   it("model.allowlist.accepts_mistral", () => {
-    expect(resolveAllowedAiModel("mistralai/mistral-small-2603")).toBe("mistralai/mistral-small-2603");
+    expect(resolveAllowedAiModel("mistralai/mistral-small-2603")).toBe(
+      "mistralai/mistral-small-2603",
+    );
   });
 
   it("model.allowlist.rejects_gpt5mini before fetch", async () => {
@@ -386,7 +396,10 @@ describe("OpenRouter provider hardening", () => {
   });
 
   it("provider.finish_reason_stop_success", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => openRouterJsonResponse({ finishReason: "stop" })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => openRouterJsonResponse({ finishReason: "stop" })),
+    );
 
     const output = await new OpenRouterProvider().complete(providerInput());
 
@@ -423,14 +436,18 @@ describe("OpenRouter provider hardening", () => {
         .mockResolvedValueOnce(openRouterJsonResponse({ finishReason: "length" })),
     );
 
-    await expect(new OpenRouterProvider().complete(providerInput())).rejects.toThrow(AiFinishReasonError);
+    await expect(new OpenRouterProvider().complete(providerInput())).rejects.toThrow(
+      AiFinishReasonError,
+    );
   });
 
   it("provider.content_filter_fails_without_retry", async () => {
     const fetchMock = vi.fn(async () => openRouterJsonResponse({ finishReason: "content_filter" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(new OpenRouterProvider().complete(providerInput())).rejects.toThrow("AI_CONTENT_FILTERED");
+    await expect(new OpenRouterProvider().complete(providerInput())).rejects.toThrow(
+      "AI_CONTENT_FILTERED",
+    );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -451,7 +468,9 @@ describe("OpenRouter provider hardening", () => {
     const fetchMock = vi.fn(async () => openRouterJsonResponse({ status: 400 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(new OpenRouterProvider().complete(providerInput())).rejects.toThrow(AiProviderHttpError);
+    await expect(new OpenRouterProvider().complete(providerInput())).rejects.toThrow(
+      AiProviderHttpError,
+    );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -460,12 +479,17 @@ describe("OpenRouter provider hardening", () => {
     const fetchMock = vi.fn().mockRejectedValue(timeout);
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(new OpenRouterProvider().complete(providerInput())).rejects.toThrow(AiProviderTimeoutError);
+    await expect(new OpenRouterProvider().complete(providerInput())).rejects.toThrow(
+      AiProviderTimeoutError,
+    );
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("provider.invalid_openrouter_response_fails", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => openRouterJsonResponse({ body: { nope: true } })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => openRouterJsonResponse({ body: { nope: true } })),
+    );
 
     await expect(new OpenRouterProvider().complete(providerInput())).rejects.toThrow(
       AiProviderInvalidResponseError,
@@ -538,7 +562,9 @@ describe("lead scoring output parser", () => {
   });
 
   it("rejects score outside range", () => {
-    expect(() => parseLeadScoringOutput(validScoreJson({ score: 150 }))).toThrow(AiOutputSchemaError);
+    expect(() => parseLeadScoringOutput(validScoreJson({ score: 150 }))).toThrow(
+      AiOutputSchemaError,
+    );
   });
 
   it("rejects invalid qualification", () => {
@@ -548,7 +574,9 @@ describe("lead scoring output parser", () => {
   });
 
   it("rejects invalid schema with AI_OUTPUT_INVALID_SCHEMA and safe preview", () => {
-    expect(() => parseLeadScoringOutput(validScoreJson({ score: 150 }))).toThrow(AiOutputSchemaError);
+    expect(() => parseLeadScoringOutput(validScoreJson({ score: 150 }))).toThrow(
+      AiOutputSchemaError,
+    );
 
     try {
       parseLeadScoringOutput(validScoreJson({ score: 150 }));
@@ -576,7 +604,9 @@ describe("AI lead scoring redaction", () => {
     );
     const serialized = JSON.stringify(prompt);
 
-    expect(serialized).toContain("Syrantis is a B2B AI orchestration and CRM workflow automation infrastructure platform.");
+    expect(serialized).toContain(
+      "Syrantis is a B2B AI orchestration and CRM workflow automation infrastructure platform.",
+    );
     expect(serialized).not.toMatch(/plumbing|heating contractor/i);
     expect(serialized).toContain("Return compact JSON only. No markdown. No long paragraphs.");
   });
@@ -634,7 +664,11 @@ describe("POST /api/leads/:id/score", () => {
         leadId,
       },
     });
-    expect(leadService.requestLeadScore).toHaveBeenCalledWith(testUser.workspaceId, testUser.id, leadId);
+    expect(leadService.requestLeadScore).toHaveBeenCalledWith(
+      testUser.workspaceId,
+      testUser.id,
+      leadId,
+    );
     expect(provider.complete).not.toHaveBeenCalled();
   });
 
@@ -1000,8 +1034,13 @@ describe("score_lead worker handler", () => {
         },
       ],
     });
+    const pushbackTx = createMockTx({
+      label: "pushback",
+      selectResponses: [],
+      insertResponses: [pushbackJobRow()],
+    });
     const provider = validProvider(validScoreJson());
-    mockDb.txQueue = [prepareTx.tx, successTx.tx];
+    mockDb.txQueue = [prepareTx.tx, successTx.tx, pushbackTx.tx];
 
     await handleScoreLeadJob({
       workspaceId: testUser.workspaceId,
@@ -1052,6 +1091,21 @@ describe("score_lead worker handler", () => {
         temperature: 0.1,
       }),
     );
+    expect(pushbackTx.insertedValues[0]).toEqual({
+      workspaceId: testUser.workspaceId,
+      type: "pushback_lead_score",
+      payloadJson: {
+        leadId,
+        scoreId: leadScoreId,
+        diagnosticTraceId: null,
+        source: "score_lead",
+      },
+      status: "pending",
+      runAfter: expect.any(Date),
+      scheduledAt: null,
+    });
+    expect(JSON.stringify(pushbackTx.insertedValues[0])).not.toContain("john.doe@acme.com");
+    expect(JSON.stringify(pushbackTx.insertedValues[0])).not.toContain("rawContent");
   });
 
   it("does not hold a transaction during provider call", async () => {
@@ -1078,6 +1132,11 @@ describe("score_lead worker handler", () => {
         },
       ],
     });
+    const pushbackTx = createMockTx({
+      label: "pushback",
+      selectResponses: [],
+      insertResponses: [pushbackJobRow()],
+    });
     const provider: AiProvider = {
       complete: vi.fn(async () => {
         mockDb.events.push("provider");
@@ -1092,7 +1151,7 @@ describe("score_lead worker handler", () => {
         };
       }),
     };
-    mockDb.txQueue = [prepareTx.tx, successTx.tx];
+    mockDb.txQueue = [prepareTx.tx, successTx.tx, pushbackTx.tx];
 
     await handleScoreLeadJob({
       workspaceId: testUser.workspaceId,
@@ -1108,7 +1167,63 @@ describe("score_lead worker handler", () => {
       "provider",
       "tx:start:success",
       "tx:end:success",
+      "tx:start:pushback",
+      "tx:end:pushback",
     ]);
+  });
+
+  it("does not fail score_lead when best-effort pushback enqueue fails", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const prepareTx = createMockTx({
+      label: "prepare",
+      selectResponses: [[leadContextRow()]],
+      insertResponses: [
+        {
+          id: aiRunId,
+          workspaceId: testUser.workspaceId,
+          status: "running",
+        },
+      ],
+    });
+    const successTx = createMockTx({
+      label: "success",
+      selectResponses: [],
+      insertResponses: [
+        {
+          id: leadScoreId,
+          workspaceId: testUser.workspaceId,
+          leadId,
+          aiRunId,
+        },
+      ],
+    });
+    const pushbackTx = createMockTx({
+      label: "pushback",
+      selectResponses: [],
+      insertResponses: [],
+    });
+    mockDb.txQueue = [prepareTx.tx, successTx.tx, pushbackTx.tx];
+
+    await expect(
+      handleScoreLeadJob({
+        workspaceId: testUser.workspaceId,
+        jobId,
+        payload: { leadId },
+        provider: validProvider(validScoreJson()),
+        model: "mistralai/mistral-small-2603",
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(successTx.insertedValues[0]).toMatchObject({
+      workspaceId: testUser.workspaceId,
+      leadId,
+      score: 82,
+      qualification: "hot",
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Best-effort lead-score Google Sheets pushback enqueue failed.",
+    );
+    warnSpy.mockRestore();
   });
 
   it("marks ai_run error and does not create lead_score for invalid provider JSON", async () => {
@@ -1212,7 +1327,12 @@ describe("score_lead worker handler", () => {
         },
       ],
     });
-    mockDb.txQueue = [prepareTx.tx, successTx.tx];
+    const pushbackTx = createMockTx({
+      label: "pushback",
+      selectResponses: [],
+      insertResponses: [pushbackJobRow()],
+    });
+    mockDb.txQueue = [prepareTx.tx, successTx.tx, pushbackTx.tx];
 
     await handleScoreLeadJob({
       workspaceId: testUser.workspaceId,

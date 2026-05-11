@@ -114,7 +114,7 @@ No uncontrolled agent.
 
 ```txt
 Gmail -> Apps Script -> Google Sheet Intake Log -> public inbound message intake -> lead
-  -> score_lead job -> worker -> lead_scores
+  -> score_lead job -> worker -> lead_scores -> pushback_lead_score -> Score_Log
 ```
 
 It uses the existing 023J public API-key intake contract and does not add backend Gmail OAuth,
@@ -130,6 +130,20 @@ Templates and runbook:
 
 The Intake Log must not contain API keys, `bodyText`, body summaries, raw payloads, raw API
 responses, or workspace context.
+
+## Lead Score Pushback / 023N
+
+023N adds the separate `pushback_lead_score` background job. After `score_lead` creates a
+`lead_scores` row, scoring commits first and then enqueue of pushback is best-effort, so Google
+Sheets issues never fail the scoring job.
+
+The pushback job appends one safe row to `Score_Log!A:P`. It does not update the Intake Log, add a
+route, add UI, or introduce Google OAuth. The only migration extends `background_jobs_type_check` to
+allow `pushback_lead_score`.
+
+Sheet rows may contain `from_email`, `contact_name`, and `subject`; activity logs must not contain
+PII, raw Google errors, raw payloads, prompts, raw AI output, provider payloads, credentials, tokens,
+API keys, unmasked spreadsheet IDs, or `workspaceId`.
 
 ## Current State
 
@@ -191,10 +205,10 @@ Current baseline through 023F:
 - current AI model `mistralai/mistral-small-2603`
 - API tests: 30 files, 487 tests
 - DB verify tests: 46 tests
-- `verify-schema`: 33 invariants
-- migration files: 19 SQL files / 19 journal entries
+- `verify-schema`: 34 invariants
+- migration files: 20 SQL files / 20 journal entries
 - `verify-migration-files` passes with `drift=0`
-- current `verify-schema` expected result: `checked=33 passed=33 failed=0`
+- current `verify-schema` expected result: `checked=34 passed=34 failed=0`
 - 022B Google Sheets sandbox verifier exists
 - 022C Google Sheets push-back MVP exists
 - 022D Google Sheets push-back diagnostics exist through compact `activity_logs`
@@ -942,7 +956,8 @@ Status:
 - 021N verified RLS catalog state in production with `checked=21`
 - 021O extended verify-schema to 31 invariants
 - 021P extended verify-schema to 33 invariants
-- current expected result: `checked=33 passed=33 failed=0`
+- 023N extended verify-schema to 34 invariants
+- current expected result: `checked=34 passed=34 failed=0`
 
 ## Migration Integrity Status
 
@@ -956,12 +971,13 @@ Implemented:
 
 Current production state:
 
-- 19 SQL migration files
-- 19 journal entries
+- 20 SQL migration files
+- 20 journal entries
 - `verify-migration-files` result: `drift=0`
-- `verify-schema` result: `checked=33 passed=33 failed=0`
+- `verify-schema` result: `checked=34 passed=34 failed=0`
 - migration `0017_resend_webhook_delivery_proof.sql` exists
 - migration `0018_email_sends_terminal_delivery_immutability.sql` exists
+- migration `0019_pushback_lead_score_job_type.sql` exists
 
 Hard rules:
 
@@ -1466,10 +1482,10 @@ bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter 
 bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter @syrantis/db verify-schema'
 ```
 
-Expected verify-schema after 021P:
+Expected verify-schema after 023N:
 
 ```txt
-checked=33 passed=33 failed=0
+checked=34 passed=34 failed=0
 ```
 
 Restart API manually from prod runtime if needed:
@@ -1513,8 +1529,8 @@ pnpm --filter @syrantis/db verify-migration-files
 Expected:
 
 ```txt
-19 SQL files
-19 journal entries
+20 SQL files
+20 journal entries
 drift=0
 ```
 
@@ -1527,7 +1543,7 @@ bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter 
 Expected:
 
 ```txt
-checked=33 passed=33 failed=0
+checked=34 passed=34 failed=0
 ```
 
 Migration history:

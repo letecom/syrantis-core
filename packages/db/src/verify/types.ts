@@ -9,7 +9,8 @@ export type MigrationId =
   | "0015"
   | "0016"
   | "0017"
-  | "0018";
+  | "0018"
+  | "0019";
 
 export type ColumnSchemaInvariant = {
   kind: "column";
@@ -91,11 +92,19 @@ export type SchemaCatalog = {
     column: string;
   }) => Promise<ColumnCatalogRow | null>;
   hasIndex: (input: { schema: string; table: string; indexName: string }) => Promise<boolean>;
-  hasCheckConstraint: (input: { schema: string; table: string; constraintName: string }) => Promise<boolean>;
+  hasCheckConstraint: (input: {
+    schema: string;
+    table: string;
+    constraintName: string;
+  }) => Promise<boolean>;
   findRlsTable: (input: { schema: string; table: string }) => Promise<RlsCatalogRow | null>;
   hasPolicy: (input: { schema: string; table: string; policyName: string }) => Promise<boolean>;
   hasTriggerFunction: (input: { schema: string; functionName: string }) => Promise<boolean>;
-  findTrigger: (input: { schema: string; table: string; triggerName: string }) => Promise<TriggerCatalogRow | null>;
+  findTrigger: (input: {
+    schema: string;
+    table: string;
+    triggerName: string;
+  }) => Promise<TriggerCatalogRow | null>;
 };
 
 export type SchemaInvariantFailureReason =

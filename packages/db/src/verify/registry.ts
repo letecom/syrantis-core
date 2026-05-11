@@ -17,7 +17,7 @@ const rlsTenantInvariants = [
   ["0010", "email_sends", "tenant_isolation_email_sends"],
   ["0011", "background_jobs", "tenant_isolation_background_jobs"],
   ["0012", "ai_runs", "tenant_isolation_ai_runs"],
-  ["0012", "lead_scores", "tenant_isolation_lead_scores"]
+  ["0012", "lead_scores", "tenant_isolation_lead_scores"],
 ] as const satisfies readonly (readonly [MigrationId, string, string])[];
 
 const emailSendDeliveryColumns = [
@@ -25,14 +25,14 @@ const emailSendDeliveryColumns = [
   ["delivered_at", "timestamp with time zone", true],
   ["bounced_at", "timestamp with time zone", true],
   ["complained_at", "timestamp with time zone", true],
-  ["delivery_error_code", "text", true]
+  ["delivery_error_code", "text", true],
 ] as const satisfies readonly (readonly [string, string, boolean])[];
 
 const emailSendDeliveryConstraints = [
   "email_sends_delivery_status_check",
   "email_sends_delivered_requires_delivered_at",
   "email_sends_bounced_requires_bounced_at",
-  "email_sends_complained_requires_complained_at"
+  "email_sends_complained_requires_complained_at",
 ] as const;
 
 export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
@@ -41,7 +41,7 @@ export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
     migration,
     schema: defaultSchema,
     table,
-    policyName
+    policyName,
   })),
   {
     kind: "column",
@@ -50,42 +50,42 @@ export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
     table: "background_jobs",
     column: "scheduled_at",
     dataType: "timestamp with time zone",
-    isNullable: true
+    isNullable: true,
   },
   {
     kind: "index",
     migration: "0015",
     schema: defaultSchema,
     table: "background_jobs",
-    indexName: "background_jobs_pending_send_email_scheduled_at_idx"
+    indexName: "background_jobs_pending_send_email_scheduled_at_idx",
   },
   {
     kind: "index",
     migration: "0016",
     schema: defaultSchema,
     table: "email_sends",
-    indexName: "email_sends_provider_message_id_unique_idx"
+    indexName: "email_sends_provider_message_id_unique_idx",
   },
   {
     kind: "check_constraint",
     migration: "0016",
     schema: defaultSchema,
     table: "email_sends",
-    constraintName: "email_sends_sent_requires_sent_at"
+    constraintName: "email_sends_sent_requires_sent_at",
   },
   {
     kind: "check_constraint",
     migration: "0016",
     schema: defaultSchema,
     table: "email_sends",
-    constraintName: "email_sends_failed_requires_failed_at"
+    constraintName: "email_sends_failed_requires_failed_at",
   },
   {
     kind: "check_constraint",
     migration: "0016",
     schema: defaultSchema,
     table: "email_sends",
-    constraintName: "email_sends_failed_requires_last_error_code"
+    constraintName: "email_sends_failed_requires_last_error_code",
   },
   ...emailSendDeliveryColumns.map(([column, dataType, isNullable]) => ({
     kind: "column" as const,
@@ -94,27 +94,27 @@ export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
     table: "email_sends",
     column,
     dataType,
-    isNullable
+    isNullable,
   })),
   ...emailSendDeliveryConstraints.map((constraintName) => ({
     kind: "check_constraint" as const,
     migration: "0017" as const,
     schema: defaultSchema,
     table: "email_sends",
-    constraintName
+    constraintName,
   })),
   {
     kind: "rls",
     migration: "0017",
     schema: defaultSchema,
     table: "email_sends",
-    policyName: "email_sends_provider_message_lookup"
+    policyName: "email_sends_provider_message_lookup",
   },
   {
     kind: "trigger_function",
     migration: "0018",
     schema: defaultSchema,
-    functionName: "enforce_email_sends_terminal_delivery_immutability"
+    functionName: "enforce_email_sends_terminal_delivery_immutability",
   },
   {
     kind: "trigger",
@@ -122,8 +122,15 @@ export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
     schema: defaultSchema,
     table: "email_sends",
     triggerName: "email_sends_terminal_delivery_immutability_trg",
-    functionName: "enforce_email_sends_terminal_delivery_immutability"
-  }
+    functionName: "enforce_email_sends_terminal_delivery_immutability",
+  },
+  {
+    kind: "check_constraint",
+    migration: "0019",
+    schema: defaultSchema,
+    table: "background_jobs",
+    constraintName: "background_jobs_type_check",
+  },
 ] as const;
 
 export function getInvariantObject(invariant: SchemaInvariant): string {
@@ -176,7 +183,9 @@ export function getInvariantKey(invariant: SchemaInvariant): string {
 
 export function filterInvariantsByMigration(
   invariants: readonly SchemaInvariant[],
-  migration?: MigrationId
+  migration?: MigrationId,
 ): SchemaInvariant[] {
-  return migration ? invariants.filter((invariant) => invariant.migration === migration) : [...invariants];
+  return migration
+    ? invariants.filter((invariant) => invariant.migration === migration)
+    : [...invariants];
 }

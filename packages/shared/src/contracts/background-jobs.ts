@@ -1,14 +1,13 @@
 import { z } from "zod";
 
-export const JobTypeSchema = z.enum(["send_email", "score_lead", "generate_ai_draft"]);
-
-export const JobStatusSchema = z.enum([
-  "pending",
-  "running",
-  "completed",
-  "failed",
-  "cancelled",
+export const JobTypeSchema = z.enum([
+  "send_email",
+  "score_lead",
+  "generate_ai_draft",
+  "pushback_lead_score",
 ]);
+
+export const JobStatusSchema = z.enum(["pending", "running", "completed", "failed", "cancelled"]);
 
 export const SendEmailJobPayloadSchema = z.object({
   emailSendId: z.string().uuid(),
@@ -22,6 +21,13 @@ export const ScoreLeadJobPayloadSchema = z.object({
 
 export const GenerateAiDraftJobPayloadSchema = z.object({
   leadId: z.string().uuid(),
+});
+
+export const PushbackLeadScoreJobPayloadSchema = z.object({
+  leadId: z.string().uuid(),
+  scoreId: z.string().uuid(),
+  diagnosticTraceId: z.string().uuid().nullable().optional(),
+  source: z.literal("score_lead"),
 });
 
 export const BackgroundJobOutputSchema = z.object({
@@ -49,4 +55,5 @@ export type JobStatus = z.infer<typeof JobStatusSchema>;
 export type SendEmailJobPayload = z.infer<typeof SendEmailJobPayloadSchema>;
 export type ScoreLeadJobPayload = z.infer<typeof ScoreLeadJobPayloadSchema>;
 export type GenerateAiDraftJobPayload = z.infer<typeof GenerateAiDraftJobPayloadSchema>;
+export type PushbackLeadScoreJobPayload = z.infer<typeof PushbackLeadScoreJobPayloadSchema>;
 export type BackgroundJobOutput = z.infer<typeof BackgroundJobOutputSchema>;

@@ -5,6 +5,7 @@ import type { ScoreLeadJobPayload } from "@syrantis/shared";
 
 import { withWorkspaceDb, type WorkspaceDbTransaction } from "../lib/db.js";
 import { createActivityLog } from "../repositories/activity-logs.js";
+import { enqueuePushbackLeadScoreJob } from "../repositories/background-jobs.js";
 import {
   AiOutputParseError,
   AiOutputSchemaError,
@@ -118,7 +119,10 @@ async function loadLeadContext(
     )
     .leftJoin(
       organizations,
-      and(eq(organizations.id, leads.organizationId), eq(organizations.workspaceId, input.workspaceId)),
+      and(
+        eq(organizations.id, leads.organizationId),
+        eq(organizations.workspaceId, input.workspaceId),
+      ),
     )
     .where(and(eq(leads.id, input.leadId), eq(leads.workspaceId, input.workspaceId)))
     .limit(1);
@@ -212,7 +216,7 @@ async function persistSuccessfulScoreLeadRun(input: {
   aiRunId: string;
   completion: AiCompletionOutput;
   latencyMs: number;
-}): Promise<void> {
+}): Promise<{ leadScoreId: string }> {
   const parsed = parseLeadScoringOutput(input.completion.content);
   const costEstimateMicroUsd = calculateAiCostMicroUsd({
     model: input.completion.model,
@@ -221,7 +225,7 @@ async function persistSuccessfulScoreLeadRun(input: {
   });
   const costEstimateCents = convertMicroUsdToCentsConservative(costEstimateMicroUsd);
 
-  await withWorkspaceDb(input.workspaceId, async (tx) => {
+  return withWorkspaceDb(input.workspaceId, async (tx) => {
     const [leadScore] = await tx
       .insert(leadScores)
       .values({
@@ -293,7 +297,29 @@ async function persistSuccessfulScoreLeadRun(input: {
         model: input.completion.model,
       },
     });
+
+    return { leadScoreId: leadScore.id };
   });
+}
+
+async function enqueueLeadScorePushbackBestEffort(input: {
+  workspaceId: string;
+  leadId: string;
+  scoreId: string;
+  diagnosticTraceId?: string | null;
+}): Promise<void> {
+  try {
+    await withWorkspaceDb(input.workspaceId, async (tx) => {
+      await enqueuePushbackLeadScoreJob(tx, {
+        workspaceId: input.workspaceId,
+        leadId: input.leadId,
+        scoreId: input.scoreId,
+        diagnosticTraceId: input.diagnosticTraceId ?? null,
+      });
+    });
+  } catch {
+    console.warn("Best-effort lead-score Google Sheets pushback enqueue failed.");
+  }
 }
 
 async function persistFailedScoreLeadRun(input: {
@@ -365,13 +391,20 @@ export async function handleScoreLeadJob(input: HandleScoreLeadJobInput): Promis
       timeoutMs: 15_000,
     });
 
-    await persistSuccessfulScoreLeadRun({
+    const persisted = await persistSuccessfulScoreLeadRun({
       workspaceId: input.workspaceId,
       jobId: input.jobId,
       leadId: input.payload.leadId,
       aiRunId: prepared.aiRunId,
       completion,
       latencyMs: Date.now() - prepared.startedAt,
+    });
+
+    await enqueueLeadScorePushbackBestEffort({
+      workspaceId: input.workspaceId,
+      leadId: input.payload.leadId,
+      scoreId: persisted.leadScoreId,
+      diagnosticTraceId: input.payload.diagnosticTraceId ?? null,
     });
   } catch (error) {
     await persistFailedScoreLeadRun({

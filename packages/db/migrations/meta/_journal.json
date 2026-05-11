@@ -134,6 +134,13 @@
       "when": 1778500800000,
       "tag": "0018_email_sends_terminal_delivery_immutability",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1778587200000,
+      "tag": "0019_pushback_lead_score_job_type",
+      "breakpoints": true
     }
   ]
 }
