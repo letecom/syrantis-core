@@ -626,6 +626,31 @@ describe("background job claim repository", () => {
     await expect(claimNextBackgroundJob({ workerId })).resolves.toBeNull();
   });
 
+  it("claimNext does not process failed jobs", async () => {
+    const harness = createClaimHarness([
+      rawJob({
+        status: "failed",
+        failed_at: new Date("2026-05-01T12:02:00.000Z"),
+      }),
+    ]);
+    const { claimNextBackgroundJob } =
+      await importBackgroundJobsRepositoryWithClaimHarness(harness);
+
+    await expect(claimNextBackgroundJob({ workerId })).resolves.toBeNull();
+  });
+
+  it("claimNext ignores pending jobs with run_after in the future", async () => {
+    const harness = createClaimHarness([
+      rawJob({
+        run_after: new Date("2026-05-01T12:11:00.000Z"),
+      }),
+    ]);
+    const { claimNextBackgroundJob } =
+      await importBackgroundJobsRepositoryWithClaimHarness(harness);
+
+    await expect(claimNextBackgroundJob({ workerId })).resolves.toBeNull();
+  });
+
   it("claimNext ignores a fresh running job", async () => {
     const harness = createClaimHarness([
       rawJob({

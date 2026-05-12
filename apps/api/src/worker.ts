@@ -1,25 +1,52 @@
 import { closeGlobalDbClient } from "@syrantis/db";
 
 import { closeWorkerDbClient } from "./lib/worker-db.js";
-import { processNextBackgroundJob } from "./services/background-worker.js";
-import { checkWorkerEnvironment } from "./services/worker-ops.js";
+import {
+  processNextBackgroundJob,
+  type ProcessNextBackgroundJobInput,
+  type ProcessNextBackgroundJobResult,
+} from "./services/background-worker.js";
+import {
+  checkWorkerEnvironment,
+  type WorkerEnvironmentCheckResult,
+} from "./services/worker-ops.js";
 
 const defaultWorkerId = `worker:${process.pid}`;
-const defaultPollIntervalMs = 1000;
+const idleSleepMs = 5000;
+const processedSleepMs = 100;
+const transientErrorSleepMs = 5000;
+
+type WorkerSignal = "SIGINT" | "SIGTERM";
+
+type WorkerSignalTarget = {
+  once(signal: WorkerSignal, listener: () => void): unknown;
+  off(signal: WorkerSignal, listener: () => void): unknown;
+};
+
+type SleepFn = (ms: number) => Promise<void>;
+
+type ProcessNextJobFn = (
+  input: ProcessNextBackgroundJobInput,
+) => Promise<ProcessNextBackgroundJobResult>;
+
+type RunLoopOptions = {
+  sleep: SleepFn;
+  signalTarget: WorkerSignalTarget;
+  processNextJob: ProcessNextJobFn;
+  onRunStarted?: (() => void) | undefined;
+};
+
+export type RunWorkerModeOptions = {
+  workerId?: string;
+  sleep?: SleepFn;
+  signalTarget?: WorkerSignalTarget;
+  onRunStarted?: () => void;
+  checkEnvironment?: () => Promise<WorkerEnvironmentCheckResult>;
+  processNextJob?: ProcessNextJobFn;
+};
 
 function resolveWorkerId(): string {
   return process.env.WORKER_ID?.trim() || defaultWorkerId;
-}
-
-function resolvePollIntervalMs(): number {
-  const rawValue = process.env.WORKER_POLL_INTERVAL_MS?.trim();
-
-  if (!rawValue) {
-    return defaultPollIntervalMs;
-  }
-
-  const parsed = Number(rawValue);
-  return Number.isFinite(parsed) && parsed >= 100 ? parsed : defaultPollIntervalMs;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -55,8 +82,11 @@ function logWorkerEvent(input: {
   process.stdout.write(output);
 }
 
-async function runPreflight(workerId: string): Promise<boolean> {
-  const result = await checkWorkerEnvironment();
+async function runPreflight(
+  workerId: string,
+  checkEnvironment: () => Promise<WorkerEnvironmentCheckResult>,
+): Promise<boolean> {
+  const result = await checkEnvironment();
 
   if (result.ok) {
     logWorkerEvent({
@@ -77,19 +107,29 @@ async function runPreflight(workerId: string): Promise<boolean> {
   return false;
 }
 
-async function processOne(workerId: string): Promise<void> {
-  const result = await processNextBackgroundJob({
+function safeTransientErrorCode(error: unknown): string {
+  if (
+    error instanceof Error &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    /^[A-Z0-9_:-]+$/.test(error.code.trim())
+  ) {
+    return error.code.trim().slice(0, 120) || "BACKGROUND_WORKER_TRANSIENT_ERROR";
+  }
+
+  return "BACKGROUND_WORKER_TRANSIENT_ERROR";
+}
+
+async function processOne(
+  workerId: string,
+  processNextJob: ProcessNextJobFn,
+): Promise<ProcessNextBackgroundJobResult> {
+  const result = await processNextJob({
     workerId,
   });
 
   if (result.status === "idle") {
-    logWorkerEvent({
-      level: "info",
-      workerId,
-      event: "worker.idle",
-      message: "No background job available.",
-    });
-    return;
+    return result;
   }
 
   logWorkerEvent({
@@ -98,35 +138,77 @@ async function processOne(workerId: string): Promise<void> {
     event: `worker.job_${result.status}`,
     message: `Background job ${result.status}.`,
   });
+
+  return result;
 }
 
-async function runLoop(workerId: string): Promise<void> {
+async function runLoop(
+  workerId: string,
+  options: RunLoopOptions,
+): Promise<void> {
   let shouldStop = false;
-  const pollIntervalMs = resolvePollIntervalMs();
 
   const stop = () => {
     shouldStop = true;
   };
 
-  process.once("SIGINT", stop);
-  process.once("SIGTERM", stop);
+  options.signalTarget.once("SIGINT", stop);
+  options.signalTarget.once("SIGTERM", stop);
 
-  while (!shouldStop) {
-    await processOne(workerId);
-    await sleep(pollIntervalMs);
+  try {
+    options.onRunStarted?.();
+
+    while (!shouldStop) {
+      try {
+        const result = await processOne(workerId, options.processNextJob);
+
+        if (shouldStop) {
+          break;
+        }
+
+        await options.sleep(result.status === "idle" ? idleSleepMs : processedSleepMs);
+      } catch (error) {
+        logWorkerEvent({
+          level: "error",
+          workerId,
+          event: "worker.transient_error",
+          message: safeTransientErrorCode(error),
+        });
+
+        if (shouldStop) {
+          break;
+        }
+
+        await options.sleep(transientErrorSleepMs);
+      }
+    }
+  } finally {
+    options.signalTarget.off("SIGINT", stop);
+    options.signalTarget.off("SIGTERM", stop);
   }
 }
 
-export async function runWorkerMode(mode = process.argv[2] ?? "once"): Promise<number> {
-  const workerId = resolveWorkerId();
-  const preflightOk = await runPreflight(workerId);
+export async function runWorkerMode(
+  mode = process.argv[2] ?? "once",
+  options: RunWorkerModeOptions = {},
+): Promise<number> {
+  const workerId = options.workerId ?? resolveWorkerId();
+  const preflightOk = await runPreflight(
+    workerId,
+    options.checkEnvironment ?? checkWorkerEnvironment,
+  );
 
   if (!preflightOk) {
     return 1;
   }
 
   if (mode === "run") {
-    await runLoop(workerId);
+    await runLoop(workerId, {
+      sleep: options.sleep ?? sleep,
+      signalTarget: options.signalTarget ?? process,
+      processNextJob: options.processNextJob ?? processNextBackgroundJob,
+      onRunStarted: options.onRunStarted,
+    });
     return 0;
   }
 
@@ -134,7 +216,7 @@ export async function runWorkerMode(mode = process.argv[2] ?? "once"): Promise<n
     throw new Error("Worker mode must be once or run.");
   }
 
-  await processOne(workerId);
+  await processOne(workerId, options.processNextJob ?? processNextBackgroundJob);
   return 0;
 }
 
@@ -152,7 +234,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       level: "error",
       workerId: resolveWorkerId(),
       event: "worker.failed",
-      message: error instanceof Error ? error.message : "Background worker failed.",
+      message: safeTransientErrorCode(error),
     });
     await closeClients();
     process.exit(1);

@@ -1,0 +1,24 @@
+[Unit]
+Description=Syrantis Core Worker
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=syrantis
+Group=syrantis
+WorkingDirectory=/opt/syrantis/repos/syrantis-core
+EnvironmentFile=/opt/syrantis/env/core.prod.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/env pnpm --filter @syrantis/api worker:run
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=syrantis-worker
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
