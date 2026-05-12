@@ -18,6 +18,7 @@ const rlsTenantInvariants = [
   ["0011", "background_jobs", "tenant_isolation_background_jobs"],
   ["0012", "ai_runs", "tenant_isolation_ai_runs"],
   ["0012", "lead_scores", "tenant_isolation_lead_scores"],
+  ["0020", "workspace_context_profiles", "tenant_isolation_workspace_context_profiles"],
 ] as const satisfies readonly (readonly [MigrationId, string, string])[];
 
 const emailSendDeliveryColumns = [
@@ -130,6 +131,21 @@ export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
     schema: defaultSchema,
     table: "background_jobs",
     constraintName: "background_jobs_type_check",
+  },
+  {
+    kind: "index",
+    migration: "0020",
+    schema: defaultSchema,
+    table: "workspace_context_profiles",
+    indexName: "workspace_context_profiles_workspace_id_unique_idx",
+  },
+  {
+    kind: "trigger",
+    migration: "0020",
+    schema: defaultSchema,
+    table: "workspace_context_profiles",
+    triggerName: "workspace_context_profiles_set_updated_at_trg",
+    functionName: "syrantis_set_updated_at",
   },
 ] as const;
 

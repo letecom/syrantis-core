@@ -16,6 +16,7 @@ import { publicLeadRoutes } from "./public-leads.js";
 import { taskRoutes } from "./tasks.js";
 import { webhookRoutes } from "./webhooks/index.js";
 import { workspaceApiKeyRoutes } from "./workspace-api-keys.js";
+import { workspaceContextRoutes } from "./workspace-context.js";
 
 export const routes = new Hono();
 
@@ -36,4 +37,5 @@ routes.route("/api/public/leads", publicLeadRoutes);
 routes.route("/api/tasks", taskRoutes);
 routes.route("/api/webhooks", webhookRoutes);
 routes.route("/api/workspace-api-keys", workspaceApiKeyRoutes);
+routes.route("/api/workspace-context", workspaceContextRoutes);
 routes.route("/auth", authRoutes);

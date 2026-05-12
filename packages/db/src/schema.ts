@@ -534,6 +534,30 @@ export const workspaceApiKeys = pgTable(
   ],
 );
 
+export const workspaceContextProfiles = pgTable(
+  "workspace_context_profiles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    companyName: varchar("company_name", { length: 120 }).notNull().default(""),
+    sector: varchar("sector", { length: 120 }).notNull().default(""),
+    language: varchar("language", { length: 16 }).notNull().default("fr"),
+    timezone: varchar("timezone", { length: 80 }).notNull().default("Europe/Paris"),
+    contextJson: jsonb("context_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(emptyJson),
+    createdBy: uuid("created_by").references(() => users.id),
+    updatedBy: uuid("updated_by").references(() => users.id),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("workspace_context_profiles_workspace_id_unique_idx").on(table.workspaceId),
+  ],
+);
+
 export const emailSends = pgTable(
   "email_sends",
   {
