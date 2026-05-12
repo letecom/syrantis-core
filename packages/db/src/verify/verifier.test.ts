@@ -91,7 +91,10 @@ function buildCatalog(input: {
       return (
         input.trigger ?? {
           enabled: true,
-          functionName: "enforce_email_sends_terminal_delivery_immutability",
+          functionName:
+            triggerName === "workspace_context_profiles_set_updated_at_trg"
+              ? "syrantis_set_updated_at"
+              : "enforce_email_sends_terminal_delivery_immutability",
         }
       );
     },
@@ -146,6 +149,7 @@ const expectedRlsTables = [
   "background_jobs",
   "ai_runs",
   "lead_scores",
+  "workspace_context_profiles",
 ];
 
 describe("schema invariant registry", () => {
@@ -286,6 +290,29 @@ describe("schema invariant registry", () => {
     );
   });
 
+  it("includes the 0020 workspace context profile invariants", () => {
+    assert.ok(
+      schemaInvariantRegistry.some(
+        (invariant) =>
+          invariant.kind === "index" &&
+          invariant.migration === "0020" &&
+          invariant.table === "workspace_context_profiles" &&
+          invariant.indexName === "workspace_context_profiles_workspace_id_unique_idx",
+      ),
+    );
+
+    assert.ok(
+      schemaInvariantRegistry.some(
+        (invariant) =>
+          invariant.kind === "trigger" &&
+          invariant.migration === "0020" &&
+          invariant.table === "workspace_context_profiles" &&
+          invariant.triggerName === "workspace_context_profiles_set_updated_at_trg" &&
+          invariant.functionName === "syrantis_set_updated_at",
+      ),
+    );
+  });
+
   it("includes RLS tenant isolation invariants for expected tenant tables", () => {
     const rlsInvariants = schemaInvariantRegistry.filter(
       (invariant) =>
@@ -320,8 +347,8 @@ describe("schema invariant verifier", () => {
     );
 
     assert.equal(result.success, true);
-    assert.equal(result.checked, 34);
-    assert.equal(result.passed.length, 34);
+    assert.equal(result.checked, 37);
+    assert.equal(result.passed.length, 37);
     assert.equal(result.failed.length, 0);
   });
 
@@ -771,8 +798,8 @@ describe("schema invariant verifier", () => {
     );
 
     assert.equal(getSchemaVerifyExitCode(result), 1);
-    assert.equal(result.checked, 34);
-    assert.equal(result.failed.length, 16);
+    assert.equal(result.checked, 37);
+    assert.equal(result.failed.length, 17);
   });
 
   it("keeps verification SQL limited to PostgreSQL catalog metadata", () => {
@@ -789,7 +816,7 @@ describe("schema invariant verifier", () => {
     assert.match(combinedSql, /relkind = 'r'/);
     assert.doesNotMatch(
       combinedSql,
-      /from\s+(organizations|contacts|leads|tasks|approvals|activity_logs|drafts|email_sends|background_jobs|ai_runs|lead_scores|external_connections|external_object_mappings|integration_events|workspace_api_keys)\b/i,
+      /from\s+(organizations|contacts|leads|tasks|approvals|activity_logs|drafts|email_sends|background_jobs|ai_runs|lead_scores|workspace_context_profiles|external_connections|external_object_mappings|integration_events|workspace_api_keys)\b/i,
     );
   });
 
@@ -813,8 +840,8 @@ describe("schema invariant verifier", () => {
     };
 
     assert.equal(parsed.success, true);
-    assert.equal(parsed.checked, 34);
-    assert.equal(parsed.passed, 34);
+    assert.equal(parsed.checked, 37);
+    assert.equal(parsed.passed, 37);
     assert.deepEqual(parsed.failed, []);
   });
 });

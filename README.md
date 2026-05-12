@@ -55,6 +55,8 @@ Google Sheets push-back MVP + diagnostics
         ↓
 023V Worker Continuous Runtime
         ↓
+023P Company Context Pack
+        ↓
 Future CRM connector hardening / additional targets
 ```
 
@@ -167,6 +169,26 @@ Production supervision uses `ops/systemd/syrantis-worker.service`, separate from
 Runbook:
 
 - `docs/runbooks/worker-continuous-runtime.md`
+
+## Company Context Pack / 023P
+
+023P adds one workspace-scoped company context profile for future scoring and draft generation.
+It is stored in `workspace_context_profiles`, protected by tenant RLS, and exposed only through
+admin/founder session routes:
+
+```txt
+GET /api/workspace-context
+PUT /api/workspace-context
+```
+
+The profile is updated in-place, has no version history, and is not consumed by scoring, draft
+generation, workers, Google Sheets, or providers yet. Safe API responses omit `workspaceId`,
+`createdBy`, and `updatedBy`; activity logs record only the profile ID and top-level changed field
+names, never context values or raw `context_json`.
+
+Runbook:
+
+- `docs/runbooks/company-context-pack.md`
 
 ## Current State
 

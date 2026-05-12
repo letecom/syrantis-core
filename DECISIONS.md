@@ -166,3 +166,15 @@ with an IDs-only payload. Pushback enqueue or Google Sheets failure must not fai
 
 The first version is append-only to `Score_Log`; it uses activity-log-based idempotence and accepts
 the known duplicate-row race if Sheet append succeeds but the succeeded activity log write fails.
+
+## 2026-05-12 - Company Context Profile Shape
+
+Decision: 023P stores one active company context profile per workspace in
+`workspace_context_profiles`.
+
+The first version updates the row in-place and intentionally does not implement versioning,
+inactive profile history, CMS behavior, RAG, embeddings, document upload, crawler, Gmail OAuth, or
+provider-backed enrichment.
+
+Future scoring and draft generation may consume this profile only through a separately approved
+issue that defines the read path, prompt safety, audit behavior, and regression coverage.
