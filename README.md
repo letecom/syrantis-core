@@ -53,6 +53,8 @@ Google Sheets push-back MVP + diagnostics
         ↓
 023M Lead Score Read Model
         ↓
+023V Worker Continuous Runtime
+        ↓
 Future CRM connector hardening / additional targets
 ```
 
@@ -145,6 +147,27 @@ Sheet rows may contain `from_email`, `contact_name`, and `subject`; activity log
 PII, raw Google errors, raw payloads, prompts, raw AI output, provider payloads, credentials, tokens,
 API keys, unmasked spreadsheet IDs, or `workspaceId`.
 
+## Worker Continuous Runtime / 023V
+
+023V keeps `worker:once` as a fallback and hardens `worker:run` as the normal continuous background
+runtime:
+
+```bash
+pnpm --filter @syrantis/api worker:run
+```
+
+The run loop performs worker preflight, processes one ready background job at a time through the
+same dispatcher as `worker:once`, sleeps briefly after processed jobs, sleeps when idle, backs off
+on transient loop errors with safe logs, and exits cleanly on `SIGTERM`/`SIGINT` after finishing any
+already claimed job.
+
+Production supervision uses `ops/systemd/syrantis-worker.service`, separate from
+`syrantis-api.service`, with journald stdout/stderr logging and runtime user `syrantis`.
+
+Runbook:
+
+- `docs/runbooks/worker-continuous-runtime.md`
+
 ## Current State
 
 Production server:
@@ -193,6 +216,22 @@ remains external to Git at `/opt/syrantis/env/core.prod.env`.
 Runbook:
 
 - `docs/runbooks/api-systemd-supervisor.md`
+
+The production worker should run under a separate systemd service using
+`ops/systemd/syrantis-worker.service`, copied manually by a human operator to:
+
+```txt
+/etc/systemd/system/syrantis-worker.service
+```
+
+Start the worker service without enabling first, validate that public intake completes both
+`score_lead` and `pushback_lead_score` without `worker:once`, then enable it after validation. Do
+not run `worker:once` while `syrantis-worker.service` is active except as a fallback after stopping
+the service.
+
+Runbook:
+
+- `docs/runbooks/worker-continuous-runtime.md`
 
 Manual `nohup` startup is kept only as a human rollback path, not as the normal
 production runtime mode.
@@ -260,6 +299,11 @@ Current baseline through 023F:
 - the systemd transition is human-only and documented in `docs/runbooks/api-systemd-supervisor.md`
 - `nohup` remains documented only as manual rollback
 - worker supervision remains explicitly out of scope for 023F
+- 023V Worker Continuous Runtime exists
+- production worker runtime should be supervised separately through `ops/systemd/syrantis-worker.service`
+- `worker:run` preserves `worker:once` and processes one background job at a time
+- worker service installation and validation are human-only and documented in
+  `docs/runbooks/worker-continuous-runtime.md`
 - 023I Inbound Email Test Intake exists at `POST /api/admin/intake/test-email`
 - 023I is an admin/founder-only, session-cookie, tenant-guarded test harness
 - 023I creates a synthetic lead, enqueues one pending `score_lead` job, writes one safe
