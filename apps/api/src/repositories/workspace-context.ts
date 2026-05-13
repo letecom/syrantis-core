@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { workspaceContextProfiles } from "@syrantis/db";
 import type { WorkspaceContextInput } from "@syrantis/shared";
 
-import { withWorkspaceDb } from "../lib/db.js";
+import { withWorkspaceDb, type WorkspaceDbTransaction } from "../lib/db.js";
 import { createActivityLog } from "./activity-logs.js";
 
 export type WorkspaceContextProfileRow = typeof workspaceContextProfiles.$inferSelect;
@@ -67,7 +67,13 @@ function changedTopLevelFields(
 export async function findWorkspaceContextProfile(
   workspaceId: string,
 ): Promise<WorkspaceContextProfileRow | null> {
-  return withWorkspaceDb(workspaceId, async (tx) => {
+  return withWorkspaceDb(workspaceId, async (tx) => findWorkspaceContextProfileInTx(tx, workspaceId));
+}
+
+export async function findWorkspaceContextProfileInTx(
+  tx: WorkspaceDbTransaction,
+  workspaceId: string,
+): Promise<WorkspaceContextProfileRow | null> {
     const [profile] = await tx
       .select()
       .from(workspaceContextProfiles)
@@ -75,7 +81,6 @@ export async function findWorkspaceContextProfile(
       .limit(1);
 
     return profile ?? null;
-  });
 }
 
 export async function upsertWorkspaceContextProfile(
