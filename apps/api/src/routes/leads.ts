@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   ApiErrorSchema,
   CreateLeadInputSchema,
+  LeadContactContextSuccessSchema,
   LeadDraftGenerationRequestSuccessSchema,
   LeadListQuerySchema,
   LeadListSuccessSchema,
@@ -30,6 +31,10 @@ import {
   createProductionLeadDraftGenerationService,
   type LeadDraftGenerationService,
 } from "../services/lead-draft-generation.js";
+import {
+  createProductionLeadContactContextService,
+  type LeadContactContextService,
+} from "../services/lead-contact-context.js";
 import {
   createProductionLeadService,
   type LeadService,
@@ -69,6 +74,7 @@ export type LeadRoutesDependencies = {
   leadScoreService?: LeadScoreService;
   scoringStatusService?: ScoringStatusService;
   leadDraftGenerationService?: LeadDraftGenerationService;
+  leadContactContextService?: LeadContactContextService;
 };
 
 function isAdminRole(role: string): boolean {
@@ -77,6 +83,40 @@ function isAdminRole(role: string): boolean {
 
 function hasClientWorkspaceId(value: unknown): boolean {
   return typeof value === "object" && value !== null && "workspaceId" in value;
+}
+
+function hasClientTenantMaterial(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some(hasClientTenantMaterial);
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  return Object.entries(value).some(
+    ([key, childValue]) =>
+      key === "workspaceId" ||
+      key === "workspace_id" ||
+      key === "workspace-id" ||
+      key === "tenantId" ||
+      key === "tenant_id" ||
+      key === "tenant-id" ||
+      hasClientTenantMaterial(childValue),
+  );
+}
+
+function hasWorkspaceHeader(c: Context<AppEnv>): boolean {
+  return Boolean(
+    c.req.header("workspaceId") ??
+    c.req.header("workspace-id") ??
+    c.req.header("workspace_id") ??
+    c.req.header("x-workspace-id") ??
+    c.req.header("tenantId") ??
+    c.req.header("tenant-id") ??
+    c.req.header("tenant_id") ??
+    c.req.header("x-tenant-id"),
+  );
 }
 
 async function readJsonBody(c: Context<AppEnv>): Promise<unknown> {
@@ -133,6 +173,8 @@ export function createLeadRoutes(dependencies: LeadRoutesDependencies = {}) {
     dependencies.scoringStatusService ?? createProductionScoringStatusService();
   const leadDraftGenerationService =
     dependencies.leadDraftGenerationService ?? createProductionLeadDraftGenerationService();
+  const leadContactContextService =
+    dependencies.leadContactContextService ?? createProductionLeadContactContextService();
 
   routes.use("*", guard);
 
@@ -292,6 +334,31 @@ export function createLeadRoutes(dependencies: LeadRoutesDependencies = {}) {
       LeadScoreStatusSuccessSchema.parse({
         success: true,
         data: result.status,
+      }),
+    );
+  });
+
+  routes.get("/:id/contact-context", async (c) => {
+    const leadId = parseId(c.req.param("id"));
+
+    if (!leadId || hasClientTenantMaterial(c.req.query()) || hasWorkspaceHeader(c)) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    if (!isAdminRole(c.get("currentUser").role)) {
+      return c.json(forbidden("ADMIN_REQUIRED"), 403);
+    }
+
+    const result = await leadContactContextService.getContactContext(getWorkspaceId(c), leadId);
+
+    if (result.result === "not_found") {
+      return c.json(leadNotFoundResponse, 404);
+    }
+
+    return c.json(
+      LeadContactContextSuccessSchema.parse({
+        success: true,
+        data: result.context,
       }),
     );
   });
