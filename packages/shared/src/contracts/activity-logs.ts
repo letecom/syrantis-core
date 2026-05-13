@@ -14,6 +14,8 @@ export const ActivityLogActionSchema = z.enum([
   "draft.ai_generated",
   "draft.ai_generation_failed",
   "draft.ai_generation_blocked",
+  "draft.gmail_export_requested",
+  "draft.gmail_export_cancelled",
   "draft.gmail_exported",
   "draft.approved",
   "draft.rejected",

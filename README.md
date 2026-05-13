@@ -65,6 +65,8 @@ Google Sheets push-back MVP + diagnostics
         ↓
 023T Gmail Draft Export Status Read Model
         ↓
+023U Gmail Draft Export Request Gate
+        ↓
 Future CRM connector hardening / additional targets
 ```
 
@@ -79,6 +81,10 @@ POST /api/drafts/:id/gmail-export-confirmed
 
 The pending route leases exportable `drafts.status = 'draft'` AI drafts in `drafts.metadata_json.gmailExport` and returns a small batch with recipient, subject, body, and lease token. Recipient is resolved server-side from `draft.lead_id -> leads.contact_id -> contacts.email`, scoped to the API key workspace.
 
+023U gates this pending route: a draft must first be explicitly requested by a session admin/founder,
+and the request must still be active. Old unrequested drafts are inert by default. Apps Script does
+not change.
+
 The Apps Script creates native Gmail drafts with `GmailApp.createDraft(toEmail, subject, bodyText)` and confirms export with the lease token. Syrantis does not send, does not create approvals, does not create `email_sends`, does not store Gmail draft IDs, and does not use backend Gmail OAuth.
 
 Activity logs for confirm use `draft.gmail_exported` and contain only safe IDs/source/timestamp, never email, subject, body, lease token, workspace ID, contact ID, API key material, provider IDs, prompt/output, or raw metadata.
@@ -89,12 +95,19 @@ Activity logs for confirm use `draft.gmail_exported` and contain only safe IDs/s
 
 ```txt
 GET /api/drafts/:id/gmail-export-status
+POST /api/drafts/:id/gmail-export-request
+POST /api/drafts/:id/gmail-export-cancel
 ```
 
 The route returns a Zod-validated safe DTO with export status, lease status, recipient readiness,
-`canExport`, ordered blocking reasons, and aggregate `email_sends`/`approvals` counts. It reads Gmail
-export state only from `drafts.metadata_json.gmailExport` and resolves recipient state only through
-`draft.lead_id -> leads.contact_id -> contacts.email`.
+request status, `canExport`, ordered blocking reasons, and aggregate `email_sends`/`approvals`
+counts. It reads Gmail export state only from `drafts.metadata_json.gmailExport` and resolves
+recipient state only through `draft.lead_id -> leads.contact_id -> contacts.email`.
+
+023U adds the request/cancel routes as session-only founder/admin actions. Request writes a 24-hour
+`gmailExport` request with `requestSource = "admin_api"`; cancel marks that request cancelled. Both
+routes reject already-exported drafts, active leases, cross-workspace drafts, and unsafe readiness
+states. Successful non-idempotent request/cancel actions create safe activity logs only.
 
 The route is read-only, tenant-scoped, rejects client-provided workspace identity, and does not allow
 API-key authentication. It never returns recipient email, subject, body, contact ID, workspace ID,
@@ -1451,6 +1464,7 @@ Not implemented yet.
 | 023K     | API Key Management & Public Intake Hardening          | done   |
 | 023S     | Gmail Draft Bridge via Apps Script                    | done   |
 | 023T     | Gmail Draft Export Status Read Model                  | done   |
+| 023U     | Gmail Draft Export Request Gate                       | done   |
 
 Near-term candidates:
 

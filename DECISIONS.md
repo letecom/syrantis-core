@@ -178,3 +178,15 @@ provider-backed enrichment.
 
 Future scoring and draft generation may consume this profile only through a separately approved
 issue that defines the read path, prompt safety, audit behavior, and regression coverage.
+
+## 2026-05-13 - Gmail Draft Export Requires Explicit Request
+
+Decision: Apps Script Gmail draft export is inert by default and requires a per-draft
+admin/founder request before the API-key pending endpoint can lease a draft.
+
+The request gate is stored in `drafts.metadata_json.gmailExport`; no migration or new table is
+introduced for 023U. Pending exports must require a non-expired, non-cancelled request and must
+preserve request audit fields when writing leases.
+
+This gate does not approve backend Gmail OAuth, Gmail send, approval creation, `email_sends`
+creation, provider calls, worker changes, or Apps Script changes.

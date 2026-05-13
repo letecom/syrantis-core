@@ -1,6 +1,12 @@
 import { Hono, type Context } from "hono";
 
-import { ApiErrorSchema, GmailExportStatusSuccessSchema, forbidden } from "@syrantis/shared";
+import {
+  ApiErrorSchema,
+  GmailExportCancelResponseSchema,
+  GmailExportRequestResponseSchema,
+  GmailExportStatusSuccessSchema,
+  forbidden,
+} from "@syrantis/shared";
 
 import { getWorkspaceId } from "../lib/tenant.js";
 import { createTenantGuard, tenantGuard } from "../middleware/tenant.js";
@@ -10,6 +16,12 @@ import {
   type GmailExportStatusService,
   type GmailExportStatusServiceResult,
 } from "../services/gmail-export-status.js";
+import {
+  createProductionGmailExportRequestService,
+  type GmailExportCancelServiceResult,
+  type GmailExportRequestService,
+  type GmailExportRequestServiceResult,
+} from "../services/gmail-export-request.js";
 import type { AppEnv } from "../types/hono.js";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -35,6 +47,7 @@ const internalServerErrorResponse = ApiErrorSchema.parse({
 export type DraftGmailExportStatusRoutesDependencies = {
   authService?: AuthService;
   gmailExportStatusService?: GmailExportStatusService;
+  gmailExportRequestService?: GmailExportRequestService;
 };
 
 function isAdminRole(role: string): boolean {
@@ -94,6 +107,62 @@ function gmailExportStatusResponse(c: Context<AppEnv>, result: GmailExportStatus
   );
 }
 
+async function readOptionalJsonBody(c: Context<AppEnv>): Promise<unknown> {
+  const text = await c.req.text();
+
+  if (!text.trim()) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function requestConflictResponse(result: { code: string }) {
+  return ApiErrorSchema.parse({
+    success: false,
+    error: "Gmail export request conflict.",
+    code: result.code,
+  });
+}
+
+function gmailExportRequestResponse(c: Context<AppEnv>, result: GmailExportRequestServiceResult) {
+  if (result.result === "not_found") {
+    return c.json(draftNotFoundResponse, 404);
+  }
+
+  if (result.result === "conflict") {
+    return c.json(requestConflictResponse(result), 409);
+  }
+
+  return c.json(
+    GmailExportRequestResponseSchema.parse({
+      success: true,
+      data: result.data,
+    }),
+  );
+}
+
+function gmailExportCancelResponse(c: Context<AppEnv>, result: GmailExportCancelServiceResult) {
+  if (result.result === "not_found") {
+    return c.json(draftNotFoundResponse, 404);
+  }
+
+  if (result.result === "conflict") {
+    return c.json(requestConflictResponse(result), 409);
+  }
+
+  return c.json(
+    GmailExportCancelResponseSchema.parse({
+      success: true,
+      data: result.data,
+    }),
+  );
+}
+
 export function createDraftGmailExportStatusRoutes(
   dependencies: DraftGmailExportStatusRoutesDependencies = {},
 ) {
@@ -103,6 +172,8 @@ export function createDraftGmailExportStatusRoutes(
     : tenantGuard;
   const gmailExportStatusService =
     dependencies.gmailExportStatusService ?? createProductionGmailExportStatusService();
+  const gmailExportRequestService =
+    dependencies.gmailExportRequestService ?? createProductionGmailExportRequestService();
 
   routes.use("*", guard);
 
@@ -123,6 +194,64 @@ export function createDraftGmailExportStatusRoutes(
         draftId,
       );
       return gmailExportStatusResponse(c, result);
+    } catch {
+      return c.json(internalServerErrorResponse, 500);
+    }
+  });
+
+  routes.post("/:id/gmail-export-request", async (c) => {
+    const draftId = parseDraftId(c.req.param("id"));
+
+    if (!draftId || hasForbiddenWorkspaceId(c.req.query()) || hasWorkspaceHeader(c)) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const body = await readOptionalJsonBody(c);
+
+    if (hasForbiddenWorkspaceId(body)) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    if (!isAdminRole(c.get("currentUser").role)) {
+      return c.json(forbidden("ADMIN_REQUIRED"), 403);
+    }
+
+    try {
+      const result = await gmailExportRequestService.requestGmailExport(
+        getWorkspaceId(c),
+        c.get("userId"),
+        draftId,
+      );
+      return gmailExportRequestResponse(c, result);
+    } catch {
+      return c.json(internalServerErrorResponse, 500);
+    }
+  });
+
+  routes.post("/:id/gmail-export-cancel", async (c) => {
+    const draftId = parseDraftId(c.req.param("id"));
+
+    if (!draftId || hasForbiddenWorkspaceId(c.req.query()) || hasWorkspaceHeader(c)) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    const body = await readOptionalJsonBody(c);
+
+    if (hasForbiddenWorkspaceId(body)) {
+      return c.json(invalidRequestResponse, 400);
+    }
+
+    if (!isAdminRole(c.get("currentUser").role)) {
+      return c.json(forbidden("ADMIN_REQUIRED"), 403);
+    }
+
+    try {
+      const result = await gmailExportRequestService.cancelGmailExport(
+        getWorkspaceId(c),
+        c.get("userId"),
+        draftId,
+      );
+      return gmailExportCancelResponse(c, result);
     } catch {
       return c.json(internalServerErrorResponse, 500);
     }

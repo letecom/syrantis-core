@@ -16,8 +16,17 @@ export const GmailExportStatusSchema = z.enum([
 ]);
 
 export const GmailExportSourceSchema = z.literal("apps_script");
+export const GmailExportRequestSourceSchema = z.literal("admin_api");
 
 export const GmailExportLeaseStatusSchema = z.enum(["none", "active", "expired"]);
+export const GmailExportRequestStatusSchema = z.enum([
+  "not_requested",
+  "requested",
+  "request_expired",
+  "cancelled",
+  "leased",
+  "exported",
+]);
 
 export const GmailExportBlockingReasonSchema = z.enum([
   "draft_not_ready",
@@ -30,6 +39,10 @@ export const GmailExportBlockingReasonSchema = z.enum([
   "active_lease",
   "already_exported",
   "has_email_sends",
+  "export_not_requested",
+  "export_request_expired",
+  "export_cancelled",
+  "export_in_progress",
 ]);
 
 export const GmailExportStatusOutputSchema = z.object({
@@ -39,6 +52,10 @@ export const GmailExportStatusOutputSchema = z.object({
   hasSubject: z.boolean(),
   hasBodyText: z.boolean(),
   recipientStatus: GmailExportRecipientStatusSchema,
+  requestStatus: GmailExportRequestStatusSchema,
+  requestedAt: z.string().datetime().nullable(),
+  requestExpiresAt: z.string().datetime().nullable(),
+  requestSource: GmailExportRequestSourceSchema.nullable(),
   exportStatus: GmailExportStatusSchema,
   exportSource: GmailExportSourceSchema.nullable(),
   exportedAt: z.string().datetime().nullable(),
@@ -60,6 +77,8 @@ export const GmailExportStatusSuccessSchema = z.object({
 export type GmailExportRecipientStatus = z.infer<typeof GmailExportRecipientStatusSchema>;
 export type GmailExportStatus = z.infer<typeof GmailExportStatusSchema>;
 export type GmailExportSource = z.infer<typeof GmailExportSourceSchema>;
+export type GmailExportRequestSource = z.infer<typeof GmailExportRequestSourceSchema>;
+export type GmailExportRequestStatus = z.infer<typeof GmailExportRequestStatusSchema>;
 export type GmailExportLeaseStatus = z.infer<typeof GmailExportLeaseStatusSchema>;
 export type GmailExportBlockingReason = z.infer<typeof GmailExportBlockingReasonSchema>;
 export type GmailExportStatusOutput = z.infer<typeof GmailExportStatusOutputSchema>;

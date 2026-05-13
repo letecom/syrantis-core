@@ -2,6 +2,7 @@ import type {
   GmailExportBlockingReason,
   GmailExportLeaseStatus,
   GmailExportRecipientStatus,
+  GmailExportRequestStatus,
   GmailExportStatus,
   GmailExportStatusOutput,
 } from "@syrantis/shared";
@@ -108,11 +109,44 @@ function exportStatus(input: {
   return "not_exported";
 }
 
+function requestStatus(input: {
+  status: unknown;
+  requestedAt: Date | null;
+  requestExpiresAt: Date | null;
+  cancelledAt: Date | null;
+  exportedAt: Date | null;
+  leaseStatus: GmailExportLeaseStatus;
+  now: Date;
+}): GmailExportRequestStatus {
+  if (input.status === "exported" || input.exportedAt) {
+    return "exported";
+  }
+
+  if (input.leaseStatus === "active") {
+    return "leased";
+  }
+
+  if (input.status === "cancelled" || input.cancelledAt) {
+    return "cancelled";
+  }
+
+  if (!input.requestedAt) {
+    return "not_requested";
+  }
+
+  if (!input.requestExpiresAt || input.requestExpiresAt <= input.now) {
+    return "request_expired";
+  }
+
+  return "requested";
+}
+
 function blockingReasons(input: {
   draftStatus: string;
   hasSubject: boolean;
   hasBodyText: boolean;
   recipientStatus: GmailExportRecipientStatus;
+  requestStatus: GmailExportRequestStatus;
   leaseStatus: GmailExportLeaseStatus;
   exportStatus: GmailExportStatus;
   emailSendsCount: number;
@@ -147,8 +181,20 @@ function blockingReasons(input: {
     reasons.push("invalid_email");
   }
 
-  if (input.leaseStatus === "active") {
-    reasons.push("active_lease");
+  if (input.requestStatus === "not_requested") {
+    reasons.push("export_not_requested");
+  }
+
+  if (input.requestStatus === "request_expired") {
+    reasons.push("export_request_expired");
+  }
+
+  if (input.requestStatus === "cancelled") {
+    reasons.push("export_cancelled");
+  }
+
+  if (input.leaseStatus === "active" || input.requestStatus === "leased") {
+    reasons.push("export_in_progress");
   }
 
   if (input.exportStatus === "exported") {
@@ -170,6 +216,9 @@ function deriveGmailExportStatus(
   const gmailExport = gmailExportMetadata(metadataJson);
   const exportedAtDate = parseMetadataDate(gmailExport.exportedAt);
   const leaseExpiresAtDate = parseMetadataDate(gmailExport.leaseExpiresAt);
+  const requestedAtDate = parseMetadataDate(gmailExport.requestedAt);
+  const requestExpiresAtDate = parseMetadataDate(gmailExport.requestExpiresAt);
+  const cancelledAtDate = parseMetadataDate(gmailExport.cancelledAt);
   const resolvedLeaseStatus = leaseStatus({
     leaseToken: gmailExport.leaseToken,
     leaseExpiresAt: leaseExpiresAtDate,
@@ -180,6 +229,15 @@ function deriveGmailExportStatus(
     exportedAt: exportedAtDate,
     leaseStatus: resolvedLeaseStatus,
   });
+  const resolvedRequestStatus = requestStatus({
+    status: gmailExport.status,
+    requestedAt: requestedAtDate,
+    requestExpiresAt: requestExpiresAtDate,
+    cancelledAt: cancelledAtDate,
+    exportedAt: exportedAtDate,
+    leaseStatus: resolvedLeaseStatus,
+    now,
+  });
   const resolvedRecipientStatus = recipientStatus(row);
   const hasSubject = hasText(row.draft.subject);
   const hasBodyText = hasText(row.draft.textBody);
@@ -188,6 +246,7 @@ function deriveGmailExportStatus(
     hasSubject,
     hasBodyText,
     recipientStatus: resolvedRecipientStatus,
+    requestStatus: resolvedRequestStatus,
     leaseStatus: resolvedLeaseStatus,
     exportStatus: resolvedExportStatus,
     emailSendsCount: row.emailSendsCount,
@@ -200,6 +259,10 @@ function deriveGmailExportStatus(
     hasSubject,
     hasBodyText,
     recipientStatus: resolvedRecipientStatus,
+    requestStatus: resolvedRequestStatus,
+    requestedAt: requestedAtDate?.toISOString() ?? null,
+    requestExpiresAt: requestExpiresAtDate?.toISOString() ?? null,
+    requestSource: gmailExport.requestSource === "admin_api" ? "admin_api" : null,
     exportStatus: resolvedExportStatus,
     exportSource: gmailExport.source === "apps_script" ? "apps_script" : null,
     exportedAt: exportedAtDate?.toISOString() ?? null,
@@ -210,6 +273,7 @@ function deriveGmailExportStatus(
       hasSubject &&
       hasBodyText &&
       resolvedRecipientStatus === "present" &&
+      resolvedRequestStatus === "requested" &&
       (resolvedExportStatus === "not_exported" || resolvedExportStatus === "lease_expired") &&
       resolvedLeaseStatus !== "active" &&
       row.emailSendsCount === 0,
