@@ -1,4 +1,7 @@
-export const ALLOWED_AI_MODELS = ["mistralai/mistral-small-2603"] as const;
+export const ALLOWED_AI_MODELS = [
+  "mistralai/mistral-small-2603",
+  "google/gemini-3.1-flash-lite",
+] as const;
 
 export type AllowedAiModel = (typeof ALLOWED_AI_MODELS)[number];
 
@@ -12,6 +15,10 @@ export const AI_MODEL_PRICING_MICRO_USD_PER_1M_TOKENS: Record<
     input: 150_000,
     output: 600_000,
   },
+  "google/gemini-3.1-flash-lite": {
+    input: 250_000,
+    output: 1_500_000,
+  },
 };
 
 export function isAllowedAiModel(model: string): model is AllowedAiModel {
@@ -20,6 +27,20 @@ export function isAllowedAiModel(model: string): model is AllowedAiModel {
 
 export function resolveAllowedAiModel(input?: string): AllowedAiModel {
   const model = input?.trim() || process.env.AI_MODEL?.trim() || DEFAULT_AI_MODEL;
+
+  if (!isAllowedAiModel(model)) {
+    throw new AiModelNotAllowedError(model);
+  }
+
+  return model;
+}
+
+export function resolveAllowedAiDraftModel(input?: string): AllowedAiModel {
+  const model =
+    input?.trim() ||
+    process.env.AI_DRAFT_MODEL?.trim() ||
+    process.env.AI_MODEL?.trim() ||
+    DEFAULT_AI_MODEL;
 
   if (!isAllowedAiModel(model)) {
     throw new AiModelNotAllowedError(model);

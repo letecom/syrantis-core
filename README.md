@@ -949,11 +949,15 @@ Current `send_email` worker behavior:
 - 021A AI Draft Generation Foundation
 - 021B Draft AI Audit Read Model
 
-Current AI model:
+Current scoring AI model:
 
 ```txt
 mistralai/mistral-small-2603
 ```
+
+Draft generation uses `AI_DRAFT_MODEL` when set. If `AI_DRAFT_MODEL` is absent, it falls back to
+`AI_MODEL`, then to `mistralai/mistral-small-2603`. This allows production to test
+`google/gemini-3.1-flash-lite` for `generate_ai_draft` without changing `score_lead`.
 
 Current AI guarantees:
 
@@ -1281,7 +1285,7 @@ lead_scores
 activity_logs
 ```
 
-Current model:
+Current scoring model:
 
 ```txt
 mistralai/mistral-small-2603
@@ -1318,6 +1322,7 @@ Status:
 
 - no email send or approval from AI draft generation
 - no prompt/output in activity_logs
+- optional `AI_DRAFT_MODEL=google/gemini-3.1-flash-lite` affects draft generation only
 - manual drafts return null AI audit
 
 ### 10. Future CRM Connector Lane
