@@ -8,7 +8,7 @@ It is not a chatbot.
 
 It is not an uncontrolled agent system.
 
-It is a controlled action layer above CRMs, forms, sheets, and business tools. The client CRM remains the commercial source of truth. Syrantis handles intake, admin-only inbound email test intake, public API-key inbound message intake, admin API key management, canonical lead context, AI scoring, AI draft generation, AI audit read model, approval readiness, human approval, send readiness, request-send, optional cancel-send while pending, worker execution, send status, send attempts, delivery proof, DB proof, Google Sheets push-back, push-back diagnostics, and manual push-back replay.
+It is a controlled action layer above CRMs, forms, sheets, and business tools. The client CRM remains the commercial source of truth. Syrantis handles intake, admin-only inbound email test intake, public API-key inbound message intake, admin API key management, canonical lead context, AI scoring, AI draft generation, AI audit read model, Gmail draft export by client-side Apps Script pull, approval readiness, human approval, send readiness, request-send, optional cancel-send while pending, worker execution, send status, send attempts, delivery proof, DB proof, Google Sheets push-back, push-back diagnostics, and manual push-back replay.
 
 ```txt
 Client CRM / form / sheet
@@ -61,8 +61,25 @@ Google Sheets push-back MVP + diagnostics
         ↓
 023R Contextual AI Draft Generation
         ↓
+023S Gmail Draft Bridge via Apps Script pull
+        ↓
 Future CRM connector hardening / additional targets
 ```
+
+## Gmail Draft Bridge / 023S
+
+023S adds two workspace API-key routes under `/api/drafts` for a client-owned Apps Script timer:
+
+```txt
+GET /api/drafts/gmail-export-pending?limit=5
+POST /api/drafts/:id/gmail-export-confirmed
+```
+
+The pending route leases exportable `drafts.status = 'draft'` AI drafts in `drafts.metadata_json.gmailExport` and returns a small batch with recipient, subject, body, and lease token. Recipient is resolved server-side from `draft.lead_id -> leads.contact_id -> contacts.email`, scoped to the API key workspace.
+
+The Apps Script creates native Gmail drafts with `GmailApp.createDraft(toEmail, subject, bodyText)` and confirms export with the lease token. Syrantis does not send, does not create approvals, does not create `email_sends`, does not store Gmail draft IDs, and does not use backend Gmail OAuth.
+
+Activity logs for confirm use `draft.gmail_exported` and contain only safe IDs/source/timestamp, never email, subject, body, lease token, workspace ID, contact ID, API key material, provider IDs, prompt/output, or raw metadata.
 
 ## Contextual AI Draft Generation / 023R
 
@@ -948,6 +965,7 @@ Current `send_email` worker behavior:
 - 020C AI Scoring Read Model
 - 021A AI Draft Generation Foundation
 - 021B Draft AI Audit Read Model
+- 023S Gmail Draft Bridge via Apps Script
 
 Current scoring AI model:
 
@@ -1410,6 +1428,7 @@ Not implemented yet.
 | 023I     | Inbound Email Test Intake                             | done   |
 | 023J     | Public API-Key Inbound Message Intake                 | done   |
 | 023K     | API Key Management & Public Intake Hardening          | done   |
+| 023S     | Gmail Draft Bridge via Apps Script                    | done   |
 
 Near-term candidates:
 
