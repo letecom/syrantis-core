@@ -22,7 +22,11 @@ import {
   OpenRouterProvider,
 } from "../services/ai/openrouter-provider.js";
 import { redactLeadForScoring } from "../services/ai/pii-redaction.js";
-import { calculateAiCostMicroUsd, resolveAllowedAiModel } from "../services/ai/pricing.js";
+import {
+  calculateAiCostMicroUsd,
+  resolveAllowedAiDraftModel,
+  resolveAllowedAiModel,
+} from "../services/ai/pricing.js";
 import type { AiProvider } from "../services/ai/providers.js";
 import { handleScoreLeadJob } from "../services/score-lead-job-handler.js";
 import type { LeadScoreService } from "../services/lead-scores.js";
@@ -383,6 +387,49 @@ describe("OpenRouter provider hardening", () => {
     expect(resolveAllowedAiModel("mistralai/mistral-small-2603")).toBe(
       "mistralai/mistral-small-2603",
     );
+  });
+
+  it("model.allowlist.accepts_gemini_flash_lite", () => {
+    expect(resolveAllowedAiModel("google/gemini-3.1-flash-lite")).toBe(
+      "google/gemini-3.1-flash-lite",
+    );
+  });
+
+  it("draft_model.prefers_ai_draft_model", () => {
+    vi.stubEnv("AI_MODEL", "mistralai/mistral-small-2603");
+    vi.stubEnv("AI_DRAFT_MODEL", "google/gemini-3.1-flash-lite");
+
+    expect(resolveAllowedAiDraftModel()).toBe("google/gemini-3.1-flash-lite");
+  });
+
+  it("draft_model.falls_back_to_ai_model_then_default", () => {
+    vi.stubEnv("AI_MODEL", "google/gemini-3.1-flash-lite");
+
+    expect(resolveAllowedAiDraftModel()).toBe("google/gemini-3.1-flash-lite");
+
+    vi.stubEnv("AI_MODEL", "");
+
+    expect(resolveAllowedAiDraftModel()).toBe("mistralai/mistral-small-2603");
+  });
+
+  it("draft_model.rejects_invalid_ai_draft_model", () => {
+    vi.stubEnv("AI_DRAFT_MODEL", "openai/gpt-5-mini");
+
+    expect(() => resolveAllowedAiDraftModel()).toThrow("AI_MODEL_NOT_ALLOWED");
+  });
+
+  it("score_model.ignores_ai_draft_model", () => {
+    vi.stubEnv("AI_MODEL", "");
+    vi.stubEnv("AI_DRAFT_MODEL", "google/gemini-3.1-flash-lite");
+
+    expect(resolveAllowedAiModel()).toBe("mistralai/mistral-small-2603");
+  });
+
+  it("score_model.uses_ai_model_when_explicitly_changed", () => {
+    vi.stubEnv("AI_MODEL", "google/gemini-3.1-flash-lite");
+    vi.stubEnv("AI_DRAFT_MODEL", "mistralai/mistral-small-2603");
+
+    expect(resolveAllowedAiModel()).toBe("google/gemini-3.1-flash-lite");
   });
 
   it("model.allowlist.rejects_gpt5mini before fetch", async () => {
@@ -1106,6 +1153,75 @@ describe("score_lead worker handler", () => {
     });
     expect(JSON.stringify(pushbackTx.insertedValues[0])).not.toContain("john.doe@acme.com");
     expect(JSON.stringify(pushbackTx.insertedValues[0])).not.toContain("rawContent");
+  });
+
+  it("keeps score_lead on AI_MODEL/default when only AI_DRAFT_MODEL is set", async () => {
+    vi.stubEnv("AI_MODEL", "");
+    vi.stubEnv("AI_DRAFT_MODEL", "google/gemini-3.1-flash-lite");
+    const prepareTx = createMockTx({
+      label: "prepare",
+      selectResponses: [[leadContextRow()]],
+      insertResponses: [
+        {
+          id: aiRunId,
+          workspaceId: testUser.workspaceId,
+          status: "running",
+        },
+      ],
+    });
+    const successTx = createMockTx({
+      label: "success",
+      selectResponses: [],
+      insertResponses: [
+        {
+          id: leadScoreId,
+          workspaceId: testUser.workspaceId,
+          leadId,
+          aiRunId,
+        },
+      ],
+    });
+    const pushbackTx = createMockTx({
+      label: "pushback",
+      selectResponses: [],
+      insertResponses: [pushbackJobRow()],
+    });
+    const provider: AiProvider = {
+      complete: vi.fn(async (input) => ({
+        content: validScoreJson(),
+        inputTokens: 42,
+        outputTokens: 36,
+        model: input.model,
+        provider: "openrouter" as const,
+        finishReason: "stop",
+        costEstimateMicroUsd: 1,
+      })),
+    };
+    mockDb.txQueue = [prepareTx.tx, successTx.tx, pushbackTx.tx];
+
+    await handleScoreLeadJob({
+      workspaceId: testUser.workspaceId,
+      jobId,
+      payload: { leadId },
+      provider,
+    });
+
+    expect(provider.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "mistralai/mistral-small-2603",
+      }),
+    );
+    expect(prepareTx.insertedValues[0]).toMatchObject({
+      purpose: "scoring",
+      modelUsed: "mistralai/mistral-small-2603",
+    });
+    expect(successTx.updates[0]).toMatchObject({
+      status: "success",
+      modelUsed: "mistralai/mistral-small-2603",
+    });
+    expect(successTx.insertedValues[0]).toMatchObject({
+      model: "mistralai/mistral-small-2603",
+    });
   });
 
   it("does not hold a transaction during provider call", async () => {

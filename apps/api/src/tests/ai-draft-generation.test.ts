@@ -15,6 +15,7 @@ import {
   parseDraftGenerationOutput,
 } from "../services/ai/draft-generation-prompt.js";
 import { OpenRouterProvider } from "../services/ai/openrouter-provider.js";
+import { calculateAiCostMicroUsd } from "../services/ai/pricing.js";
 import type { AiProvider } from "../services/ai/providers.js";
 import type { DraftGenerationContext } from "../services/draft-generation-context.js";
 import { handleGenerateAiDraftJob } from "../services/generate-ai-draft-job-handler.js";
@@ -653,6 +654,68 @@ describe("generate_ai_draft worker handler", () => {
     expect(successTx.updates).toHaveLength(1);
   });
 
+  it("uses AI_DRAFT_MODEL for draft generation and records Gemini model and pricing", async () => {
+    vi.stubEnv("AI_DRAFT_MODEL", "google/gemini-3.1-flash-lite");
+    const geminiCostEstimateMicroUsd = calculateAiCostMicroUsd({
+      model: "google/gemini-3.1-flash-lite",
+      inputTokens: 1000,
+      outputTokens: 500,
+    });
+    const prepareTx = createMockTx({
+      label: "prepare",
+      selectResponses: prepareSelects(),
+      insertResponses: [aiRunRow()],
+      executeResponses: [[contactAggregateRow()]],
+    });
+    const successTx = createMockTx({
+      label: "success",
+      selectResponses: [],
+      insertResponses: [draftRow()],
+    });
+    const provider: AiProvider = {
+      complete: vi.fn(async () => ({
+        content: validDraftJson(),
+        inputTokens: 1000,
+        outputTokens: 500,
+        model: "google/gemini-3.1-flash-lite",
+        provider: "openrouter" as const,
+        finishReason: "stop",
+        costEstimateMicroUsd: geminiCostEstimateMicroUsd,
+      })),
+    };
+    mockDb.txQueue = [prepareTx.tx, successTx.tx];
+
+    await handleGenerateAiDraftJob({
+      workspaceId: testUser.workspaceId,
+      jobId,
+      payload: { leadId },
+      provider,
+    });
+
+    expect(provider.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "google/gemini-3.1-flash-lite",
+      }),
+    );
+    expect(prepareTx.insertedValues[0]).toMatchObject({
+      purpose: "draft_generation",
+      modelUsed: "google/gemini-3.1-flash-lite",
+    });
+    expect(successTx.updates[0]).toMatchObject({
+      status: "success",
+      modelUsed: "google/gemini-3.1-flash-lite",
+      costEstimateMicroUsd: 1000,
+      costEstimateCents: 1,
+    });
+    expect(successTx.insertTargets).toEqual([drafts]);
+    expect(successTx.insertedValues).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "send_email" })]),
+    );
+    expect(JSON.stringify(vi.mocked(createActivityLog).mock.calls)).not.toContain(
+      "costEstimateMicroUsd",
+    );
+  });
+
   it("assembles score, company context, and contact context into a capped safe prompt", async () => {
     const prepareTx = createMockTx({
       label: "prepare",
@@ -1056,6 +1119,37 @@ describe("OpenRouter draft length retry option", () => {
 
     expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string)).toMatchObject({
       max_tokens: 1800,
+    });
+  });
+
+  it("calculates Gemini draft cost from the shared pricing registry", async () => {
+    process.env.OPENROUTER_API_KEY = "test-openrouter-key";
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ finish_reason: "stop", message: { content: validDraftJson() } }],
+          model: "google/gemini-3.1-flash-lite",
+          usage: {
+            prompt_tokens: 1000,
+            completion_tokens: 500,
+          },
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await new OpenRouterProvider().complete({
+      model: "google/gemini-3.1-flash-lite",
+      messages: [{ role: "user", content: "redacted prompt" }],
+      maxTokens: 1200,
+      lengthRetryMaxTokens: 1800,
+      temperature: 0.3,
+      timeoutMs: 30_000,
+    });
+
+    expect(output).toMatchObject({
+      model: "google/gemini-3.1-flash-lite",
+      costEstimateMicroUsd: 1000,
     });
   });
 });

@@ -20,7 +20,7 @@ import {
   AiProviderEmptyResponseError,
   OpenRouterProvider,
 } from "./ai/openrouter-provider.js";
-import { convertMicroUsdToCentsConservative, resolveAllowedAiModel } from "./ai/pricing.js";
+import { convertMicroUsdToCentsConservative, resolveAllowedAiDraftModel } from "./ai/pricing.js";
 import type { AiCompletionOutput, AiProvider } from "./ai/providers.js";
 import {
   assembleDraftGenerationContext,
@@ -56,7 +56,7 @@ class DraftGenerationBlockedError extends Error {
 }
 
 function resolveModel(input?: string): string {
-  return resolveAllowedAiModel(input);
+  return resolveAllowedAiDraftModel(input);
 }
 
 function contextSourcesUsed(context: DraftGenerationContext) {
