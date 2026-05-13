@@ -278,6 +278,42 @@ describe("lead contact context service", () => {
     });
   });
 
+  it("finds repeated public inbound context through a shared linked contact_id", async () => {
+    const repository = repositoryWith({
+      source: source({
+        safeContactId: contactId,
+        contactEmail: "Lead@Example.Test",
+        normalizedJsonFromEmail: null,
+        normalizedJsonEmail: null,
+      }),
+      aggregate: aggregate({
+        previousLeadCount: 1,
+        lastPriorLeadAt: new Date("2026-05-13T10:00:00.000Z"),
+      }),
+    });
+
+    const context = await readContext(repository);
+
+    expect(context).toEqual(
+      contactContextDto({
+        matchedBy: "contact_id",
+        hasPriorContext: true,
+        previousLeadCount: 1,
+        lastPriorLeadAt: "2026-05-13T10:00:00.000Z",
+        warnings: ["repeated_inbound_recent"],
+      }),
+    );
+    expect(repository.findAggregate).toHaveBeenCalledWith({
+      workspaceId,
+      leadId,
+      key: {
+        matchedBy: "contact_id",
+        contactId,
+        email: "lead@example.test",
+      },
+    });
+  });
+
   it("normalizes whitelisted email keys case-insensitively without plus alias canonicalization", async () => {
     const repository = repositoryWith({
       source: source({

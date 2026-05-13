@@ -1,17 +1,26 @@
 import { and, desc, eq, gt, sql } from "drizzle-orm";
 
-import { backgroundJobs, leads, workspaceApiKeys } from "@syrantis/db";
+import { backgroundJobs, contacts, leads, workspaceApiKeys } from "@syrantis/db";
 import type { InboundMessageIntakeRequest } from "@syrantis/shared";
 
 import { withWorkspaceDb, type WorkspaceDbTransaction } from "../lib/db.js";
-import { hasText, publicInboundMessageSource, safeStringLength } from "../services/intake-shared.js";
+import {
+  hasText,
+  publicInboundMessageSource,
+  safeStringLength,
+} from "../services/intake-shared.js";
 import { createActivityLog } from "./activity-logs.js";
 import { enqueueScoreLeadJob, type BackgroundJobRow } from "./background-jobs.js";
 
 const databaseLeadSource = "email";
 const idempotencyWindowMs = 24 * 60 * 60 * 1000;
 
-export type InboundMessageLeadRow = Pick<typeof leads.$inferSelect, "id" | "createdAt">;
+export type InboundMessageLeadRow = Pick<
+  typeof leads.$inferSelect,
+  "id" | "contactId" | "createdAt"
+>;
+
+export type InboundMessageContactRow = Pick<typeof contacts.$inferSelect, "id" | "email">;
 
 export type InboundMessageIntakeRepositoryInput = {
   workspaceId: string;
@@ -28,6 +37,10 @@ export type InboundMessageIntakeRepositoryResult = {
 
 function normalizedNullable(value: string | null | undefined): string | null {
   return value ?? null;
+}
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 function summarizeRawContent(data: InboundMessageIntakeRequest): string {
@@ -64,6 +77,7 @@ async function findRecentIdempotentLead(
   const [lead] = await tx
     .select({
       id: leads.id,
+      contactId: leads.contactId,
       createdAt: leads.createdAt,
     })
     .from(leads)
@@ -80,6 +94,62 @@ async function findRecentIdempotentLead(
     .limit(1);
 
   return lead ?? null;
+}
+
+async function findContactByNormalizedEmail(
+  tx: WorkspaceDbTransaction,
+  input: { workspaceId: string; email: string },
+): Promise<InboundMessageContactRow | null> {
+  const [contact] = await tx
+    .select({
+      id: contacts.id,
+      email: contacts.email,
+    })
+    .from(contacts)
+    .where(
+      and(
+        eq(contacts.workspaceId, input.workspaceId),
+        sql`lower(btrim(${contacts.email})) = ${input.email}`,
+      ),
+    )
+    .limit(1);
+
+  return contact ?? null;
+}
+
+async function findOrCreateInboundContact(
+  tx: WorkspaceDbTransaction,
+  input: { workspaceId: string; fromEmail: string },
+): Promise<InboundMessageContactRow> {
+  const email = normalizeEmail(input.fromEmail);
+  const existing = await findContactByNormalizedEmail(tx, {
+    workspaceId: input.workspaceId,
+    email,
+  });
+
+  if (existing) {
+    return existing;
+  }
+
+  const [contact] = await tx
+    .insert(contacts)
+    .values({
+      workspaceId: input.workspaceId,
+      email,
+      metadataJson: {
+        origin: publicInboundMessageSource,
+      },
+    })
+    .returning({
+      id: contacts.id,
+      email: contacts.email,
+    });
+
+  if (!contact) {
+    throw new Error("Failed to create public inbound message contact.");
+  }
+
+  return contact;
 }
 
 async function findLatestScoreLeadJobForLead(
@@ -143,11 +213,16 @@ export async function createInboundMessageIntake(
     const contactNamePresent = hasText(input.data.contactName);
     const apiSource = input.data.source;
     const receivedAt = input.data.receivedAt ? new Date(input.data.receivedAt) : new Date();
+    const contact = await findOrCreateInboundContact(tx, {
+      workspaceId: input.workspaceId,
+      fromEmail: input.data.fromEmail,
+    });
 
     const [lead] = await tx
       .insert(leads)
       .values({
         workspaceId: input.workspaceId,
+        contactId: contact.id,
         source: databaseLeadSource,
         status: "new",
         rawContent: summarizeRawContent(input.data),
@@ -168,6 +243,7 @@ export async function createInboundMessageIntake(
       })
       .returning({
         id: leads.id,
+        contactId: leads.contactId,
         createdAt: leads.createdAt,
       });
 

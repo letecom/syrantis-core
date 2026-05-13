@@ -70,6 +70,8 @@ The route matches by a safe same-workspace `contact_id` first, then by a minimal
 
 The response is intentionally small and excludes PII/raw body/provider identifiers/workspace IDs: no email address, contact name, subject, body text or HTML, raw normalized JSON, raw metadata JSON, provider message ID, API keys, tokens, prompt, or raw output. 023Q prepares contact-level relationship context for 023R contextual draft generation without generating drafts or calling AI.
 
+023Q hotfix: public inbound message intake now creates or reuses a workspace contact by normalized `fromEmail` and links new leads through `leads.contact_id`, so future repeated public inbound messages can be found by contact context. This adds no migration and does not add PII to activity logs, `leads.normalized_json`, public responses, or contact-context responses.
+
 ## Lead Score Read Model / 023M
 
 023M adds `GET /api/leads/:id/score-status`, an admin/founder session route for safe read-only
