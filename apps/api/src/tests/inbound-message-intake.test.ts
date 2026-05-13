@@ -11,10 +11,12 @@ import { createInboundMessageIntake } from "../repositories/inbound-message-inta
 import { createAdminIntakeRoutes } from "../routes/admin-intake.js";
 import { createInboundMessageIntakeRoutes } from "../routes/inbound-message-intake.js";
 import type {
+  InboundMessageIntakeRepository,
   InboundMessageIntakeService,
   InboundMessageIntakeServiceResult,
 } from "../services/inbound-message-intake.js";
 import { createProductionInboundMessageIntakeService } from "../services/inbound-message-intake.js";
+import { createLeadContactContextService } from "../services/lead-contact-context.js";
 import { FixedWindowRateLimiter } from "../services/rate-limit.js";
 import type { AdminIntakeService } from "../services/admin-intake.js";
 import type { AuthService } from "../services/auth.js";
@@ -46,6 +48,8 @@ const replayLeadId = "00000000-0000-4000-8000-000000023202";
 const jobId = "00000000-0000-4000-8000-000000023203";
 const replayJobId = "00000000-0000-4000-8000-000000023204";
 const diagnosticTraceId = "00000000-0000-4000-8000-000000023205";
+const contactId = "00000000-0000-4000-8000-000000023209";
+const secondLeadId = "00000000-0000-4000-8000-000000023210";
 const createdAt = new Date("2026-05-09T10:00:00.000Z");
 
 function uuidFromNumber(value: number): string {
@@ -91,6 +95,13 @@ function expectSafeSerialized(value: unknown) {
   ]) {
     expect(serialized).not.toContain(forbidden);
   }
+}
+
+function expectNoUnsafeNormalizedJson(value: unknown) {
+  expect(value).not.toHaveProperty("fromEmail");
+  expect(value).not.toHaveProperty("email");
+  expect(value).not.toHaveProperty("contactEmail");
+  expect(value).not.toHaveProperty("senderEmail");
 }
 
 function createResponse(input: {
@@ -173,6 +184,7 @@ function createFakeInboundService() {
 
       leads.push({
         id,
+        contactId: uuidFromNumber(501),
         source: "public_inbound_message",
         rawContent: input.payload.bodyText,
       });
@@ -329,6 +341,14 @@ function jobRow(id = jobId) {
     lastErrorMessage: null,
     createdAt,
     updatedAt: createdAt,
+  };
+}
+
+function contactRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: contactId,
+    email: "lead@example.com",
+    ...overrides,
   };
 }
 
@@ -629,10 +649,14 @@ describe("public inbound message intake route", () => {
 });
 
 describe("public inbound message repository", () => {
-  it("creates lead, pending score_lead job, and safe activity log in the current workspace", async () => {
+  it("creates a normalized contact, linked lead, pending score_lead job, and safe activity log", async () => {
     const harness = createMockTx({
-      selectResponses: [[]],
-      insertResponses: [{ id: leadId, createdAt }, jobRow()],
+      selectResponses: [[], []],
+      insertResponses: [
+        contactRow({ email: "lead@example.com" }),
+        { id: leadId, contactId, createdAt },
+        jobRow(),
+      ],
     });
     mockDb.tx = harness.tx;
 
@@ -645,11 +669,13 @@ describe("public inbound message repository", () => {
         externalId: "external-1",
         subject: "Need urgent boiler quote",
         contactName: "Jean Client",
+        fromEmail: " Lead@Example.COM ",
       }),
     });
 
     expect(result.result).toBe("created");
     expect(result.lead.id).toBe(leadId);
+    expect(result.lead.contactId).toBe(contactId);
     expect(result.job).toMatchObject({
       id: jobId,
       type: "score_lead",
@@ -662,6 +688,14 @@ describe("public inbound message repository", () => {
     });
     expect(harness.insertedValues[0]).toMatchObject({
       workspaceId,
+      email: "lead@example.com",
+      metadataJson: {
+        origin: "public_inbound_message",
+      },
+    });
+    expect(harness.insertedValues[1]).toMatchObject({
+      workspaceId,
+      contactId,
       source: "email",
       status: "new",
       normalizedJson: expect.objectContaining({
@@ -677,8 +711,9 @@ describe("public inbound message repository", () => {
         bodyLength: 24,
       }),
     });
-    expect(String(harness.insertedValues[0]?.rawContent)).toContain("Need urgent boiler help.");
-    expect(harness.insertedValues[1]).toMatchObject({
+    expectNoUnsafeNormalizedJson(harness.insertedValues[1]?.normalizedJson);
+    expect(String(harness.insertedValues[1]?.rawContent)).toContain("Need urgent boiler help.");
+    expect(harness.insertedValues[2]).toMatchObject({
       workspaceId,
       type: "score_lead",
       status: "pending",
@@ -688,7 +723,7 @@ describe("public inbound message repository", () => {
         source: "public_inbound_message",
       },
     });
-    expectSafeSerialized(harness.insertedValues[1]?.payloadJson);
+    expectSafeSerialized(harness.insertedValues[2]?.payloadJson);
     expect(createActivityLog).toHaveBeenCalledWith(
       harness.tx,
       expect.objectContaining({
@@ -716,9 +751,51 @@ describe("public inbound message repository", () => {
     expect(harness.tx.update).toHaveBeenCalled();
   });
 
+  it("reuses an existing same-workspace contact by normalized fromEmail", async () => {
+    const harness = createMockTx({
+      selectResponses: [[contactRow({ email: "Lead@Example.com" })]],
+      insertResponses: [{ id: secondLeadId, contactId, createdAt }, jobRow()],
+    });
+    mockDb.tx = harness.tx;
+
+    const result = await createInboundMessageIntake({
+      workspaceId,
+      apiKeyId: "00000000-0000-4000-8000-000000023206",
+      diagnosticTraceId,
+      data: validPayload({
+        fromEmail: " lead@example.com ",
+        subject: "Need urgent boiler quote",
+        contactName: "Jean Client",
+      }),
+    });
+
+    expect(result).toMatchObject({
+      result: "created",
+      lead: {
+        id: secondLeadId,
+        contactId,
+      },
+    });
+    expect(harness.insertedValues).toHaveLength(2);
+    expect(harness.insertedValues[0]).toMatchObject({
+      workspaceId,
+      contactId,
+      source: "email",
+      normalizedJson: expect.objectContaining({
+        source: "public_inbound_message",
+        contactNamePresent: true,
+        subjectPresent: true,
+      }),
+    });
+    expectNoUnsafeNormalizedJson(harness.insertedValues[0]?.normalizedJson);
+    expect(harness.insertedValues[1]).toMatchObject({
+      type: "score_lead",
+    });
+  });
+
   it("returns an idempotent replay without inserting a new lead or job", async () => {
     const harness = createMockTx({
-      selectResponses: [[{ id: replayLeadId, createdAt }], [jobRow(replayJobId)]],
+      selectResponses: [[{ id: replayLeadId, contactId, createdAt }], [jobRow(replayJobId)]],
       insertResponses: [],
     });
     mockDb.tx = harness.tx;
@@ -734,6 +811,7 @@ describe("public inbound message repository", () => {
       result: "idempotent_replay",
       lead: {
         id: replayLeadId,
+        contactId,
       },
       job: {
         id: replayJobId,
@@ -746,8 +824,8 @@ describe("public inbound message repository", () => {
 
   it("propagates job enqueue failure before writing activity metadata", async () => {
     const harness = createMockTx({
-      selectResponses: [[]],
-      insertResponses: [{ id: leadId, createdAt }],
+      selectResponses: [[], []],
+      insertResponses: [contactRow(), { id: leadId, contactId, createdAt }],
     });
     mockDb.tx = harness.tx;
 
@@ -769,7 +847,7 @@ describe("public inbound message intake service rate limit", () => {
     const repository = {
       create: vi.fn(async () => ({
         result: "created" as const,
-        lead: { id: leadId, createdAt },
+        lead: { id: leadId, contactId, createdAt },
         job: jobRow(),
       })),
     };
@@ -800,5 +878,91 @@ describe("public inbound message intake service rate limit", () => {
         payload: validPayload({ externalId: "service-rate-independent" }),
       }),
     ).resolves.toMatchObject({ result: "created" });
+  });
+});
+
+describe("public inbound contact linking regression", () => {
+  it("lets 023Q contact context find a prior public inbound lead through contact_id", async () => {
+    const contactsByEmail = new Map<string, { id: string; email: string }>();
+    const createdLeads: Array<{ id: string; contactId: string; createdAt: Date }> = [];
+    const repository: InboundMessageIntakeRepository = {
+      create: vi.fn(async (input) => {
+        const email = input.data.fromEmail.trim().toLowerCase();
+        let contact = contactsByEmail.get(email);
+
+        if (!contact) {
+          contact = { id: contactId, email };
+          contactsByEmail.set(email, contact);
+        }
+
+        const lead = {
+          id: uuidFromNumber(23220 + createdLeads.length),
+          contactId: contact.id,
+          createdAt: new Date(`2026-05-09T10:0${createdLeads.length}:00.000Z`),
+        };
+        createdLeads.push(lead);
+
+        return {
+          result: "created" as const,
+          lead,
+          job: jobRow(uuidFromNumber(23320 + createdLeads.length)),
+        };
+      }),
+    };
+    const intakeService = createProductionInboundMessageIntakeService(
+      repository,
+      new FixedWindowRateLimiter(),
+    );
+
+    await intakeService.receiveInboundMessage({
+      apiKey: { id: "00000000-0000-4000-8000-000000023207", workspaceId },
+      payload: validPayload({ fromEmail: " Lead@Example.COM ", externalId: "real-shape-a" }),
+    });
+    const second = await intakeService.receiveInboundMessage({
+      apiKey: { id: "00000000-0000-4000-8000-000000023207", workspaceId },
+      payload: validPayload({ fromEmail: "lead@example.com", externalId: "real-shape-b" }),
+    });
+
+    expect(second.result).toBe("created");
+    expect(createdLeads).toHaveLength(2);
+    expect(new Set(createdLeads.map((lead) => lead.contactId))).toEqual(new Set([contactId]));
+
+    const currentLead = createdLeads[1]!;
+    const contextService = createLeadContactContextService({
+      now: () => new Date("2026-05-09T11:00:00.000Z"),
+      repository: {
+        findSource: vi.fn(async () => ({
+          id: currentLead.id,
+          safeContactId: currentLead.contactId,
+          contactEmail: "lead@example.com",
+          normalizedJsonFromEmail: null,
+          normalizedJsonEmail: null,
+        })),
+        findAggregate: vi.fn(async () => ({
+          previousLeadCount: 1,
+          previousDraftCount: 0,
+          previousOutboundCount: 0,
+          lastPriorLeadAt: createdLeads[0]!.createdAt,
+          lastOutboundAt: null,
+          lastOutboundDeliveryStatus: null,
+          hasPriorBounce: false,
+          hasPriorComplaint: false,
+        })),
+      },
+    });
+
+    const context = await contextService.getContactContext(workspaceId, currentLead.id);
+
+    expect(context).toMatchObject({
+      result: "ok",
+      context: {
+        contactKeyPresent: true,
+        matchedBy: "contact_id",
+        previousLeadCount: 1,
+        hasPriorContext: true,
+        warnings: ["repeated_inbound_recent"],
+      },
+    });
+    expectSafeSerialized(context);
   });
 });
