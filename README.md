@@ -63,6 +63,8 @@ Google Sheets push-back MVP + diagnostics
         ↓
 023S Gmail Draft Bridge via Apps Script pull
         ↓
+023T Gmail Draft Export Status Read Model
+        ↓
 Future CRM connector hardening / additional targets
 ```
 
@@ -80,6 +82,25 @@ The pending route leases exportable `drafts.status = 'draft'` AI drafts in `draf
 The Apps Script creates native Gmail drafts with `GmailApp.createDraft(toEmail, subject, bodyText)` and confirms export with the lease token. Syrantis does not send, does not create approvals, does not create `email_sends`, does not store Gmail draft IDs, and does not use backend Gmail OAuth.
 
 Activity logs for confirm use `draft.gmail_exported` and contain only safe IDs/source/timestamp, never email, subject, body, lease token, workspace ID, contact ID, API key material, provider IDs, prompt/output, or raw metadata.
+
+## Gmail Draft Export Status / 023T
+
+023T adds a session-only founder/admin read model for one draft:
+
+```txt
+GET /api/drafts/:id/gmail-export-status
+```
+
+The route returns a Zod-validated safe DTO with export status, lease status, recipient readiness,
+`canExport`, ordered blocking reasons, and aggregate `email_sends`/`approvals` counts. It reads Gmail
+export state only from `drafts.metadata_json.gmailExport` and resolves recipient state only through
+`draft.lead_id -> leads.contact_id -> contacts.email`.
+
+The route is read-only, tenant-scoped, rejects client-provided workspace identity, and does not allow
+API-key authentication. It never returns recipient email, subject, body, contact ID, workspace ID,
+raw metadata, raw `gmailExport`, lease token, provider IDs, prompt/output, or API key material. It
+does not create activity logs, background jobs, approvals, or `email_sends`, and it does not call
+Gmail, Google Sheets, providers, workers, or send behavior.
 
 ## Contextual AI Draft Generation / 023R
 
@@ -1429,6 +1450,7 @@ Not implemented yet.
 | 023J     | Public API-Key Inbound Message Intake                 | done   |
 | 023K     | API Key Management & Public Intake Hardening          | done   |
 | 023S     | Gmail Draft Bridge via Apps Script                    | done   |
+| 023T     | Gmail Draft Export Status Read Model                  | done   |
 
 Near-term candidates:
 

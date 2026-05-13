@@ -11,6 +11,7 @@ export * from "./drafts.js";
 export * from "./email-sends.js";
 export * from "./errors.js";
 export * from "./gmail-export.js";
+export * from "./gmail-export-status.js";
 export * from "./health.js";
 export * from "./inbound-message.js";
 export * from "./google-sheets-setup.js";
