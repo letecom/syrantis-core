@@ -716,6 +716,24 @@ describe("generate_ai_draft worker handler", () => {
     );
   });
 
+  it("rejects unsupported AI_DRAFT_MODEL before provider call or ai_run creation", async () => {
+    vi.stubEnv("AI_DRAFT_MODEL", "made-up/model");
+    const provider = validProvider(validDraftJson());
+
+    await expect(
+      handleGenerateAiDraftJob({
+        workspaceId: testUser.workspaceId,
+        jobId,
+        payload: { leadId },
+        provider,
+      }),
+    ).rejects.toThrow("AI_MODEL_NOT_ALLOWED");
+
+    expect(provider.complete).not.toHaveBeenCalled();
+    expect(mockDb.events).toEqual([]);
+    expect(createActivityLog).not.toHaveBeenCalled();
+  });
+
   it("assembles score, company context, and contact context into a capped safe prompt", async () => {
     const prepareTx = createMockTx({
       label: "prepare",

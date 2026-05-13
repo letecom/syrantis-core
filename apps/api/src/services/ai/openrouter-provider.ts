@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 import {
+  assertAllowedAiModel,
   calculateAiCostMicroUsd,
   DEFAULT_AI_MODEL,
-  resolveAllowedAiModel,
 } from "./pricing.js";
 import type { AiCompletionInput, AiCompletionOutput, AiProvider } from "./providers.js";
 
@@ -141,7 +141,7 @@ async function requestWithRetry(input: {
 
 function responseToCompletion(input: {
   data: OpenRouterResponse;
-  fallbackModel: string;
+  model: string;
 }): AiCompletionOutput {
   const choice = input.data.choices[0];
   const finishReason = choice?.finish_reason ?? "";
@@ -162,17 +162,16 @@ function responseToCompletion(input: {
 
   const inputTokens = input.data.usage?.prompt_tokens ?? 0;
   const outputTokens = input.data.usage?.completion_tokens ?? 0;
-  const model = input.data.model ?? input.fallbackModel;
 
   return {
     content,
     inputTokens,
     outputTokens,
-    model,
+    model: input.model,
     provider: "openrouter",
     finishReason,
     costEstimateMicroUsd: calculateAiCostMicroUsd({
-      model,
+      model: input.model,
       inputTokens,
       outputTokens,
     }),
@@ -181,7 +180,7 @@ function responseToCompletion(input: {
 
 export class OpenRouterProvider implements AiProvider {
   async complete(input: AiCompletionInput): Promise<AiCompletionOutput> {
-    const model = resolveAllowedAiModel(input.model);
+    const model = assertAllowedAiModel(input.model);
     const apiKey = readApiKey();
 
     const firstResponse = await requestWithRetry({
@@ -223,13 +222,13 @@ export class OpenRouterProvider implements AiProvider {
 
       return responseToCompletion({
         data: secondData,
-        fallbackModel: model,
+        model,
       });
     }
 
     return responseToCompletion({
       data: firstData,
-      fallbackModel: model,
+      model,
     });
   }
 }
