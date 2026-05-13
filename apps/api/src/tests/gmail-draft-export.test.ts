@@ -124,6 +124,13 @@ function baseDraft(overrides: Partial<StoredDraft> = {}): StoredDraft {
       origin: "ai_draft_generation",
       aiRunId: "00000000-0000-4000-8000-000000023599",
       promptTemplateId: "draft-email-v1",
+      gmailExport: {
+        status: "requested",
+        requestedAt: "2026-05-13T17:00:00.000Z",
+        requestExpiresAt: "2026-05-14T17:00:00.000Z",
+        requestSource: "admin_api",
+        cancelledAt: null,
+      },
     },
     providerMessageId: "provider-message-secret",
     prompt: "prompt-secret",
@@ -151,12 +158,14 @@ function baseContact(overrides: Partial<StoredContact> = {}): StoredContact {
   };
 }
 
-function createFakeGmailExportServices(input: {
-  drafts?: StoredDraft[];
-  leads?: StoredLead[];
-  contacts?: StoredContact[];
-  currentTime?: Date;
-} = {}) {
+function createFakeGmailExportServices(
+  input: {
+    drafts?: StoredDraft[];
+    leads?: StoredLead[];
+    contacts?: StoredContact[];
+    currentTime?: Date;
+  } = {},
+) {
   const drafts = new Map((input.drafts ?? [baseDraft()]).map((draft) => [draft.id, draft]));
   const leads = new Map((input.leads ?? [baseLead()]).map((lead) => [lead.id, lead]));
   const contacts = new Map(
@@ -210,6 +219,27 @@ function createFakeGmailExportServices(input: {
     );
   }
 
+  function hasActiveRequest(draft: StoredDraft): boolean {
+    const gmailExport = draft.metadataJson.gmailExport;
+
+    if (typeof gmailExport !== "object" || gmailExport === null) {
+      return false;
+    }
+
+    const requestExpiresAt = (gmailExport as Record<string, unknown>).requestExpiresAt;
+    const parsedRequestExpiresAt =
+      typeof requestExpiresAt === "string" ? new Date(requestExpiresAt) : null;
+
+    return (
+      typeof (gmailExport as Record<string, unknown>).requestedAt === "string" &&
+      Boolean(parsedRequestExpiresAt && parsedRequestExpiresAt > currentTime) &&
+      (gmailExport as Record<string, unknown>).status !== "cancelled" &&
+      (gmailExport as Record<string, unknown>).status !== "exported" &&
+      !(gmailExport as Record<string, unknown>).cancelledAt &&
+      !(gmailExport as Record<string, unknown>).exportedAt
+    );
+  }
+
   const pendingService: GmailExportPendingService = {
     getPendingGmailExports: vi.fn(async (requestedWorkspaceId, query) => {
       const items = [];
@@ -235,6 +265,7 @@ function createFakeGmailExportServices(input: {
           contact.workspaceId !== requestedWorkspaceId ||
           !isEmailValidEnough(contact.email) ||
           isExported(draft) ||
+          !hasActiveRequest(draft) ||
           hasActiveLease(draft)
         ) {
           continue;
@@ -278,7 +309,11 @@ function createFakeGmailExportServices(input: {
 
   const confirmService: GmailExportConfirmService = {
     confirmGmailExport: vi.fn(
-      async (requestedWorkspaceId, requestedDraftId, leaseToken): Promise<GmailExportConfirmServiceResult> => {
+      async (
+        requestedWorkspaceId,
+        requestedDraftId,
+        leaseToken,
+      ): Promise<GmailExportConfirmServiceResult> => {
         const draft = drafts.get(requestedDraftId);
 
         if (!draft || draft.workspaceId !== requestedWorkspaceId) {
@@ -489,6 +524,58 @@ describe("Gmail draft export API-key routes", () => {
     expect(body.data).toEqual([]);
   });
 
+  it("GET pending excludes drafts without an explicit active request", async () => {
+    const services = createFakeGmailExportServices({
+      drafts: [
+        baseDraft({
+          metadataJson: {
+            origin: "ai_draft_generation",
+          },
+        }),
+      ],
+    });
+
+    const { response } = await getPending(services);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data).toEqual([]);
+  });
+
+  it("GET pending excludes expired and cancelled requests", async () => {
+    const services = createFakeGmailExportServices({
+      drafts: [
+        baseDraft({
+          id: draftId,
+          metadataJson: {
+            gmailExport: {
+              status: "requested",
+              requestedAt: "2026-05-12T18:00:00.000Z",
+              requestExpiresAt: "2026-05-13T17:59:59.000Z",
+              requestSource: "admin_api",
+            },
+          },
+        }),
+        baseDraft({
+          id: secondDraftId,
+          metadataJson: {
+            gmailExport: {
+              status: "cancelled",
+              requestedAt: "2026-05-13T17:00:00.000Z",
+              requestExpiresAt: "2026-05-14T17:00:00.000Z",
+              requestSource: "admin_api",
+              cancelledAt: "2026-05-13T17:30:00.000Z",
+            },
+          },
+        }),
+      ],
+    });
+
+    const { response } = await getPending(services);
+
+    expect((await response.json()).data).toEqual([]);
+  });
+
   it("GET pending excludes active leases", async () => {
     const services = createFakeGmailExportServices({
       drafts: [
@@ -519,6 +606,9 @@ describe("Gmail draft export API-key routes", () => {
             keepMe: true,
             gmailExport: {
               status: "leased",
+              requestedAt: "2026-05-13T17:00:00.000Z",
+              requestExpiresAt: "2026-05-14T17:00:00.000Z",
+              requestSource: "admin_api",
               leaseToken: "expired-lease-token-abcdefghijkl",
               leaseExpiresAt: "2026-05-13T17:00:00.000Z",
               exportedAt: null,
@@ -538,6 +628,9 @@ describe("Gmail draft export API-key routes", () => {
       keepMe: true,
       gmailExport: {
         status: "leased",
+        requestedAt: "2026-05-13T17:00:00.000Z",
+        requestExpiresAt: "2026-05-14T17:00:00.000Z",
+        requestSource: "admin_api",
         leaseExpiresAt: "2026-05-13T18:10:00.000Z",
         exportedAt: null,
         source: "apps_script",
@@ -558,7 +651,10 @@ describe("Gmail draft export API-key routes", () => {
       }),
     );
     const defaultResponse = await getPending(services);
-    const cappedResponse = await getPending(createFakeGmailExportServices({ drafts: freshDrafts }), 10);
+    const cappedResponse = await getPending(
+      createFakeGmailExportServices({ drafts: freshDrafts }),
+      10,
+    );
 
     expect((await defaultResponse.response.json()).data).toHaveLength(5);
     expect((await cappedResponse.response.json()).data).toHaveLength(10);
@@ -620,6 +716,9 @@ describe("Gmail draft export API-key routes", () => {
     });
     expect(gmailExport.leaseToken).toBe(body.data[0].leaseToken);
     expect(gmailExport.leaseExpiresAt).toBe("2026-05-13T18:10:00.000Z");
+    expect(gmailExport.requestedAt).toBe("2026-05-13T17:00:00.000Z");
+    expect(gmailExport.requestExpiresAt).toBe("2026-05-14T17:00:00.000Z");
+    expect(gmailExport.requestSource).toBe("admin_api");
   });
 
   it("POST confirm returns 401 without an API key", async () => {
@@ -873,13 +972,17 @@ describe("Gmail draft export API-key routes", () => {
       new URL("../services/score-lead-job-handler.ts", import.meta.url),
       "utf8",
     );
-    const pricingSource = readFileSync(new URL("../services/ai/pricing.ts", import.meta.url), "utf8");
+    const pricingSource = readFileSync(
+      new URL("../services/ai/pricing.ts", import.meta.url),
+      "utf8",
+    );
     const gmailExportSource = `${routeSource}\n${repositorySource}`;
 
     expect(gmailExportSource).not.toContain("GmailApp");
-    expect(gmailExportSource).not.toContain("emailSends");
     expect(gmailExportSource).not.toContain("approvals");
     expect(gmailExportSource).not.toContain("OpenRouter");
+    expect(gmailExportSource).not.toContain("insert(emailSends");
+    expect(gmailExportSource).not.toContain("insert(approvals");
     expect(generateDraftSource).toContain("resolveAllowedAiDraftModel");
     expect(scoringSource).toContain("resolveAllowedAiModel");
     expect(pricingSource).toContain("AI_DRAFT_MODEL");

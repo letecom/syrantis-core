@@ -33,10 +33,42 @@ export const GmailExportConfirmResponseSchema = z.object({
   }),
 });
 
+export const GmailExportRequestResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    draftId: z.string().uuid(),
+    leadId: z.string().uuid(),
+    requestStatus: z.enum(["requested", "already_requested"]),
+    requestedAt: z.string().datetime(),
+    requestExpiresAt: z.string().datetime(),
+    canExport: z.boolean(),
+  }),
+});
+
+export const GmailExportCancelResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    draftId: z.string().uuid(),
+    leadId: z.string().uuid(),
+    requestStatus: z.literal("cancelled"),
+    cancelledAt: z.string().datetime(),
+  }),
+});
+
 export const GmailExportConflictErrorCodeSchema = z.enum([
   "GMAIL_EXPORT_LEASE_MISSING",
   "GMAIL_EXPORT_LEASE_MISMATCH",
   "GMAIL_EXPORT_LEASE_EXPIRED",
+]);
+
+export const GmailExportRequestConflictErrorCodeSchema = z.enum([
+  "GMAIL_EXPORT_ALREADY_EXPORTED",
+  "GMAIL_EXPORT_ACTIVE_LEASE",
+  "GMAIL_EXPORT_DRAFT_NOT_READY",
+  "GMAIL_EXPORT_MISSING_CONTENT",
+  "GMAIL_EXPORT_MISSING_RECIPIENT",
+  "GMAIL_EXPORT_HAS_EMAIL_SENDS",
+  "GMAIL_EXPORT_NO_ACTIVE_REQUEST",
 ]);
 
 export type GmailExportPendingQuery = z.infer<typeof GmailExportPendingQuerySchema>;
@@ -45,3 +77,8 @@ export type GmailExportPendingResponse = z.infer<typeof GmailExportPendingRespon
 export type GmailExportConfirmBody = z.infer<typeof GmailExportConfirmBodySchema>;
 export type GmailExportConfirmResponse = z.infer<typeof GmailExportConfirmResponseSchema>;
 export type GmailExportConflictErrorCode = z.infer<typeof GmailExportConflictErrorCodeSchema>;
+export type GmailExportRequestResponse = z.infer<typeof GmailExportRequestResponseSchema>;
+export type GmailExportCancelResponse = z.infer<typeof GmailExportCancelResponseSchema>;
+export type GmailExportRequestConflictErrorCode = z.infer<
+  typeof GmailExportRequestConflictErrorCodeSchema
+>;
