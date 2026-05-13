@@ -57,8 +57,18 @@ Google Sheets push-back MVP + diagnostics
         ↓
 023P Company Context Pack
         ↓
+023Q Contact Context Read Model
+        ↓
 Future CRM connector hardening / additional targets
 ```
+
+## Contact Context Read Model / 023Q
+
+023Q adds `GET /api/leads/:id/contact-context`, an admin/founder session route for a safe read-only contact context aggregate. It has no migration and does not add thread or Gmail history.
+
+The route matches by a safe same-workspace `contact_id` first, then by a minimal normalized email fallback from whitelisted lead `normalized_json` keys only: `fromEmail` and `email`. It does not use plus-alias canonicalization, domain matching, organization matching, subject matching, or name matching.
+
+The response is intentionally small and excludes PII/raw body/provider identifiers/workspace IDs: no email address, contact name, subject, body text or HTML, raw normalized JSON, raw metadata JSON, provider message ID, API keys, tokens, prompt, or raw output. 023Q prepares contact-level relationship context for 023R contextual draft generation without generating drafts or calling AI.
 
 ## Lead Score Read Model / 023M
 

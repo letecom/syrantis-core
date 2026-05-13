@@ -5,6 +5,7 @@ export * from "./ai-scoring.js";
 export * from "./approvals.js";
 export * from "./auth.js";
 export * from "./background-jobs.js";
+export * from "./contact-context.js";
 export * from "./contacts.js";
 export * from "./drafts.js";
 export * from "./email-sends.js";
