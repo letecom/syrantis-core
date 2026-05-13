@@ -87,7 +87,7 @@ function mapAggregate(row: RawAggregateRow | undefined): LeadContactContextAggre
   };
 }
 
-async function findSourceInTx(
+export async function findLeadContactContextSourceInTx(
   tx: WorkspaceDbTransaction,
   input: FindLeadContactContextSourceInput,
 ): Promise<LeadContactContextSourceRow | null> {
@@ -130,7 +130,7 @@ function previousSendPredicate(input: FindLeadContactContextAggregateInput) {
   return sql`lower(btrim(es.to_email)) = ${input.key.email}`;
 }
 
-async function findAggregateInTx(
+export async function findLeadContactContextAggregateInTx(
   tx: WorkspaceDbTransaction,
   input: FindLeadContactContextAggregateInput,
 ): Promise<LeadContactContextAggregateRow> {
@@ -201,11 +201,15 @@ async function findAggregateInTx(
 export async function findLeadContactContextSource(
   input: FindLeadContactContextSourceInput,
 ): Promise<LeadContactContextSourceRow | null> {
-  return withWorkspaceDb(input.workspaceId, async (tx) => findSourceInTx(tx, input));
+  return withWorkspaceDb(input.workspaceId, async (tx) =>
+    findLeadContactContextSourceInTx(tx, input),
+  );
 }
 
 export async function findLeadContactContextAggregate(
   input: FindLeadContactContextAggregateInput,
 ): Promise<LeadContactContextAggregateRow> {
-  return withWorkspaceDb(input.workspaceId, async (tx) => findAggregateInTx(tx, input));
+  return withWorkspaceDb(input.workspaceId, async (tx) =>
+    findLeadContactContextAggregateInTx(tx, input),
+  );
 }

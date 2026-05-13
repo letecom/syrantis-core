@@ -1,14 +1,16 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
-import { aiRuns, contacts, drafts, leadScores, leads, organizations } from "@syrantis/db";
+import { aiRuns, drafts } from "@syrantis/db";
 import type { GenerateAiDraftJobPayload } from "@syrantis/shared";
 
-import { withWorkspaceDb, type WorkspaceDbTransaction } from "../lib/db.js";
+import { withWorkspaceDb } from "../lib/db.js";
 import { createActivityLog } from "../repositories/activity-logs.js";
 import {
+  assertSafeDraftGenerationOutput,
   buildDraftGenerationPrompt,
   DRAFT_GENERATION_PROMPT_TEMPLATE_ID,
   DraftGenerationOutputParseError,
+  DraftGenerationOutputSafetyError,
   DraftGenerationOutputSchemaError,
   parseDraftGenerationOutput,
   type DraftGenerationPrompt,
@@ -18,9 +20,12 @@ import {
   AiProviderEmptyResponseError,
   OpenRouterProvider,
 } from "./ai/openrouter-provider.js";
-import { redactLeadForDraftGeneration } from "./ai/pii-redaction.js";
 import { convertMicroUsdToCentsConservative, resolveAllowedAiModel } from "./ai/pricing.js";
 import type { AiCompletionOutput, AiProvider } from "./ai/providers.js";
+import {
+  assembleDraftGenerationContext,
+  type DraftGenerationContext,
+} from "./draft-generation-context.js";
 
 export type HandleGenerateAiDraftJobInput = {
   workspaceId: string;
@@ -30,49 +35,45 @@ export type HandleGenerateAiDraftJobInput = {
   model?: string;
 };
 
-type LeadDraftContextRow = {
-  leadId: string;
-  source: string;
-  status: string;
-  rawContent: string | null;
-  metadataJson: Record<string, unknown>;
-  contactId: string | null;
-  contactFirstName: string | null;
-  contactLastName: string | null;
-  contactRoleTitle: string | null;
-  organizationName: string | null;
-  organizationSector: string | null;
-  organizationStatus: string | null;
-  organizationWebsiteUrl: string | null;
-};
-
-type LatestScoreRow = {
-  id: string;
-  score: number;
-  qualification: string;
-  summary: string;
-  rationale: string;
-  recommendedAction: string;
-  confidence: number;
-} | null;
-
 type PreparedDraftGenerationRun = {
   aiRunId: string;
   model: string;
   prompt: DraftGenerationPrompt;
-  lead: LeadDraftContextRow;
-  latestScore: LatestScoreRow;
+  draftContactId: string | null;
+  sourceLeadScoreId: string | null;
+  context: DraftGenerationContext;
   startedAt: number;
 };
+
+class DraftGenerationBlockedError extends Error {
+  readonly code: string;
+
+  constructor(reason: "prior_complaint") {
+    super(`AI_DRAFT_GENERATION_BLOCKED_${reason.toUpperCase()}`);
+    this.name = "DraftGenerationBlockedError";
+    this.code = `AI_DRAFT_GENERATION_BLOCKED_${reason.toUpperCase()}`;
+  }
+}
 
 function resolveModel(input?: string): string {
   return resolveAllowedAiModel(input);
 }
 
+function contextSourcesUsed(context: DraftGenerationContext) {
+  return {
+    lead: true,
+    score: context.latestScore.present,
+    companyContext: context.companyContext.present,
+    contactContext: context.contactContext.present,
+  };
+}
+
 function resolveErrorCode(error: unknown): string {
   if (
     error instanceof DraftGenerationOutputParseError ||
-    error instanceof DraftGenerationOutputSchemaError
+    error instanceof DraftGenerationOutputSchemaError ||
+    error instanceof DraftGenerationOutputSafetyError ||
+    error instanceof DraftGenerationBlockedError
   ) {
     return error.code;
   }
@@ -107,7 +108,8 @@ function resolveFinishReason(error: unknown, completion: AiCompletionOutput | nu
 function resolveRawPreview(error: unknown): string | null {
   if (
     error instanceof DraftGenerationOutputParseError ||
-    error instanceof DraftGenerationOutputSchemaError
+    error instanceof DraftGenerationOutputSchemaError ||
+    error instanceof DraftGenerationOutputSafetyError
   ) {
     return error.rawPreview;
   }
@@ -115,102 +117,42 @@ function resolveRawPreview(error: unknown): string | null {
   return null;
 }
 
-async function loadLeadDraftContext(
-  tx: WorkspaceDbTransaction,
-  input: { workspaceId: string; leadId: string },
-): Promise<{ lead: LeadDraftContextRow; latestScore: LatestScoreRow } | null> {
-  const [lead] = await tx
-    .select({
-      leadId: leads.id,
-      source: leads.source,
-      status: leads.status,
-      rawContent: leads.rawContent,
-      metadataJson: leads.normalizedJson,
-      contactId: leads.contactId,
-      contactFirstName: contacts.firstName,
-      contactLastName: contacts.lastName,
-      contactRoleTitle: contacts.roleTitle,
-      organizationName: organizations.name,
-      organizationSector: organizations.sector,
-      organizationStatus: organizations.status,
-      organizationWebsiteUrl: organizations.websiteUrl,
-    })
-    .from(leads)
-    .leftJoin(
-      contacts,
-      and(eq(contacts.id, leads.contactId), eq(contacts.workspaceId, input.workspaceId)),
-    )
-    .leftJoin(
-      organizations,
-      and(eq(organizations.id, leads.organizationId), eq(organizations.workspaceId, input.workspaceId)),
-    )
-    .where(and(eq(leads.id, input.leadId), eq(leads.workspaceId, input.workspaceId)))
-    .limit(1);
-
-  if (!lead) {
-    return null;
-  }
-
-  const [latestScore] = await tx
-    .select({
-      id: leadScores.id,
-      score: leadScores.score,
-      qualification: leadScores.qualification,
-      summary: leadScores.summary,
-      rationale: leadScores.rationale,
-      recommendedAction: leadScores.recommendedAction,
-      confidence: leadScores.confidence,
-    })
-    .from(leadScores)
-    .where(and(eq(leadScores.workspaceId, input.workspaceId), eq(leadScores.leadId, input.leadId)))
-    .orderBy(desc(leadScores.createdAt))
-    .limit(1);
-
-  return {
-    lead,
-    latestScore: latestScore ?? null,
-  };
-}
-
 async function prepareDraftGenerationRun(input: {
   workspaceId: string;
   jobId: string;
   leadId: string;
   model: string;
-}): Promise<PreparedDraftGenerationRun> {
+}): Promise<PreparedDraftGenerationRun | { blocked: true }> {
   return withWorkspaceDb(input.workspaceId, async (tx) => {
-    const context = await loadLeadDraftContext(tx, {
+    const assembly = await assembleDraftGenerationContext(tx, {
       workspaceId: input.workspaceId,
       leadId: input.leadId,
     });
 
-    if (!context) {
+    if (!assembly) {
       throw new Error("LEAD_NOT_FOUND");
     }
 
-    const prompt = buildDraftGenerationPrompt(
-      redactLeadForDraftGeneration({
-        lead: {
-          source: context.lead.source,
-          status: context.lead.status,
-          rawContent: context.lead.rawContent,
-          metadataJson: context.lead.metadataJson,
+    if (assembly.context.contactContext.warnings.includes("prior_complaint")) {
+      await createActivityLog(tx, {
+        workspaceId: input.workspaceId,
+        actorUserId: null,
+        action: "draft.ai_generation_blocked",
+        entityType: "lead",
+        entityId: input.leadId,
+        metadataJson: {
+          leadId: input.leadId,
+          blockedReason: "prior_complaint",
+          contextSourcesUsed: contextSourcesUsed(assembly.context),
+          warningCount: assembly.context.contactContext.warnings.length,
+          warnings: assembly.context.contactContext.warnings,
         },
-        contact: {
-          firstName: context.lead.contactFirstName,
-          lastName: context.lead.contactLastName,
-          roleTitle: context.lead.contactRoleTitle,
-        },
-        organization: {
-          name: context.lead.organizationName,
-          sector: context.lead.organizationSector,
-          status: context.lead.organizationStatus,
-          websiteUrl: context.lead.organizationWebsiteUrl,
-        },
-        latestScore: context.latestScore,
-      }),
-    );
+      });
 
+      return { blocked: true };
+    }
+
+    const prompt = buildDraftGenerationPrompt(assembly.context);
     const [aiRun] = await tx
       .insert(aiRuns)
       .values({
@@ -245,6 +187,8 @@ async function prepareDraftGenerationRun(input: {
         aiRunId: aiRun.id,
         leadId: input.leadId,
         purpose: "draft_generation",
+        contextSourcesUsed: contextSourcesUsed(assembly.context),
+        warningCount: assembly.context.contactContext.warnings.length,
       },
     });
 
@@ -252,8 +196,9 @@ async function prepareDraftGenerationRun(input: {
       aiRunId: aiRun.id,
       model: input.model,
       prompt,
-      lead: context.lead,
-      latestScore: context.latestScore,
+      draftContactId: assembly.draftContactId,
+      sourceLeadScoreId: assembly.sourceLeadScoreId,
+      context: assembly.context,
       startedAt: Date.now(),
     };
   });
@@ -261,27 +206,28 @@ async function prepareDraftGenerationRun(input: {
 
 function draftMetadata(input: {
   aiRunId: string;
-  latestScore: LatestScoreRow;
+  sourceLeadScoreId: string | null;
 }): Record<string, unknown> {
   return {
     origin: "ai_draft_generation",
     aiRunId: input.aiRunId,
     promptTemplateId: DRAFT_GENERATION_PROMPT_TEMPLATE_ID,
-    ...(input.latestScore ? { sourceLeadScoreId: input.latestScore.id } : {}),
+    ...(input.sourceLeadScoreId ? { sourceLeadScoreId: input.sourceLeadScoreId } : {}),
   };
 }
 
 async function persistSuccessfulDraftGenerationRun(input: {
   workspaceId: string;
-  jobId: string;
   leadId: string;
   aiRunId: string;
-  lead: LeadDraftContextRow;
-  latestScore: LatestScoreRow;
+  draftContactId: string | null;
+  sourceLeadScoreId: string | null;
+  context: DraftGenerationContext;
   completion: AiCompletionOutput;
   latencyMs: number;
 }): Promise<void> {
   const parsed = parseDraftGenerationOutput(input.completion.content);
+  assertSafeDraftGenerationOutput(parsed);
   const costEstimateMicroUsd = input.completion.costEstimateMicroUsd;
   const costEstimateCents = convertMicroUsdToCentsConservative(costEstimateMicroUsd);
 
@@ -291,15 +237,14 @@ async function persistSuccessfulDraftGenerationRun(input: {
       .values({
         workspaceId: input.workspaceId,
         leadId: input.leadId,
-        contactId: input.lead.contactId ?? null,
+        contactId: input.draftContactId,
         channel: "email",
         status: "draft",
         subject: parsed.subject,
-        textBody: parsed.textBody,
-        ...(parsed.htmlBody !== undefined ? { htmlBody: parsed.htmlBody } : {}),
+        textBody: parsed.bodyText,
         metadataJson: draftMetadata({
           aiRunId: input.aiRunId,
-          latestScore: input.latestScore,
+          sourceLeadScoreId: input.sourceLeadScoreId,
         }),
       })
       .returning();
@@ -336,6 +281,8 @@ async function persistSuccessfulDraftGenerationRun(input: {
         aiRunId: input.aiRunId,
         leadId: input.leadId,
         draftId: draft.id,
+        contextSourcesUsed: contextSourcesUsed(input.context),
+        warningCount: input.context.contactContext.warnings.length,
       },
     });
 
@@ -349,7 +296,9 @@ async function persistSuccessfulDraftGenerationRun(input: {
         draftId: draft.id,
         leadId: input.leadId,
         aiRunId: input.aiRunId,
-        ...(input.latestScore ? { sourceLeadScoreId: input.latestScore.id } : {}),
+        ...(input.sourceLeadScoreId ? { sourceLeadScoreId: input.sourceLeadScoreId } : {}),
+        contextSourcesUsed: contextSourcesUsed(input.context),
+        warningCount: input.context.contactContext.warnings.length,
       },
     });
   });
@@ -357,10 +306,8 @@ async function persistSuccessfulDraftGenerationRun(input: {
 
 async function persistFailedDraftGenerationRun(input: {
   workspaceId: string;
-  jobId: string;
   leadId: string;
   aiRunId: string | null;
-  model: string | null;
   completion: AiCompletionOutput | null;
   error: unknown;
 }): Promise<void> {
@@ -426,13 +373,18 @@ export async function handleGenerateAiDraftJob(
   let completion: AiCompletionOutput | null = null;
 
   try {
-    prepared = await prepareDraftGenerationRun({
+    const preparation = await prepareDraftGenerationRun({
       workspaceId: input.workspaceId,
       jobId: input.jobId,
       leadId: input.payload.leadId,
       model,
     });
 
+    if ("blocked" in preparation) {
+      return;
+    }
+
+    prepared = preparation;
     const provider = input.provider ?? new OpenRouterProvider();
     completion = await provider.complete({
       model: prepared.model,
@@ -445,21 +397,19 @@ export async function handleGenerateAiDraftJob(
 
     await persistSuccessfulDraftGenerationRun({
       workspaceId: input.workspaceId,
-      jobId: input.jobId,
       leadId: input.payload.leadId,
       aiRunId: prepared.aiRunId,
-      lead: prepared.lead,
-      latestScore: prepared.latestScore,
+      draftContactId: prepared.draftContactId,
+      sourceLeadScoreId: prepared.sourceLeadScoreId,
+      context: prepared.context,
       completion,
       latencyMs: Date.now() - prepared.startedAt,
     });
   } catch (error) {
     await persistFailedDraftGenerationRun({
       workspaceId: input.workspaceId,
-      jobId: input.jobId,
       leadId: input.payload.leadId,
       aiRunId: prepared?.aiRunId ?? null,
-      model: prepared?.model ?? model,
       completion,
       error,
     });

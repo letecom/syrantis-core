@@ -59,8 +59,18 @@ Google Sheets push-back MVP + diagnostics
         ↓
 023Q Contact Context Read Model
         ↓
+023R Contextual AI Draft Generation
+        ↓
 Future CRM connector hardening / additional targets
 ```
+
+## Contextual AI Draft Generation / 023R
+
+023R upgrades the existing `POST /api/leads/:id/generate-draft` flow without adding a route, UI, job type, or migration. The route still only creates or reuses a `generate_ai_draft` job and does not call the provider.
+
+The worker now uses safe lead snippets, latest score context, 023P company context, and 023Q contact context when building drafts. `prior_complaint` blocks generation before provider call, AI run creation, or draft creation. No email is sent automatically, no `email_sends` row is created, and no approval is created.
+
+Prompt and output logging doctrine is preserved: activity logs stay compact and must not contain prompts, model output, draft bodies, lead bodies, PII, score values, raw JSON, provider internals, token/cost values, or secrets.
 
 ## Contact Context Read Model / 023Q
 
