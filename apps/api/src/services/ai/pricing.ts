@@ -25,14 +25,19 @@ export function isAllowedAiModel(model: string): model is AllowedAiModel {
   return (ALLOWED_AI_MODELS as readonly string[]).includes(model);
 }
 
-export function resolveAllowedAiModel(input?: string): AllowedAiModel {
-  const model = input?.trim() || process.env.AI_MODEL?.trim() || DEFAULT_AI_MODEL;
+export function assertAllowedAiModel(model: string): AllowedAiModel {
+  const normalizedModel = model.trim();
 
-  if (!isAllowedAiModel(model)) {
-    throw new AiModelNotAllowedError(model);
+  if (!isAllowedAiModel(normalizedModel)) {
+    throw new AiModelNotAllowedError(normalizedModel);
   }
 
-  return model;
+  return normalizedModel;
+}
+
+export function resolveAllowedAiModel(input?: string): AllowedAiModel {
+  const model = input?.trim() || process.env.AI_MODEL?.trim() || DEFAULT_AI_MODEL;
+  return assertAllowedAiModel(model);
 }
 
 export function resolveAllowedAiDraftModel(input?: string): AllowedAiModel {
@@ -41,12 +46,7 @@ export function resolveAllowedAiDraftModel(input?: string): AllowedAiModel {
     process.env.AI_DRAFT_MODEL?.trim() ||
     process.env.AI_MODEL?.trim() ||
     DEFAULT_AI_MODEL;
-
-  if (!isAllowedAiModel(model)) {
-    throw new AiModelNotAllowedError(model);
-  }
-
-  return model;
+  return assertAllowedAiModel(model);
 }
 
 export function calculateAiCostMicroUsd(input: {
@@ -54,11 +54,8 @@ export function calculateAiCostMicroUsd(input: {
   inputTokens: number;
   outputTokens: number;
 }): number {
-  if (!isAllowedAiModel(input.model)) {
-    throw new AiModelNotAllowedError(input.model);
-  }
-
-  const pricing = AI_MODEL_PRICING_MICRO_USD_PER_1M_TOKENS[input.model];
+  const model = assertAllowedAiModel(input.model);
+  const pricing = AI_MODEL_PRICING_MICRO_USD_PER_1M_TOKENS[model];
   const inputCost = input.inputTokens * pricing.input;
   const outputCost = input.outputTokens * pricing.output;
 

@@ -23,6 +23,7 @@ import {
 } from "../services/ai/openrouter-provider.js";
 import { redactLeadForScoring } from "../services/ai/pii-redaction.js";
 import {
+  assertAllowedAiModel,
   calculateAiCostMicroUsd,
   resolveAllowedAiDraftModel,
   resolveAllowedAiModel,
@@ -395,6 +396,19 @@ describe("OpenRouter provider hardening", () => {
     );
   });
 
+  it("model.validator.accepts_gemini_flash_lite_without_env_fallback", () => {
+    vi.stubEnv("AI_MODEL", "openai/gpt-5-mini");
+    vi.stubEnv("AI_DRAFT_MODEL", "openai/gpt-5-mini");
+
+    expect(assertAllowedAiModel("google/gemini-3.1-flash-lite")).toBe(
+      "google/gemini-3.1-flash-lite",
+    );
+  });
+
+  it("model.validator.rejects_made_up_model", () => {
+    expect(() => assertAllowedAiModel("made-up/model")).toThrow("AI_MODEL_NOT_ALLOWED");
+  });
+
   it("draft_model.prefers_ai_draft_model", () => {
     vi.stubEnv("AI_MODEL", "mistralai/mistral-small-2603");
     vi.stubEnv("AI_DRAFT_MODEL", "google/gemini-3.1-flash-lite");
@@ -440,6 +454,37 @@ describe("OpenRouter provider hardening", () => {
       new OpenRouterProvider().complete(providerInput({ model: "openai/gpt-5-mini" })),
     ).rejects.toThrow("AI_MODEL_NOT_ALLOWED");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("provider.accepts_explicit_gemini_without_re_resolving_env_model", async () => {
+    vi.stubEnv("AI_MODEL", "openai/gpt-5-mini");
+    vi.stubEnv("AI_DRAFT_MODEL", "openai/gpt-5-mini");
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => {
+      void _input;
+      void _init;
+
+      return openRouterJsonResponse({
+        finishReason: "stop",
+        promptTokens: 1000,
+        completionTokens: 500,
+        model: "openrouter/canonical-gemini-response-name",
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await new OpenRouterProvider().complete(
+      providerInput({ model: "google/gemini-3.1-flash-lite" }),
+    );
+
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+
+    expect(requestBody).toMatchObject({
+      model: "google/gemini-3.1-flash-lite",
+    });
+    expect(output).toMatchObject({
+      model: "google/gemini-3.1-flash-lite",
+      costEstimateMicroUsd: 1000,
+    });
   });
 
   it("provider.finish_reason_stop_success", async () => {

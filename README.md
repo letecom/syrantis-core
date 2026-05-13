@@ -958,6 +958,8 @@ mistralai/mistral-small-2603
 Draft generation uses `AI_DRAFT_MODEL` when set. If `AI_DRAFT_MODEL` is absent, it falls back to
 `AI_MODEL`, then to `mistralai/mistral-small-2603`. This allows production to test
 `google/gemini-3.1-flash-lite` for `generate_ai_draft` without changing `score_lead`.
+The OpenRouter provider validates only the explicit model passed by the job handler; it does not
+re-read `AI_MODEL` or `AI_DRAFT_MODEL` at the provider boundary.
 
 Current AI guarantees:
 
