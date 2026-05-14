@@ -5,6 +5,7 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { getCurrentUser } from "./lib/api-client";
 import { ApiKeysPage } from "./pages/ApiKeysPage";
 import { ClientInstallPage } from "./pages/ClientInstallPage";
+import { ClientDashboardPage } from "./pages/ClientDashboardPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { GmailExportOpsPage } from "./pages/GmailExportOpsPage";
 import { GoogleSheetsPage } from "./pages/GoogleSheetsPage";
@@ -38,6 +39,7 @@ export function App() {
       <Route element={<ProtectedRoute />} path="/app">
         <Route index element={<DashboardPage />} />
         <Route element={<PushbackPage />} path="pushback" />
+        <Route element={<ClientDashboardPage />} path="client-dashboard" />
         <Route element={<ClientInstallPage />} path="client-install" />
         <Route element={<GmailExportOpsPage />} path="gmail-export" />
         <Route element={<ApiKeysPage />} path="api-keys" />

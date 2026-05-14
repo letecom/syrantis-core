@@ -104,6 +104,7 @@ const gmailExportDraftId = "44444444-4444-4444-8444-444444444444";
 const gmailExportStatusUrl = `/api/drafts/${gmailExportDraftId}/gmail-export-status`;
 const gmailExportRequestUrl = `/api/drafts/${gmailExportDraftId}/gmail-export-request`;
 const gmailExportCancelUrl = `/api/drafts/${gmailExportDraftId}/gmail-export-cancel`;
+const clientCockpitSummaryUrl = "/api/client/cockpit-summary";
 
 const replayResponse = {
   success: true,
@@ -192,6 +193,113 @@ const gmailExportCancelResponse = {
     cancelledAt: "2026-05-14T10:05:00.000Z",
     workspaceId: "forbidden-cancel-workspace",
     leaseToken: "forbidden-cancel-lease-token",
+  },
+};
+
+const clientCockpitSummary = {
+  success: true,
+  data: {
+    generatedAt: "2026-05-14T12:00:00.000Z",
+    window: {
+      since: "2026-05-13T12:00:00.000Z",
+      hours: 24,
+    },
+    pipeline: {
+      leads24h: 7,
+      scoredLeads24h: 5,
+      draftsGenerated24h: 4,
+      pendingDrafts: 3,
+    },
+    gmailExport: {
+      status: "requested",
+      pendingRequestCount: 2,
+      activeLeaseCount: 1,
+      staleLeaseCount: 0,
+      exported24h: 6,
+      lastExportedAt: "2026-05-14T11:30:00.000Z",
+    },
+    gmailIntake: {
+      status: "activity_seen",
+      lastIntakeAt: "2026-05-14T11:00:00.000Z",
+      leadsReceived24h: 7,
+    },
+    googleSheets: {
+      status: "unknown",
+    },
+    system: {
+      queueStatus: "busy",
+      pendingReadyJobs: 2,
+      runningJobs: 1,
+      failedJobs24h: 0,
+      oldestPendingJobMinutes: 12,
+    },
+    actions: [
+      {
+        label: "Open Gmail Export Ops",
+        href: "/app/gmail-export",
+        kind: "primary",
+        reason: null,
+      },
+      {
+        label: "Open Client Install",
+        href: "/app/client-install",
+        kind: "secondary",
+        reason: null,
+      },
+      {
+        label: "Draft Queue",
+        href: "/app/client-drafts",
+        kind: "disabled",
+        reason: "Coming in a later issue.",
+      },
+    ],
+    workspaceId: "forbidden-client-workspace",
+    apiKey: "forbidden-client-api-key",
+    leaseToken: "forbidden-client-lease-token",
+    metadata_json: { hidden: true },
+    payload_json: { hidden: true },
+    subject: "forbidden-client-subject",
+    bodyText: "forbidden-client-body",
+    toEmail: "forbidden-to@example.test",
+    fromEmail: "forbidden-from@example.test",
+    prompt: "forbidden-client-prompt",
+    output: "forbidden-client-output",
+  },
+};
+
+const clientCockpitSummaryEmpty = {
+  success: true,
+  data: {
+    ...clientCockpitSummary.data,
+    pipeline: {
+      leads24h: 0,
+      scoredLeads24h: 0,
+      draftsGenerated24h: 0,
+      pendingDrafts: 0,
+    },
+    gmailExport: {
+      status: "unknown",
+      pendingRequestCount: 0,
+      activeLeaseCount: 0,
+      staleLeaseCount: 0,
+      exported24h: 0,
+      lastExportedAt: null,
+    },
+    gmailIntake: {
+      status: "unknown",
+      lastIntakeAt: null,
+      leadsReceived24h: 0,
+    },
+    googleSheets: {
+      status: "unknown",
+    },
+    system: {
+      queueStatus: "clear",
+      pendingReadyJobs: 0,
+      runningJobs: 0,
+      failedJobs24h: 0,
+      oldestPendingJobMinutes: null,
+    },
   },
 };
 
@@ -605,6 +713,7 @@ describe("admin app", () => {
     expect(screen.getByText("Admin User")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Pushback" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Client Dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Client Install" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Gmail Export" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "API Keys" })).toBeInTheDocument();
@@ -1460,6 +1569,157 @@ describe("admin app", () => {
     expect(screen.queryByRole("button", { name: "Request Export" })).not.toBeInTheDocument();
   });
 
+  it("renders the Client Dashboard with aggregate cards and safe action links", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === clientCockpitSummaryUrl) {
+        return mockJson(clientCockpitSummary);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/client-dashboard");
+
+    expect(await screen.findByRole("heading", { name: "Client Dashboard" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Read-only aggregate status for the current Syrantis pipeline."),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Leads 24h")).toBeInTheDocument();
+    expect(screen.getAllByText("7").length).toBeGreaterThan(0);
+    expect(screen.getByText("Scored leads 24h")).toBeInTheDocument();
+    expect(screen.getByText("5")).toBeInTheDocument();
+    expect(screen.getByText("Drafts generated 24h")).toBeInTheDocument();
+    expect(screen.getByText("4")).toBeInTheDocument();
+    expect(screen.getByText("Pending drafts")).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.getByLabelText("Gmail intake")).toHaveTextContent("activity seen");
+    expect(screen.getByLabelText("Gmail export")).toHaveTextContent("requested");
+    expect(screen.getByLabelText("Google Sheets")).toHaveTextContent("unknown");
+    expect(screen.getByLabelText("System")).toHaveTextContent("busy");
+    expect(screen.getByRole("link", { name: "Open Gmail Export Ops" })).toHaveAttribute(
+      "href",
+      "/app/gmail-export",
+    );
+    expect(screen.getByRole("link", { name: "Open Client Install" })).toHaveAttribute(
+      "href",
+      "/app/client-install",
+    );
+    expect(screen.getByText("Draft Queue")).toBeInTheDocument();
+    expect(request).toHaveBeenCalledWith(
+      clientCockpitSummaryUrl,
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("renders Client Dashboard loading, empty, and error states", async () => {
+    let resolveSummary: (response: Response) => void = () => undefined;
+    const summaryPromise = new Promise<Response>((resolve) => {
+      resolveSummary = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        url === clientCockpitSummaryUrl ? summaryPromise : mockJson(currentUser),
+      ),
+    );
+
+    const loadingRender = renderApp("/app/client-dashboard");
+    expect(await screen.findByText("Loading client dashboard...")).toBeInTheDocument();
+    resolveSummary(
+      new Response(JSON.stringify(clientCockpitSummaryEmpty), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    expect(await screen.findByText("Leads 24h")).toBeInTheDocument();
+    expect(screen.getAllByText("0").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("None").length).toBeGreaterThan(0);
+    loadingRender.unmount();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        url === clientCockpitSummaryUrl ? mockJson({ success: false }, 500) : mockJson(currentUser),
+      ),
+    );
+    renderApp("/app/client-dashboard");
+    expect(await screen.findByText("Client dashboard is unavailable.")).toBeInTheDocument();
+  });
+
+  it("refreshes the Client Dashboard", async () => {
+    const user = userEvent.setup();
+    let calls = 0;
+    const refreshed = {
+      ...clientCockpitSummary,
+      data: {
+        ...clientCockpitSummary.data,
+        pipeline: {
+          ...clientCockpitSummary.data.pipeline,
+          leads24h: 8,
+        },
+      },
+    };
+    const request = vi.fn((url: string) => {
+      if (url === clientCockpitSummaryUrl) {
+        calls += 1;
+        return mockJson(calls === 1 ? clientCockpitSummary : refreshed);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/client-dashboard");
+    expect(await screen.findByText("Leads 24h")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() => expect(calls).toBe(2));
+    expect(screen.getByText("8")).toBeInTheDocument();
+  });
+
+  it("keeps Client Dashboard free of draft input, raw JSON, and forbidden strings", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        url === clientCockpitSummaryUrl ? mockJson(clientCockpitSummary) : mockJson(currentUser),
+      ),
+    );
+
+    const { container } = renderApp("/app/client-dashboard");
+    expect(await screen.findByRole("heading", { name: "Client Dashboard" })).toBeInTheDocument();
+
+    expect(screen.queryByLabelText("Draft ID")).not.toBeInTheDocument();
+    expect(container.querySelector("pre")).toBeNull();
+    expect(container.querySelector("code")).toBeNull();
+
+    const text = document.body.textContent ?? "";
+    for (const forbidden of [
+      "workspaceId",
+      "apiKey",
+      "leaseToken",
+      "metadata_json",
+      "payload_json",
+      "subject",
+      "bodyText",
+      "toEmail",
+      "fromEmail",
+      "prompt",
+      "output",
+      "forbidden-client-workspace",
+      "forbidden-client-api-key",
+      "forbidden-client-lease-token",
+      "forbidden-client-subject",
+      "forbidden-client-body",
+      "forbidden-to@example.test",
+      "forbidden-from@example.test",
+      "forbidden-client-prompt",
+      "forbidden-client-output",
+    ]) {
+      expect(text).not.toContain(forbidden);
+    }
+  });
+
   it("renders the Ops page with health cards, checks, and recent checks", async () => {
     vi.stubGlobal(
       "fetch",
@@ -1629,6 +1889,7 @@ describe("admin app", () => {
       "../src/components/AdminShell.tsx",
       "../src/components/ProtectedRoute.tsx",
       "../src/pages/ApiKeysPage.tsx",
+      "../src/pages/ClientDashboardPage.tsx",
       "../src/pages/ClientInstallPage.tsx",
       "../src/pages/DashboardPage.tsx",
       "../src/pages/GmailExportOpsPage.tsx",

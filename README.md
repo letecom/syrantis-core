@@ -69,6 +69,8 @@ Google Sheets push-back MVP + diagnostics
         ↓
 023W-X Client Bridge Install Pack + Admin Gmail Export Ops Panel
         ↓
+023Y Client Cockpit + Bridge Status Read Models
+        ↓
 Future CRM connector hardening / additional targets
 ```
 
@@ -125,6 +127,14 @@ Gmail, Google Sheets, providers, workers, or send behavior.
   cancel before lease, and refresh.
 - `docs/templates/syrantis-gmail-bridge.gs` combines Gmail intake and requested Gmail draft export
   without backend Gmail OAuth or automatic sending.
+
+023Y adds a read-only client cockpit foundation:
+
+- `GET /api/client/cockpit-summary` returns a safe aggregate DTO for admin/founder sessions.
+- `/app/client-dashboard` displays pipeline, Gmail intake/export, Google Sheets, system, and safe
+  action summary cards.
+- No client role, migration, Apps Script change, Gmail OAuth, settings, classifier, draft queue,
+  provider call, or PII/raw metadata exposure is added.
 
 ## Contextual AI Draft Generation / 023R
 
@@ -1476,6 +1486,8 @@ Not implemented yet.
 | 023S     | Gmail Draft Bridge via Apps Script                    | done   |
 | 023T     | Gmail Draft Export Status Read Model                  | done   |
 | 023U     | Gmail Draft Export Request Gate                       | done   |
+| 023W-X   | Client Bridge Install Pack + Admin Gmail Export Ops   | done   |
+| 023Y     | Client Cockpit + Bridge Status Read Models            | done   |
 
 Near-term candidates:
 
@@ -1498,6 +1510,8 @@ Current focus:
 - 023E Admin Ops Health & Test Panel is completed.
 - 023F API Process Supervisor Foundation is implemented locally and ready for human review.
 - 023H Worker Queue Failed Job Review is implemented locally and ready for human review.
+- 023Y Client Cockpit + Bridge Status Read Models is implemented locally and ready for human
+  review.
 - 023A = see.
 - 023B = act.
 - 023D = expose safely.
