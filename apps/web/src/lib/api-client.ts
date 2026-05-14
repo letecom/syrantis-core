@@ -1,9 +1,4 @@
 import { z } from "zod";
-import {
-  WorkspaceApiKeyCreateSuccessSchema,
-  WorkspaceApiKeyListResponseSchema,
-  WorkspaceApiKeySuccessSchema,
-} from "@syrantis/shared";
 
 const { stringify: encodeJsonBody } = JSON;
 
@@ -199,6 +194,124 @@ const opsRecentChecksSuccessSchema = z.object({
   }),
 });
 
+const gmailExportRecipientStatusSchema = z.enum([
+  "present",
+  "missing_lead",
+  "missing_contact",
+  "missing_email",
+  "invalid_email",
+]);
+
+const gmailExportStatusSchema = z.enum(["not_exported", "leased", "lease_expired", "exported"]);
+
+const gmailExportLeaseStatusSchema = z.enum(["none", "active", "expired"]);
+
+const gmailExportRequestStatusSchema = z.enum([
+  "not_requested",
+  "requested",
+  "request_expired",
+  "cancelled",
+  "leased",
+  "exported",
+]);
+
+const gmailExportBlockingReasonSchema = z.enum([
+  "draft_not_ready",
+  "missing_subject",
+  "missing_body",
+  "missing_lead",
+  "missing_contact",
+  "missing_email",
+  "invalid_email",
+  "active_lease",
+  "already_exported",
+  "has_email_sends",
+  "export_not_requested",
+  "export_request_expired",
+  "export_cancelled",
+  "export_in_progress",
+]);
+
+const gmailExportStatusSuccessSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    draftId: z.string().uuid(),
+    leadId: z.string().uuid().nullable(),
+    draftStatus: z.string(),
+    hasSubject: z.boolean(),
+    hasBodyText: z.boolean(),
+    recipientStatus: gmailExportRecipientStatusSchema,
+    requestStatus: gmailExportRequestStatusSchema,
+    requestedAt: z.string().datetime().nullable(),
+    requestExpiresAt: z.string().datetime().nullable(),
+    requestSource: z.literal("admin_api").nullable(),
+    exportStatus: gmailExportStatusSchema,
+    exportSource: z.literal("apps_script").nullable(),
+    exportedAt: z.string().datetime().nullable(),
+    leaseStatus: gmailExportLeaseStatusSchema,
+    leaseExpiresAt: z.string().datetime().nullable(),
+    canExport: z.boolean(),
+    blockingReasons: z.array(gmailExportBlockingReasonSchema),
+    sideEffects: z.object({
+      emailSendsCount: z.number().int().min(0),
+      approvalsCount: z.number().int().min(0),
+    }),
+  }),
+});
+
+const gmailExportRequestResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    draftId: z.string().uuid(),
+    leadId: z.string().uuid(),
+    requestStatus: z.enum(["requested", "already_requested"]),
+    requestedAt: z.string().datetime(),
+    requestExpiresAt: z.string().datetime(),
+    canExport: z.boolean(),
+  }),
+});
+
+const gmailExportCancelResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    draftId: z.string().uuid(),
+    leadId: z.string().uuid(),
+    requestStatus: z.literal("cancelled"),
+    cancelledAt: z.string().datetime(),
+  }),
+});
+
+const workspaceApiKeyStatusSchema = z.enum(["active", "revoked"]);
+
+const workspaceApiKeySafeSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  keyPrefix: z.string(),
+  last4: z.string(),
+  status: workspaceApiKeyStatusSchema,
+  lastUsedAt: z.string().datetime().nullable(),
+  revokedAt: z.string().datetime().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const workspaceApiKeyListResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.array(workspaceApiKeySafeSchema),
+});
+
+const workspaceApiKeyCreateResponseSchema = z.object({
+  success: z.literal(true),
+  data: workspaceApiKeySafeSchema.extend({
+    plaintextApiKey: z.string().min(1),
+  }),
+});
+
+const workspaceApiKeyResponseSchema = z.object({
+  success: z.literal(true),
+  data: workspaceApiKeySafeSchema,
+});
+
 export type CurrentUser = z.infer<typeof loginSuccessSchema>["data"];
 export type PushbackStatusResponse = z.infer<typeof pushbackStatusResponseSchema>;
 export type EmailSendPushbackReplayResponse = z.infer<
@@ -212,9 +325,12 @@ export type OpsCheckId = z.infer<typeof opsCheckIdSchema>;
 export type OpsHealthResponse = z.infer<typeof opsHealthSuccessSchema>["data"];
 export type OpsRunCheckResponse = z.infer<typeof opsRunCheckSuccessSchema>["data"];
 export type OpsRecentChecksResponse = z.infer<typeof opsRecentChecksSuccessSchema>["data"];
-export type WorkspaceApiKeySafe = z.infer<typeof WorkspaceApiKeyListResponseSchema>["data"][number];
+export type GmailExportStatusResponse = z.infer<typeof gmailExportStatusSuccessSchema>["data"];
+export type GmailExportRequestResponse = z.infer<typeof gmailExportRequestResponseSchema>["data"];
+export type GmailExportCancelResponse = z.infer<typeof gmailExportCancelResponseSchema>["data"];
+export type WorkspaceApiKeySafe = z.infer<typeof workspaceApiKeyListResponseSchema>["data"][number];
 export type WorkspaceApiKeyCreateResponse = z.infer<
-  typeof WorkspaceApiKeyCreateSuccessSchema
+  typeof workspaceApiKeyCreateResponseSchema
 >["data"];
 
 export class ApiUnauthorizedError extends Error {
@@ -288,6 +404,27 @@ export async function getDraftPushbackStatus(id: string): Promise<PushbackStatus
   return pushbackStatusSuccessSchema.parse(payload).data;
 }
 
+export async function getDraftGmailExportStatus(id: string): Promise<GmailExportStatusResponse> {
+  const payload = await requestJson(`/api/drafts/${encodeURIComponent(id)}/gmail-export-status`);
+  return gmailExportStatusSuccessSchema.parse(payload).data;
+}
+
+export async function requestDraftGmailExport(id: string): Promise<GmailExportRequestResponse> {
+  const payload = await requestJson(`/api/drafts/${encodeURIComponent(id)}/gmail-export-request`, {
+    method: "POST",
+  });
+
+  return gmailExportRequestResponseSchema.parse(payload).data;
+}
+
+export async function cancelDraftGmailExport(id: string): Promise<GmailExportCancelResponse> {
+  const payload = await requestJson(`/api/drafts/${encodeURIComponent(id)}/gmail-export-cancel`, {
+    method: "POST",
+  });
+
+  return gmailExportCancelResponseSchema.parse(payload).data;
+}
+
 export async function replayEmailSendPushback(
   id: string,
 ): Promise<EmailSendPushbackReplayResponse> {
@@ -347,7 +484,7 @@ export async function getRecentOpsChecks(
 
 export async function listWorkspaceApiKeys(): Promise<WorkspaceApiKeySafe[]> {
   const payload = await requestJson("/api/workspace-api-keys");
-  return WorkspaceApiKeyListResponseSchema.parse(payload).data;
+  return workspaceApiKeyListResponseSchema.parse(payload).data;
 }
 
 export async function createWorkspaceApiKey(input: {
@@ -358,7 +495,7 @@ export async function createWorkspaceApiKey(input: {
     body: encodeJsonBody({ name: input.name }),
   });
 
-  return WorkspaceApiKeyCreateSuccessSchema.parse(payload).data;
+  return workspaceApiKeyCreateResponseSchema.parse(payload).data;
 }
 
 export async function revokeWorkspaceApiKey(id: string): Promise<WorkspaceApiKeySafe> {
@@ -366,5 +503,5 @@ export async function revokeWorkspaceApiKey(id: string): Promise<WorkspaceApiKey
     method: "POST",
   });
 
-  return WorkspaceApiKeySuccessSchema.parse(payload).data;
+  return workspaceApiKeyResponseSchema.parse(payload).data;
 }

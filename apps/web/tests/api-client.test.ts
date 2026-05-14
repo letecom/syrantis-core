@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createWorkspaceApiKey,
+  cancelDraftGmailExport,
   getGoogleSheetsSetupStatus,
   getCurrentUser,
+  getDraftGmailExportStatus,
   getOpsHealth,
   getRecentOpsChecks,
   getDraftPushbackStatus,
@@ -11,6 +13,7 @@ import {
   listWorkspaceApiKeys,
   login,
   replayEmailSendPushback,
+  requestDraftGmailExport,
   revokeWorkspaceApiKey,
   runOpsCheck,
   testGoogleSheetsSetup,
@@ -75,6 +78,68 @@ const replayResponse = {
     diagnosticTraceId: "55555555-5555-4555-8555-555555555555",
     workspaceId: "22222222-2222-4222-8222-222222222222",
     providerMessageId: "forbidden-provider",
+  },
+};
+
+const gmailExportStatusResponse = {
+  success: true,
+  data: {
+    draftId: "44444444-4444-4444-8444-444444444444",
+    leadId: "55555555-5555-4555-8555-555555555555",
+    draftStatus: "draft",
+    hasSubject: true,
+    hasBodyText: true,
+    recipientStatus: "present",
+    requestStatus: "not_requested",
+    requestedAt: null,
+    requestExpiresAt: null,
+    requestSource: null,
+    exportStatus: "not_exported",
+    exportSource: null,
+    exportedAt: null,
+    leaseStatus: "none",
+    leaseExpiresAt: null,
+    canExport: false,
+    blockingReasons: ["export_not_requested"],
+    sideEffects: {
+      emailSendsCount: 0,
+      approvalsCount: 0,
+    },
+    toEmail: "forbidden@example.com",
+    bodyText: "forbidden-body",
+    htmlBody: "forbidden-html",
+    contactName: "forbidden-contact",
+    contactId: "forbidden-contact-id",
+    workspaceId: "forbidden-workspace",
+    metadata_json: { hidden: true },
+    leaseToken: "forbidden-lease-token",
+    providerMessageId: "forbidden-provider",
+  },
+};
+
+const gmailExportRequestResponse = {
+  success: true,
+  data: {
+    draftId: "44444444-4444-4444-8444-444444444444",
+    leadId: "55555555-5555-4555-8555-555555555555",
+    requestStatus: "requested",
+    requestedAt: "2026-05-14T10:00:00.000Z",
+    requestExpiresAt: "2026-05-15T10:00:00.000Z",
+    canExport: true,
+    workspaceId: "forbidden-workspace",
+    leaseToken: "forbidden-lease-token",
+  },
+};
+
+const gmailExportCancelResponse = {
+  success: true,
+  data: {
+    draftId: "44444444-4444-4444-8444-444444444444",
+    leadId: "55555555-5555-4555-8555-555555555555",
+    requestStatus: "cancelled",
+    cancelledAt: "2026-05-14T10:05:00.000Z",
+    workspaceId: "forbidden-workspace",
+    leaseToken: "forbidden-lease-token",
   },
 };
 
@@ -334,6 +399,89 @@ describe("api client", () => {
       "/api/drafts/44444444-4444-4444-8444-444444444444/pushback-status",
       expect.objectContaining({ credentials: "include" }),
     );
+  });
+
+  it("calls the draft Gmail export status endpoint and strips unsafe fields", async () => {
+    const request = vi.fn(() => mockResponse(gmailExportStatusResponse));
+    vi.stubGlobal("fetch", request);
+
+    await expect(
+      getDraftGmailExportStatus("44444444-4444-4444-8444-444444444444"),
+    ).resolves.toEqual({
+      draftId: "44444444-4444-4444-8444-444444444444",
+      leadId: "55555555-5555-4555-8555-555555555555",
+      draftStatus: "draft",
+      hasSubject: true,
+      hasBodyText: true,
+      recipientStatus: "present",
+      requestStatus: "not_requested",
+      requestedAt: null,
+      requestExpiresAt: null,
+      requestSource: null,
+      exportStatus: "not_exported",
+      exportSource: null,
+      exportedAt: null,
+      leaseStatus: "none",
+      leaseExpiresAt: null,
+      canExport: false,
+      blockingReasons: ["export_not_requested"],
+      sideEffects: {
+        emailSendsCount: 0,
+        approvalsCount: 0,
+      },
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/drafts/44444444-4444-4444-8444-444444444444/gmail-export-status",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("requests draft Gmail export without client workspace material", async () => {
+    const request = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
+      mockResponse(gmailExportRequestResponse),
+    );
+    vi.stubGlobal("fetch", request);
+
+    await expect(requestDraftGmailExport("44444444-4444-4444-8444-444444444444")).resolves.toEqual({
+      draftId: "44444444-4444-4444-8444-444444444444",
+      leadId: "55555555-5555-4555-8555-555555555555",
+      requestStatus: "requested",
+      requestedAt: "2026-05-14T10:00:00.000Z",
+      requestExpiresAt: "2026-05-15T10:00:00.000Z",
+      canExport: true,
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/drafts/44444444-4444-4444-8444-444444444444/gmail-export-request",
+      expect.objectContaining({ credentials: "include", method: "POST" }),
+    );
+    const init = request.mock.calls[0]?.[1];
+    expect(init).not.toHaveProperty("body");
+    expect(JSON.stringify(init)).not.toContain("workspaceId");
+    expect(JSON.stringify(init)).not.toContain("Authorization");
+    expect(JSON.stringify(init)).not.toContain("Bearer");
+  });
+
+  it("cancels draft Gmail export without client workspace material", async () => {
+    const request = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
+      mockResponse(gmailExportCancelResponse),
+    );
+    vi.stubGlobal("fetch", request);
+
+    await expect(cancelDraftGmailExport("44444444-4444-4444-8444-444444444444")).resolves.toEqual({
+      draftId: "44444444-4444-4444-8444-444444444444",
+      leadId: "55555555-5555-4555-8555-555555555555",
+      requestStatus: "cancelled",
+      cancelledAt: "2026-05-14T10:05:00.000Z",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/drafts/44444444-4444-4444-8444-444444444444/gmail-export-cancel",
+      expect.objectContaining({ credentials: "include", method: "POST" }),
+    );
+    const init = request.mock.calls[0]?.[1];
+    expect(init).not.toHaveProperty("body");
+    expect(JSON.stringify(init)).not.toContain("workspaceId");
+    expect(JSON.stringify(init)).not.toContain("Authorization");
+    expect(JSON.stringify(init)).not.toContain("Bearer");
   });
 
   it("calls the email send pushback replay endpoint without client workspace material", async () => {

@@ -67,6 +67,8 @@ Google Sheets push-back MVP + diagnostics
         ↓
 023U Gmail Draft Export Request Gate
         ↓
+023W-X Client Bridge Install Pack + Admin Gmail Export Ops Panel
+        ↓
 Future CRM connector hardening / additional targets
 ```
 
@@ -114,6 +116,15 @@ API-key authentication. It never returns recipient email, subject, body, contact
 raw metadata, raw `gmailExport`, lease token, provider IDs, prompt/output, or API key material. It
 does not create activity logs, background jobs, approvals, or `email_sends`, and it does not call
 Gmail, Google Sheets, providers, workers, or send behavior.
+
+023W-X adds the client install pack and minimal admin surfaces:
+
+- `/app/client-install` shows the install guide, Script Properties, and copyable combined Apps
+  Script template.
+- `/app/gmail-export` lets an admin/founder load one draft's safe export status, request export,
+  cancel before lease, and refresh.
+- `docs/templates/syrantis-gmail-bridge.gs` combines Gmail intake and requested Gmail draft export
+  without backend Gmail OAuth or automatic sending.
 
 ## Contextual AI Draft Generation / 023R
 

@@ -4,7 +4,9 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { getCurrentUser } from "./lib/api-client";
 import { ApiKeysPage } from "./pages/ApiKeysPage";
+import { ClientInstallPage } from "./pages/ClientInstallPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { GmailExportOpsPage } from "./pages/GmailExportOpsPage";
 import { GoogleSheetsPage } from "./pages/GoogleSheetsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -36,6 +38,8 @@ export function App() {
       <Route element={<ProtectedRoute />} path="/app">
         <Route index element={<DashboardPage />} />
         <Route element={<PushbackPage />} path="pushback" />
+        <Route element={<ClientInstallPage />} path="client-install" />
+        <Route element={<GmailExportOpsPage />} path="gmail-export" />
         <Route element={<ApiKeysPage />} path="api-keys" />
         <Route element={<GoogleSheetsPage />} path="google-sheets" />
         <Route element={<OpsPage />} path="ops" />
