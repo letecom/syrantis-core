@@ -133,6 +133,17 @@ Gmail, Google Sheets, providers, workers, or send behavior.
 - `GET /api/client/cockpit-summary` returns a safe aggregate DTO for admin/founder sessions.
 - `/app/client-dashboard` displays pipeline, Gmail intake/export, Google Sheets, system, and safe
   action summary cards.
+
+023Y-H adds bounded Gmail export stale lease hygiene:
+
+- `POST /api/admin/gmail-export/stale-leases/expire` is session-only admin/founder and tenant
+  scoped.
+- Dry run is the default and returns draft IDs plus safe actions only.
+- Real execution requires `confirm = "EXPIRE_STALE_GMAIL_EXPORT_LEASES"`.
+- It clears only expired Gmail export lease fields in `drafts.metadata_json.gmailExport`, preserving
+  request/export/cancel state and writing compact safe activity logs.
+- It does not change Apps Script, call Gmail/providers, create jobs, create `email_sends`, create
+  approvals, send email, run migrations, or expose lease tokens/raw metadata/PII.
 - No client role, migration, Apps Script change, Gmail OAuth, settings, classifier, draft queue,
   provider call, or PII/raw metadata exposure is added.
 
