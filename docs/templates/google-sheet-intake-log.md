@@ -3,7 +3,8 @@
 ## Objective
 
 This template defines the client-side Intake Log used by the Gmail -> Apps Script -> Syrantis
-public inbound message validation pack.
+public inbound message validation pack. It can be used alongside the combined client bridge in
+`docs/templates/syrantis-gmail-bridge.gs`.
 
 The Sheet is an operational client validation log. It is not a raw email archive, API response
 store, audit database, or secret store.
@@ -17,7 +18,7 @@ timestamp,source,gmailMessageId,gmailThreadId,fromEmail,contactName,subject,rece
 ## Allowed Fields
 
 - `timestamp`: Apps Script processing timestamp.
-- `source`: bounded client source tag, usually `gmail_client`.
+- `source`: bounded client source tag, usually `gmail_apps_script_client`.
 - `gmailMessageId`: Gmail message ID used to build the external ID.
 - `gmailThreadId`: Gmail thread ID for client-side traceability.
 - `fromEmail`: sender email extracted from Gmail.
@@ -48,7 +49,7 @@ Do not add these fields to the Sheet:
 ## Safe Example Row
 
 ```csv
-2026-05-11T10:15:30.000Z,gmail_client,18fabc1234567890,18fabc1234560000,client@example.com,Client Example,Demande devis chauffage,2026-05-11T10:14:02.000Z,201,true,false,0b02a2b4-0000-4000-9000-000000000000,1f08a11b-0000-4000-9000-000000000000,7c531a6d-0000-4000-9000-000000000000,gmail:18fabc1234567890,,,0
+2026-05-11T10:15:30.000Z,gmail_apps_script_client,18fabc1234567890,18fabc1234560000,client@example.com,Client Example,Demande devis chauffage,2026-05-11T10:14:02.000Z,201,true,false,0b02a2b4-0000-4000-9000-000000000000,1f08a11b-0000-4000-9000-000000000000,7c531a6d-0000-4000-9000-000000000000,gmail:18fabc1234567890,,,0
 ```
 
 ## PII Policy

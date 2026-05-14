@@ -100,6 +100,10 @@ const opsRecentUrl = "/api/admin/ops/checks/recent?limit=20";
 const opsDbHealthUrl = "/api/admin/ops/checks/db-health";
 const opsGoogleSheetsTestUrl = "/api/admin/ops/checks/google-sheets-test";
 const opsWorkerFailedUrl = "/api/admin/ops/checks/worker-failed-summary";
+const gmailExportDraftId = "44444444-4444-4444-8444-444444444444";
+const gmailExportStatusUrl = `/api/drafts/${gmailExportDraftId}/gmail-export-status`;
+const gmailExportRequestUrl = `/api/drafts/${gmailExportDraftId}/gmail-export-request`;
+const gmailExportCancelUrl = `/api/drafts/${gmailExportDraftId}/gmail-export-cancel`;
 
 const replayResponse = {
   success: true,
@@ -109,6 +113,85 @@ const replayResponse = {
     diagnosticTraceId: "66666666-6666-4666-8666-666666666666",
     providerMessageId: "forbidden-replay-provider",
     workspaceId: "forbidden-replay-workspace",
+  },
+};
+
+function gmailExportStatusFixture(
+  overrides: Partial<{
+    requestStatus: string;
+    exportStatus: string;
+    leaseStatus: string;
+    canExport: boolean;
+    blockingReasons: string[];
+    requestedAt: string | null;
+    requestExpiresAt: string | null;
+    leaseExpiresAt: string | null;
+    exportedAt: string | null;
+  }> = {},
+) {
+  return {
+    success: true,
+    data: {
+      draftId: gmailExportDraftId,
+      leadId: "55555555-5555-4555-8555-555555555555",
+      draftStatus: "draft",
+      hasSubject: true,
+      hasBodyText: true,
+      recipientStatus: "present",
+      requestStatus: overrides.requestStatus ?? "not_requested",
+      requestedAt: overrides.requestedAt ?? null,
+      requestExpiresAt: overrides.requestExpiresAt ?? null,
+      requestSource: overrides.requestedAt ? "admin_api" : null,
+      exportStatus: overrides.exportStatus ?? "not_exported",
+      exportSource: overrides.exportedAt ? "apps_script" : null,
+      exportedAt: overrides.exportedAt ?? null,
+      leaseStatus: overrides.leaseStatus ?? "none",
+      leaseExpiresAt: overrides.leaseExpiresAt ?? null,
+      canExport: overrides.canExport ?? false,
+      blockingReasons: overrides.blockingReasons ?? ["export_not_requested"],
+      sideEffects: {
+        emailSendsCount: 0,
+        approvalsCount: 0,
+      },
+      toEmail: "forbidden-to-email@example.com",
+      bodyText: "forbidden-body-text",
+      htmlBody: "forbidden-html-body",
+      contactName: "forbidden-contact-name",
+      contactId: "forbidden-contact-id",
+      workspaceId: "forbidden-workspace-id",
+      metadata_json: { hidden: true },
+      gmailExport: { hidden: true },
+      leaseToken: "forbidden-lease-token",
+      providerMessageId: "forbidden-provider-message-id",
+      prompt: "forbidden-prompt",
+      output: "forbidden-output",
+    },
+  };
+}
+
+const gmailExportRequestResponse = {
+  success: true,
+  data: {
+    draftId: gmailExportDraftId,
+    leadId: "55555555-5555-4555-8555-555555555555",
+    requestStatus: "requested",
+    requestedAt: "2026-05-14T10:00:00.000Z",
+    requestExpiresAt: "2026-05-15T10:00:00.000Z",
+    canExport: true,
+    workspaceId: "forbidden-request-workspace",
+    leaseToken: "forbidden-request-lease-token",
+  },
+};
+
+const gmailExportCancelResponse = {
+  success: true,
+  data: {
+    draftId: gmailExportDraftId,
+    leadId: "55555555-5555-4555-8555-555555555555",
+    requestStatus: "cancelled",
+    cancelledAt: "2026-05-14T10:05:00.000Z",
+    workspaceId: "forbidden-cancel-workspace",
+    leaseToken: "forbidden-cancel-lease-token",
   },
 };
 
@@ -409,6 +492,12 @@ function opsCheckPostCalls(request: ReturnType<typeof vi.fn>, url: string) {
   );
 }
 
+function gmailExportPostCalls(request: ReturnType<typeof vi.fn>, url: string) {
+  return request.mock.calls.filter(
+    ([calledUrl, init]) => calledUrl === url && init?.method === "POST",
+  );
+}
+
 function opsDefaultResponse(url: string) {
   if (url === opsHealthUrl) {
     return mockJson(opsHealth);
@@ -516,6 +605,8 @@ describe("admin app", () => {
     expect(screen.getByText("Admin User")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Pushback" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Client Install" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Gmail Export" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "API Keys" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Google Sheets" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ops" })).toBeInTheDocument();
@@ -1145,6 +1236,230 @@ describe("admin app", () => {
     expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
   });
 
+  it("renders the Client Install guide, properties, and Apps Script template", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => mockJson(currentUser)),
+    );
+
+    renderApp("/app/client-install");
+
+    expect(await screen.findByRole("heading", { name: "Client Install Pack" })).toBeInTheDocument();
+    expect(
+      screen
+        .getAllByRole("link", { name: "API Keys" })
+        .some((link) => link.getAttribute("href") === "/app/api-keys"),
+    ).toBe(true);
+    expect(screen.getByText("SYRANTIS_API_BASE")).toBeInTheDocument();
+    expect(screen.getByText("SYRANTIS_API_KEY")).toBeInTheDocument();
+    expect(screen.getByText("<created from admin UI>")).toBeInTheDocument();
+    expect(screen.getByText("INTAKE_ENABLED")).toBeInTheDocument();
+    expect(screen.getByText("EXPORT_ENABLED")).toBeInTheDocument();
+    expect(screen.getByText("gmail_apps_script_client")).toBeInTheDocument();
+    expect(screen.getByText(/function runSyrantisGmailBridge/)).toBeInTheDocument();
+    expect(screen.getByText(/PropertiesService\.getScriptProperties/)).toBeInTheDocument();
+    expect(screen.getByText(/GmailApp\.createDraft/)).toBeInTheDocument();
+    expect(screen.queryByText(/syr_live_/)).not.toBeInTheDocument();
+  });
+
+  it("copies the Apps Script template", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => mockJson(currentUser)),
+    );
+
+    renderApp("/app/client-install");
+    await user.click(await screen.findByRole("button", { name: "Copy template" }));
+
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("runSyrantisGmailBridge"));
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("PropertiesService.getScriptProperties"),
+    );
+    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+  });
+
+  it("loads Gmail export status and renders safe DTO fields only", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => {
+      if (url === gmailExportStatusUrl) {
+        return mockJson(gmailExportStatusFixture());
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/gmail-export");
+    await user.type(await screen.findByLabelText("Draft ID"), gmailExportDraftId);
+    await user.click(screen.getByRole("button", { name: "Load Status" }));
+
+    const status = await screen.findByLabelText("Status");
+    expect(within(status).getByText("Gmail export status")).toBeInTheDocument();
+    expect(within(status).getAllByText("not_requested").length).toBeGreaterThan(0);
+    expect(within(status).getAllByText("not_exported").length).toBeGreaterThan(0);
+    expect(within(status).getByText("present")).toBeInTheDocument();
+    expect(within(status).getByText("export_not_requested")).toBeInTheDocument();
+    expect(request).toHaveBeenCalledWith(
+      gmailExportStatusUrl,
+      expect.objectContaining({ credentials: "include" }),
+    );
+
+    for (const forbidden of [
+      "forbidden-to-email@example.com",
+      "forbidden-body-text",
+      "forbidden-html-body",
+      "forbidden-contact-name",
+      "forbidden-contact-id",
+      "forbidden-workspace-id",
+      "metadata_json",
+      "forbidden-lease-token",
+      "forbidden-provider-message-id",
+      "forbidden-prompt",
+      "forbidden-output",
+    ]) {
+      expect(screen.queryByText(forbidden)).not.toBeInTheDocument();
+    }
+  });
+
+  it("requests Gmail export and refreshes status without workspace material", async () => {
+    const user = userEvent.setup();
+    let statusCalls = 0;
+    const request = vi.fn((url: string, init?: RequestInit) => {
+      if (url === gmailExportStatusUrl) {
+        statusCalls += 1;
+        return mockJson(
+          statusCalls === 1
+            ? gmailExportStatusFixture()
+            : gmailExportStatusFixture({
+                requestStatus: "requested",
+                requestedAt: "2026-05-14T10:00:00.000Z",
+                requestExpiresAt: "2026-05-15T10:00:00.000Z",
+                canExport: true,
+                blockingReasons: [],
+              }),
+        );
+      }
+
+      if (url === gmailExportRequestUrl && init?.method === "POST") {
+        return mockJson(gmailExportRequestResponse);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/gmail-export");
+    await user.type(await screen.findByLabelText("Draft ID"), gmailExportDraftId);
+    await user.click(screen.getByRole("button", { name: "Load Status" }));
+    await user.click(await screen.findByRole("button", { name: "Request Export" }));
+
+    expect(await screen.findByText("Export request requested.")).toBeInTheDocument();
+    await waitFor(() => expect(statusCalls).toBe(2));
+    const postCalls = gmailExportPostCalls(request, gmailExportRequestUrl);
+    expect(postCalls).toHaveLength(1);
+    const [, init] = postCalls[0] ?? [];
+    expect(init).toEqual(expect.objectContaining({ credentials: "include", method: "POST" }));
+    expect(init).not.toHaveProperty("body");
+    expect(JSON.stringify(init)).not.toContain("workspaceId");
+    expect(JSON.stringify(init)).not.toContain("Authorization");
+    expect(JSON.stringify(init)).not.toContain("Bearer");
+    expect(screen.queryByText("forbidden-request-workspace")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-request-lease-token")).not.toBeInTheDocument();
+  });
+
+  it("cancels Gmail export before lease and refreshes status", async () => {
+    const user = userEvent.setup();
+    let statusCalls = 0;
+    const request = vi.fn((url: string, init?: RequestInit) => {
+      if (url === gmailExportStatusUrl) {
+        statusCalls += 1;
+        return mockJson(
+          statusCalls === 1
+            ? gmailExportStatusFixture({
+                requestStatus: "requested",
+                requestedAt: "2026-05-14T10:00:00.000Z",
+                requestExpiresAt: "2026-05-15T10:00:00.000Z",
+                canExport: true,
+                blockingReasons: [],
+              })
+            : gmailExportStatusFixture({
+                requestStatus: "cancelled",
+                requestedAt: "2026-05-14T10:00:00.000Z",
+                requestExpiresAt: "2026-05-15T10:00:00.000Z",
+                blockingReasons: ["export_cancelled"],
+              }),
+        );
+      }
+
+      if (url === gmailExportCancelUrl && init?.method === "POST") {
+        return mockJson(gmailExportCancelResponse);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/gmail-export");
+    await user.type(await screen.findByLabelText("Draft ID"), gmailExportDraftId);
+    await user.click(screen.getByRole("button", { name: "Load Status" }));
+    await user.click(await screen.findByRole("button", { name: "Cancel Export" }));
+
+    expect(await screen.findByText("Export request cancelled.")).toBeInTheDocument();
+    await waitFor(() => expect(statusCalls).toBe(2));
+    const postCalls = gmailExportPostCalls(request, gmailExportCancelUrl);
+    expect(postCalls).toHaveLength(1);
+    const [, init] = postCalls[0] ?? [];
+    expect(init).toEqual(expect.objectContaining({ credentials: "include", method: "POST" }));
+    expect(init).not.toHaveProperty("body");
+    expect(JSON.stringify(init)).not.toContain("workspaceId");
+    expect(screen.queryByText("forbidden-cancel-workspace")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-cancel-lease-token")).not.toBeInTheDocument();
+  });
+
+  it("disables or hides Gmail export actions for exported and leased states", async () => {
+    const user = userEvent.setup();
+    let currentResponse = gmailExportStatusFixture({
+      requestStatus: "leased",
+      leaseStatus: "active",
+      leaseExpiresAt: "2026-05-14T10:10:00.000Z",
+      blockingReasons: ["active_lease", "export_in_progress"],
+    });
+    const request = vi.fn((url: string) => {
+      if (url === gmailExportStatusUrl) {
+        return mockJson(currentResponse);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/gmail-export");
+    await user.type(await screen.findByLabelText("Draft ID"), gmailExportDraftId);
+    await user.click(screen.getByRole("button", { name: "Load Status" }));
+
+    expect(await screen.findByRole("button", { name: "Cancel Export" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Request Export" })).not.toBeInTheDocument();
+
+    currentResponse = gmailExportStatusFixture({
+      requestStatus: "exported",
+      exportStatus: "exported",
+      exportedAt: "2026-05-14T10:11:00.000Z",
+      blockingReasons: ["already_exported"],
+    });
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Cancel Export" })).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Request Export" })).not.toBeInTheDocument();
+  });
+
   it("renders the Ops page with health cards, checks, and recent checks", async () => {
     vi.stubGlobal(
       "fetch",
@@ -1314,7 +1629,9 @@ describe("admin app", () => {
       "../src/components/AdminShell.tsx",
       "../src/components/ProtectedRoute.tsx",
       "../src/pages/ApiKeysPage.tsx",
+      "../src/pages/ClientInstallPage.tsx",
       "../src/pages/DashboardPage.tsx",
+      "../src/pages/GmailExportOpsPage.tsx",
       "../src/pages/GoogleSheetsPage.tsx",
       "../src/pages/LoginPage.tsx",
       "../src/pages/NotFoundPage.tsx",
