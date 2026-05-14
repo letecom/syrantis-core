@@ -49,6 +49,9 @@ export function AdminShell({ user, children }: AdminShellProps) {
             <NavLink className={navLinkClass} to="/app/pushback">
               Pushback
             </NavLink>
+            <NavLink className={navLinkClass} to="/app/client-dashboard">
+              Client Dashboard
+            </NavLink>
             <NavLink className={navLinkClass} to="/app/client-install">
               Client Install
             </NavLink>

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { ClientCockpitSummaryResponseSchema } from "@syrantis/shared";
+
 const { stringify: encodeJsonBody } = JSON;
 
 const loginSuccessSchema = z.object({
@@ -328,6 +330,7 @@ export type OpsRecentChecksResponse = z.infer<typeof opsRecentChecksSuccessSchem
 export type GmailExportStatusResponse = z.infer<typeof gmailExportStatusSuccessSchema>["data"];
 export type GmailExportRequestResponse = z.infer<typeof gmailExportRequestResponseSchema>["data"];
 export type GmailExportCancelResponse = z.infer<typeof gmailExportCancelResponseSchema>["data"];
+export type ClientCockpitSummary = z.infer<typeof ClientCockpitSummaryResponseSchema>["data"];
 export type WorkspaceApiKeySafe = z.infer<typeof workspaceApiKeyListResponseSchema>["data"][number];
 export type WorkspaceApiKeyCreateResponse = z.infer<
   typeof workspaceApiKeyCreateResponseSchema
@@ -480,6 +483,11 @@ export async function getRecentOpsChecks(
   const query = search.toString();
   const payload = await requestJson(`/api/admin/ops/checks/recent${query ? `?${query}` : ""}`);
   return opsRecentChecksSuccessSchema.parse(payload).data;
+}
+
+export async function getClientCockpitSummary(): Promise<ClientCockpitSummary> {
+  const payload = await requestJson("/api/client/cockpit-summary");
+  return ClientCockpitSummaryResponseSchema.parse(payload).data;
 }
 
 export async function listWorkspaceApiKeys(): Promise<WorkspaceApiKeySafe[]> {
