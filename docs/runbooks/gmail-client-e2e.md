@@ -19,9 +19,10 @@ The public intake contract is 023J:
 - `Authorization: Bearer <workspace_api_key>`
 - request fields: `fromEmail`, `bodyText`, `source`, `externalId`, `contactName`, `subject`,
   `receivedAt`
-- new lead returns HTTP `201`
-- idempotency replay returns HTTP `200` with `data.idempotency.isReplay = true`
-- response envelope is `{ success: true, data: { diagnosticTraceId, lead, scoringJob, idempotency } }`
+- new lead returns HTTP `201` with `data.result = created`
+- idempotency replay returns HTTP `200` with `data.result = idempotent_replay`
+- ignored messages return a success DTO with `data.result = ignored` or `idempotent_ignored`
+- response envelope is `{ success: true, data: { result, intakeAction, diagnosticTraceId, classification } }`
 
 Use placeholders only. Never paste real API keys into docs, tickets, screenshots, shell history, or
 shared chats.
@@ -106,6 +107,7 @@ Run `setupGmailLabels()` manually from Apps Script once. It creates:
 
 - `Syrantis/ToProcess`
 - `Syrantis/Processed`
+- `Syrantis/Ignored`
 - `Syrantis/Error`
 
 Run `setupIntakeLogHeader()` if the Sheet header was not pasted manually.
@@ -127,7 +129,8 @@ Run `processSyrantisInbox()` manually from Apps Script.
 
 Expected Gmail label behavior:
 
-- successful threads move from `Syrantis/ToProcess` to `Syrantis/Processed`
+- successful lead-created threads move from `Syrantis/ToProcess` to `Syrantis/Processed`
+- ignored threads move from `Syrantis/ToProcess` to `Syrantis/Ignored`
 - failed threads move from `Syrantis/ToProcess` to `Syrantis/Error`
 
 Retry behavior:

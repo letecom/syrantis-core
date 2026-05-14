@@ -40,7 +40,9 @@ const internalServerErrorResponse = ApiErrorSchema.parse({
 });
 
 export type InboundMessageIntakeRoutesDependencies = {
-  authenticateApiKey?: (authorizationHeader?: string | null) => Promise<PublicApiKeyLookupRow | null>;
+  authenticateApiKey?: (
+    authorizationHeader?: string | null,
+  ) => Promise<PublicApiKeyLookupRow | null>;
   inboundMessageIntakeService?: InboundMessageIntakeService;
 };
 
@@ -71,13 +73,13 @@ function hasForbiddenWorkspaceId(value: unknown): boolean {
 function hasWorkspaceHeader(c: Context<AppEnv>): boolean {
   return Boolean(
     c.req.header("workspaceId") ??
-      c.req.header("workspace-id") ??
-      c.req.header("workspace_id") ??
-      c.req.header("x-workspace-id") ??
-      c.req.header("tenantId") ??
-      c.req.header("tenant-id") ??
-      c.req.header("tenant_id") ??
-      c.req.header("x-tenant-id"),
+    c.req.header("workspace-id") ??
+    c.req.header("workspace_id") ??
+    c.req.header("x-workspace-id") ??
+    c.req.header("tenantId") ??
+    c.req.header("tenant-id") ??
+    c.req.header("tenant_id") ??
+    c.req.header("x-tenant-id"),
   );
 }
 
@@ -93,6 +95,7 @@ function intakeResponse(c: Context<AppEnv>, result: InboundMessageIntakeServiceR
       c.header("Retry-After", String(result.retryAfterSeconds));
       return c.json(rateLimitedResponse, 429);
     case "idempotent_replay":
+    case "idempotent_ignored":
       return c.json(
         InboundMessageIntakeResponseSchema.parse({
           success: true,
@@ -101,6 +104,7 @@ function intakeResponse(c: Context<AppEnv>, result: InboundMessageIntakeServiceR
         200,
       );
     case "created":
+    case "ignored":
       return c.json(
         InboundMessageIntakeResponseSchema.parse({
           success: true,
@@ -120,7 +124,11 @@ export function createInboundMessageIntakeRoutes(
     dependencies.inboundMessageIntakeService ?? createProductionInboundMessageIntakeService();
 
   routes.post("/inbound-message", async (c) => {
-    if (hasForbiddenWorkspaceId(c.req.query()) || hasWorkspaceHeader(c) || hasCredentialQuery(c.req.query())) {
+    if (
+      hasForbiddenWorkspaceId(c.req.query()) ||
+      hasWorkspaceHeader(c) ||
+      hasCredentialQuery(c.req.query())
+    ) {
       return c.json(invalidRequestResponse, 422);
     }
 

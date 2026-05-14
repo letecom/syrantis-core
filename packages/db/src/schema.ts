@@ -558,6 +558,50 @@ export const workspaceContextProfiles = pgTable(
   ],
 );
 
+export const intakeClassifications = pgTable(
+  "intake_classifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    externalId: text("external_id").notNull(),
+    classification: text("classification").notNull(),
+    category: text("category").notNull(),
+    action: text("action").notNull(),
+    confidence: text("confidence").notNull(),
+    reasonCode: text("reason_code").notNull(),
+    diagnosticTraceId: uuid("diagnostic_trace_id").notNull(),
+    suggestedLabels: text("suggested_labels")
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    leadId: uuid("lead_id").references(() => leads.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      "intake_classifications_classification_check",
+      sql`${table.classification} in ('leadable', 'ignored', 'unknown')`,
+    ),
+    check(
+      "intake_classifications_action_check",
+      sql`${table.action} in ('create_lead', 'ignore', 'review')`,
+    ),
+    check(
+      "intake_classifications_confidence_check",
+      sql`${table.confidence} in ('high', 'medium', 'low')`,
+    ),
+    index("intake_classifications_workspace_id_idx").on(table.workspaceId),
+    index("intake_classifications_lead_id_idx").on(table.leadId),
+    index("intake_classifications_created_at_idx").on(table.createdAt),
+    uniqueIndex("intake_classifications_workspace_external_id_unique_idx").on(
+      table.workspaceId,
+      table.externalId,
+    ),
+  ],
+);
+
 export const emailSends = pgTable(
   "email_sends",
   {

@@ -3,7 +3,11 @@ import pg from "pg";
 import { requireDatabaseUrl } from "../config.js";
 import { buildPgSchemaCatalog } from "./queries.js";
 import { filterInvariantsByMigration, schemaInvariantRegistry } from "./registry.js";
-import { formatSchemaVerifyJson, formatSchemaVerifyText, getSchemaVerifyExitCode } from "./reporter.js";
+import {
+  formatSchemaVerifyJson,
+  formatSchemaVerifyText,
+  getSchemaVerifyExitCode,
+} from "./reporter.js";
 import { verifySchemaInvariants } from "./verifier.js";
 import type { MigrationId } from "./types.js";
 
@@ -16,7 +20,7 @@ type CliOptions = {
 
 function parseCliOptions(args: readonly string[]): CliOptions {
   const options: CliOptions = {
-    json: false
+    json: false,
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -72,17 +76,22 @@ function isMigrationId(value: string | undefined): value is MigrationId {
     value === "0015" ||
     value === "0016" ||
     value === "0017" ||
-    value === "0018"
+    value === "0018" ||
+    value === "0019" ||
+    value === "0020" ||
+    value === "0021"
   );
 }
 
-export async function runVerifySchemaCli(args: readonly string[] = process.argv.slice(2)): Promise<number> {
+export async function runVerifySchemaCli(
+  args: readonly string[] = process.argv.slice(2),
+): Promise<number> {
   const options = parseCliOptions(args);
   const pool = new Pool({
     connectionString: requireDatabaseUrl(),
     max: 1,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000
+    connectionTimeoutMillis: 5000,
   });
 
   try {

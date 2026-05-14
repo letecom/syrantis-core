@@ -32,18 +32,21 @@ agents, Gmail OAuth, sending, provider calls, worker changes, migrations, or dep
 1. Use a bounded Gmail query such as:
 
 ```txt
-subject:"[SYRANTIS-E2E]" newer_than:1d -label:"Syrantis/Processed" -label:"Syrantis/Failed"
+subject:"[SYRANTIS-E2E]" newer_than:1d -label:"Syrantis/Processed" -label:"Syrantis/Ignored" -label:"Syrantis/Failed"
 ```
 
 2. Set `INTAKE_ENABLED=true`.
 3. Run `runSyrantisGmailBridge()`.
 4. Confirm processed threads receive `Syrantis/Processed`.
-5. Confirm failed threads receive `Syrantis/Failed`.
+5. Confirm ignored threads receive `Syrantis/Ignored`.
+6. Confirm failed threads receive `Syrantis/Failed`.
 
 Expected Syrantis API behavior:
 
 - New intake returns HTTP `201`.
 - Idempotent replay returns HTTP `200`.
+- Ignored intake returns a success DTO with `result = ignored` or `idempotent_ignored` and creates
+  no lead or score job.
 - The script does not log body text or raw response bodies.
 
 ## 3. Validate Draft Export Request

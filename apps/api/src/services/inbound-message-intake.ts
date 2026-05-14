@@ -12,16 +12,13 @@ import {
   type InboundMessageIntakeRepositoryResult,
 } from "../repositories/inbound-message-intake.js";
 import type { PublicApiKeyLookupRow } from "../repositories/public-lead-intake.js";
-import {
-  buildPendingScoreLeadJobDto,
-  hasText,
-  publicInboundMessageSource,
-} from "./intake-shared.js";
 import { defaultInboundMessageRateLimiter, type FixedWindowRateLimiter } from "./rate-limit.js";
 
 export type InboundMessageIntakeServiceResult =
   | { result: "created"; data: InboundMessageIntakeResponse["data"] }
   | { result: "idempotent_replay"; data: InboundMessageIntakeResponse["data"] }
+  | { result: "ignored"; data: InboundMessageIntakeResponse["data"] }
+  | { result: "idempotent_ignored"; data: InboundMessageIntakeResponse["data"] }
   | { result: "rate_limited"; retryAfterSeconds: number };
 
 export type InboundMessageIntakeService = {
@@ -40,32 +37,41 @@ const productionRepository: InboundMessageIntakeRepository = {
 };
 
 function buildResponseData(input: {
-  diagnosticTraceId: string;
   created: InboundMessageIntakeRepositoryResult;
-  request: InboundMessageIntakeRequest;
 }): InboundMessageIntakeResponse["data"] {
+  const classification = {
+    category: input.created.classification.category,
+    action: input.created.classification.action,
+    confidence: input.created.classification.confidence,
+    reasonCode: input.created.classification.reasonCode,
+  };
+
+  if (input.created.result === "ignored" || input.created.result === "idempotent_ignored") {
+    const response = InboundMessageIntakeResponseSchema.parse({
+      success: true,
+      data: {
+        result: input.created.result,
+        intakeAction: "ignored",
+        diagnosticTraceId: input.created.classification.diagnosticTraceId,
+        classification,
+        ...(input.created.classification.suggestedLabels.length > 0
+          ? { suggestedLabels: input.created.classification.suggestedLabels }
+          : {}),
+      },
+    });
+
+    return response.data;
+  }
+
   const response = InboundMessageIntakeResponseSchema.parse({
     success: true,
     data: {
-      diagnosticTraceId: input.diagnosticTraceId,
-      lead: {
-        id: input.created.lead.id,
-        source: publicInboundMessageSource,
-        hasBody: hasText(input.request.bodyText),
-        subjectPresent: hasText(input.request.subject),
-        contactNamePresent: hasText(input.request.contactName),
-        createdAt: input.created.lead.createdAt.toISOString(),
-      },
-      scoringJob: buildPendingScoreLeadJobDto(input.created.job),
-      idempotency: {
-        isReplay: input.created.result === "idempotent_replay",
-        externalId: input.request.externalId ?? null,
-      },
-      createdAt: input.created.lead.createdAt.toISOString(),
-      processingNote:
-        input.created.result === "idempotent_replay"
-          ? "Public inbound message replay detected from externalId. Existing lead and score_lead job returned."
-          : "Public inbound message lead created and score_lead job enqueued. Run the worker once to process scoring.",
+      result: input.created.result,
+      intakeAction: "created_lead",
+      leadId: input.created.lead?.id ?? null,
+      scoringJobId: input.created.job?.id ?? null,
+      diagnosticTraceId: input.created.classification.diagnosticTraceId,
+      classification,
     },
   });
 
@@ -87,21 +93,16 @@ export function createProductionInboundMessageIntakeService(
         };
       }
 
-      const diagnosticTraceId = randomUUID();
       const created = await repository.create({
         workspaceId: input.apiKey.workspaceId,
         apiKeyId: input.apiKey.id,
-        diagnosticTraceId,
+        diagnosticTraceId: randomUUID(),
         data: input.payload,
       });
 
       return {
         result: created.result,
-        data: buildResponseData({
-          diagnosticTraceId,
-          created,
-          request: input.payload,
-        }),
+        data: buildResponseData({ created }),
       };
     },
   };

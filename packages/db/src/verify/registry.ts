@@ -19,6 +19,7 @@ const rlsTenantInvariants = [
   ["0012", "ai_runs", "tenant_isolation_ai_runs"],
   ["0012", "lead_scores", "tenant_isolation_lead_scores"],
   ["0020", "workspace_context_profiles", "tenant_isolation_workspace_context_profiles"],
+  ["0021", "intake_classifications", "tenant_isolation_intake_classifications"],
 ] as const satisfies readonly (readonly [MigrationId, string, string])[];
 
 const emailSendDeliveryColumns = [
@@ -34,6 +35,27 @@ const emailSendDeliveryConstraints = [
   "email_sends_delivered_requires_delivered_at",
   "email_sends_bounced_requires_bounced_at",
   "email_sends_complained_requires_complained_at",
+] as const;
+
+const intakeClassificationColumns = [
+  ["id", "uuid", false],
+  ["workspace_id", "uuid", false],
+  ["external_id", "text", false],
+  ["classification", "text", false],
+  ["category", "text", false],
+  ["action", "text", false],
+  ["confidence", "text", false],
+  ["reason_code", "text", false],
+  ["diagnostic_trace_id", "uuid", false],
+  ["suggested_labels", "ARRAY", false],
+  ["lead_id", "uuid", true],
+  ["created_at", "timestamp with time zone", false],
+] as const satisfies readonly (readonly [string, string, boolean])[];
+
+const intakeClassificationConstraints = [
+  "intake_classifications_classification_check",
+  "intake_classifications_action_check",
+  "intake_classifications_confidence_check",
 ] as const;
 
 export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
@@ -146,6 +168,29 @@ export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
     table: "workspace_context_profiles",
     triggerName: "workspace_context_profiles_set_updated_at_trg",
     functionName: "syrantis_set_updated_at",
+  },
+  ...intakeClassificationColumns.map(([column, dataType, isNullable]) => ({
+    kind: "column" as const,
+    migration: "0021" as const,
+    schema: defaultSchema,
+    table: "intake_classifications",
+    column,
+    dataType,
+    isNullable,
+  })),
+  ...intakeClassificationConstraints.map((constraintName) => ({
+    kind: "check_constraint" as const,
+    migration: "0021" as const,
+    schema: defaultSchema,
+    table: "intake_classifications",
+    constraintName,
+  })),
+  {
+    kind: "index",
+    migration: "0021",
+    schema: defaultSchema,
+    table: "intake_classifications",
+    indexName: "intake_classifications_workspace_external_id_unique_idx",
   },
 ] as const;
 
