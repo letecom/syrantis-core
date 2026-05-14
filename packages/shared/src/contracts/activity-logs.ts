@@ -41,6 +41,7 @@ export const ActivityLogActionSchema = z.enum([
   "lead.score_requested",
   "inbound_test.created",
   "public_inbound_message.created",
+  "public_inbound_message.ignored",
   "lead.scored",
   "lead_score_pushback.succeeded",
   "lead_score_pushback.failed",

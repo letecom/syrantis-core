@@ -147,6 +147,16 @@ Gmail, Google Sheets, providers, workers, or send behavior.
 - No client role, migration, Apps Script change, Gmail OAuth, settings, classifier, draft queue,
   provider call, or PII/raw metadata exposure is added.
 
+023Z adds a conservative Gmail intake classification gate:
+
+- `intake_classifications` records safe per-message classification outcomes with tenant RLS.
+- `POST /api/intake/inbound-message` now classifies before lead creation: obvious automation/noise
+  is ignored, while human-looking or ambiguous messages still create review leads.
+- Ignored intake creates no lead, score job, draft, approval, `email_sends`, send behavior, or
+  provider call.
+- The client bridge can label `Syrantis/Processed`, `Syrantis/Ignored`, and `Syrantis/Failed`
+  based on the safe API result.
+
 ## Contextual AI Draft Generation / 023R
 
 023R upgrades the existing `POST /api/leads/:id/generate-draft` flow without adding a route, UI, job type, or migration. The route still only creates or reuses a `generate_ai_draft` job and does not call the provider.

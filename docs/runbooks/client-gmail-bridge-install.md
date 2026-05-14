@@ -48,7 +48,7 @@ Required values:
 - `INTAKE_ENABLED=true|false`
 - `EXPORT_ENABLED=true|false`
 - `SYRANTIS_SOURCE=gmail_apps_script_client`
-- `SYRANTIS_GMAIL_QUERY=subject:"[SYRANTIS-E2E]" newer_than:1d -label:"Syrantis/Processed" -label:"Syrantis/Failed"`
+- `SYRANTIS_GMAIL_QUERY=subject:"[SYRANTIS-E2E]" newer_than:1d -label:"Syrantis/Processed" -label:"Syrantis/Ignored" -label:"Syrantis/Failed"`
 - `INTAKE_BATCH_LIMIT=10`
 - `EXPORT_BATCH_LIMIT=5`
 
@@ -57,10 +57,15 @@ Required values:
 Run `setupSyrantisLabels()` once. It creates:
 
 - `Syrantis/Processed`
+- `Syrantis/Ignored`
 - `Syrantis/Failed`
 
-The default Gmail query excludes both labels, so successful and failed threads are not processed
-again by default.
+The default Gmail query excludes all three labels, so processed, ignored, and failed threads are not
+processed again by default. A documented broad query for approved validation is:
+
+```txt
+newer_than:1d -label:"Syrantis/Processed" -label:"Syrantis/Ignored" -label:"Syrantis/Failed" -in:spam -in:trash
+```
 
 ## 5. Intake Mode
 
@@ -70,8 +75,11 @@ Set `INTAKE_ENABLED=true` only when selected Gmail messages should be sent to:
 POST /api/intake/inbound-message
 ```
 
-The script sends the public intake contract fields and logs only safe operational messages. It must
-not log body text, raw responses, API key material, authorization headers, or raw payloads.
+The script sends the public intake contract fields and logs only safe operational messages:
+message ID, result, category/reasonCode, diagnostic trace ID, and HTTP status. It labels
+`created`/`idempotent_replay` as `Syrantis/Processed` and `ignored`/`idempotent_ignored` as
+`Syrantis/Ignored`. It must not log body text, raw responses, API key material, authorization
+headers, or raw payloads.
 
 ## 6. Export Mode
 

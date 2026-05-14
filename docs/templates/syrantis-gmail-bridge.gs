@@ -1,4 +1,5 @@
 var SYRANTIS_PROCESSED_LABEL = "Syrantis/Processed";
+var SYRANTIS_IGNORED_LABEL = "Syrantis/Ignored";
 var SYRANTIS_FAILED_LABEL = "Syrantis/Failed";
 
 function runSyrantisGmailBridge() {
@@ -30,6 +31,7 @@ function runSyrantisGmailBridge() {
 
 function setupSyrantisLabels() {
   getOrCreateLabel_(SYRANTIS_PROCESSED_LABEL);
+  getOrCreateLabel_(SYRANTIS_IGNORED_LABEL);
   getOrCreateLabel_(SYRANTIS_FAILED_LABEL);
 }
 
@@ -40,6 +42,7 @@ function processSyrantisIntake_(config) {
   }
 
   var processedLabel = GmailApp.getUserLabelByName(SYRANTIS_PROCESSED_LABEL);
+  var ignoredLabel = GmailApp.getUserLabelByName(SYRANTIS_IGNORED_LABEL);
   var failedLabel = GmailApp.getUserLabelByName(SYRANTIS_FAILED_LABEL);
   var threads = GmailApp.search(config.gmailQuery, 0, config.intakeBatchLimit);
 
@@ -58,11 +61,42 @@ function processSyrantisIntake_(config) {
     };
 
     var result = postJson_(config.apiBase + "/api/intake/inbound-message", config.apiKey, payload);
-    var success = result.httpStatus === 200 || result.httpStatus === 201;
+    var intakeResult = safeIntakeResult_(result.json);
+    var classification = safeClassification_(result.json);
+    var diagnosticTraceId = safeDiagnosticTraceId_(result.json);
 
-    if (success) {
+    if (intakeResult === "created" || intakeResult === "idempotent_replay") {
       thread.addLabel(processedLabel);
-      safeLog_("intake_succeeded messageId=" + gmailMessageId + " status=" + result.httpStatus);
+      safeLog_(
+        "intake_processed messageId=" +
+          gmailMessageId +
+          " result=" +
+          intakeResult +
+          " category=" +
+          classification.category +
+          " reasonCode=" +
+          classification.reasonCode +
+          " diagnosticTraceId=" +
+          diagnosticTraceId +
+          " status=" +
+          result.httpStatus,
+      );
+    } else if (intakeResult === "ignored" || intakeResult === "idempotent_ignored") {
+      thread.addLabel(ignoredLabel);
+      safeLog_(
+        "intake_ignored messageId=" +
+          gmailMessageId +
+          " result=" +
+          intakeResult +
+          " category=" +
+          classification.category +
+          " reasonCode=" +
+          classification.reasonCode +
+          " diagnosticTraceId=" +
+          diagnosticTraceId +
+          " status=" +
+          result.httpStatus,
+      );
     } else {
       thread.addLabel(failedLabel);
       safeLog_("intake_failed messageId=" + gmailMessageId + " status=" + result.httpStatus);
@@ -132,7 +166,7 @@ function getSyrantisConfig_() {
     source: props.getProperty("SYRANTIS_SOURCE") || "gmail_apps_script_client",
     gmailQuery:
       props.getProperty("SYRANTIS_GMAIL_QUERY") ||
-      'subject:"[SYRANTIS-E2E]" newer_than:1d -label:"Syrantis/Processed" -label:"Syrantis/Failed"',
+      'subject:"[SYRANTIS-E2E]" newer_than:1d -label:"Syrantis/Processed" -label:"Syrantis/Ignored" -label:"Syrantis/Failed"',
     intakeBatchLimit: boundedLimit_(props.getProperty("INTAKE_BATCH_LIMIT"), 10, 1, 25),
     exportBatchLimit: boundedLimit_(props.getProperty("EXPORT_BATCH_LIMIT"), 5, 1, 10),
   };
@@ -172,12 +206,43 @@ function postJson_(url, apiKey, payload) {
     });
     return {
       httpStatus: response.getResponseCode(),
+      json: parseJsonSafe_(response.getContentText()),
     };
   } catch (error) {
     return {
       httpStatus: "",
+      json: null,
     };
   }
+}
+
+function safeIntakeResult_(json) {
+  var result = json && json.success === true && json.data ? String(json.data.result || "") : "";
+  if (
+    result === "created" ||
+    result === "idempotent_replay" ||
+    result === "ignored" ||
+    result === "idempotent_ignored"
+  ) {
+    return result;
+  }
+  return "";
+}
+
+function safeClassification_(json) {
+  var classification = json && json.data ? json.data.classification : null;
+  return {
+    category:
+      classification && classification.category ? String(classification.category) : "unknown",
+    reasonCode:
+      classification && classification.reasonCode ? String(classification.reasonCode) : "unknown",
+  };
+}
+
+function safeDiagnosticTraceId_(json) {
+  return json && json.data && json.data.diagnosticTraceId
+    ? String(json.data.diagnosticTraceId)
+    : "unknown";
 }
 
 function getLastMessage_(thread) {

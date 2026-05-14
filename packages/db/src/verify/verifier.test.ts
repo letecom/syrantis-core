@@ -131,6 +131,18 @@ const allColumns = {
   bounced_at: { dataType: "timestamp with time zone", isNullable: true },
   complained_at: { dataType: "timestamp with time zone", isNullable: true },
   delivery_error_code: { dataType: "text", isNullable: true },
+  id: { dataType: "uuid", isNullable: false },
+  workspace_id: { dataType: "uuid", isNullable: false },
+  external_id: { dataType: "text", isNullable: false },
+  classification: { dataType: "text", isNullable: false },
+  category: { dataType: "text", isNullable: false },
+  action: { dataType: "text", isNullable: false },
+  confidence: { dataType: "text", isNullable: false },
+  reason_code: { dataType: "text", isNullable: false },
+  diagnostic_trace_id: { dataType: "uuid", isNullable: false },
+  suggested_labels: { dataType: "ARRAY", isNullable: false },
+  lead_id: { dataType: "uuid", isNullable: true },
+  created_at: { dataType: "timestamp with time zone", isNullable: false },
 };
 
 const expectedRlsTables = [
@@ -150,6 +162,7 @@ const expectedRlsTables = [
   "ai_runs",
   "lead_scores",
   "workspace_context_profiles",
+  "intake_classifications",
 ];
 
 describe("schema invariant registry", () => {
@@ -313,6 +326,31 @@ describe("schema invariant registry", () => {
     );
   });
 
+  it("includes the 0021 intake classification invariants", () => {
+    for (const column of ["workspace_id", "external_id", "classification", "lead_id"]) {
+      assert.ok(
+        schemaInvariantRegistry.some(
+          (invariant) =>
+            invariant.kind === "column" &&
+            invariant.migration === "0021" &&
+            invariant.table === "intake_classifications" &&
+            invariant.column === column,
+        ),
+        `missing registry entry for ${column}`,
+      );
+    }
+
+    assert.ok(
+      schemaInvariantRegistry.some(
+        (invariant) =>
+          invariant.kind === "index" &&
+          invariant.migration === "0021" &&
+          invariant.table === "intake_classifications" &&
+          invariant.indexName === "intake_classifications_workspace_external_id_unique_idx",
+      ),
+    );
+  });
+
   it("includes RLS tenant isolation invariants for expected tenant tables", () => {
     const rlsInvariants = schemaInvariantRegistry.filter(
       (invariant) =>
@@ -347,8 +385,8 @@ describe("schema invariant verifier", () => {
     );
 
     assert.equal(result.success, true);
-    assert.equal(result.checked, 37);
-    assert.equal(result.passed.length, 37);
+    assert.equal(result.checked, 54);
+    assert.equal(result.passed.length, 54);
     assert.equal(result.failed.length, 0);
   });
 
@@ -798,8 +836,8 @@ describe("schema invariant verifier", () => {
     );
 
     assert.equal(getSchemaVerifyExitCode(result), 1);
-    assert.equal(result.checked, 37);
-    assert.equal(result.failed.length, 17);
+    assert.equal(result.checked, 54);
+    assert.equal(result.failed.length, 33);
   });
 
   it("keeps verification SQL limited to PostgreSQL catalog metadata", () => {
@@ -816,7 +854,7 @@ describe("schema invariant verifier", () => {
     assert.match(combinedSql, /relkind = 'r'/);
     assert.doesNotMatch(
       combinedSql,
-      /from\s+(organizations|contacts|leads|tasks|approvals|activity_logs|drafts|email_sends|background_jobs|ai_runs|lead_scores|workspace_context_profiles|external_connections|external_object_mappings|integration_events|workspace_api_keys)\b/i,
+      /from\s+(organizations|contacts|leads|tasks|approvals|activity_logs|drafts|email_sends|background_jobs|ai_runs|lead_scores|workspace_context_profiles|intake_classifications|external_connections|external_object_mappings|integration_events|workspace_api_keys)\b/i,
     );
   });
 
@@ -840,8 +878,8 @@ describe("schema invariant verifier", () => {
     };
 
     assert.equal(parsed.success, true);
-    assert.equal(parsed.checked, 37);
-    assert.equal(parsed.passed, 37);
+    assert.equal(parsed.checked, 54);
+    assert.equal(parsed.passed, 54);
     assert.deepEqual(parsed.failed, []);
   });
 });

@@ -1,9 +1,19 @@
 import { and, desc, eq, gt, sql } from "drizzle-orm";
 
-import { backgroundJobs, contacts, leads, workspaceApiKeys } from "@syrantis/db";
+import {
+  backgroundJobs,
+  contacts,
+  intakeClassifications,
+  leads,
+  workspaceApiKeys,
+} from "@syrantis/db";
 import type { InboundMessageIntakeRequest } from "@syrantis/shared";
 
 import { withWorkspaceDb, type WorkspaceDbTransaction } from "../lib/db.js";
+import {
+  classifyInboundMessage,
+  type IntakeClassifierResult,
+} from "../services/intake-classifier.service.js";
 import {
   hasText,
   publicInboundMessageSource,
@@ -30,13 +40,38 @@ export type InboundMessageIntakeRepositoryInput = {
 };
 
 export type InboundMessageIntakeRepositoryResult = {
-  result: "created" | "idempotent_replay";
-  lead: InboundMessageLeadRow;
-  job: BackgroundJobRow;
+  result: "created" | "idempotent_replay" | "ignored" | "idempotent_ignored";
+  lead: InboundMessageLeadRow | null;
+  job: BackgroundJobRow | null;
+  classification: IntakeClassifierResult & {
+    diagnosticTraceId: string;
+    classificationId: string;
+  };
 };
+
+type IntakeClassificationRow = Pick<
+  typeof intakeClassifications.$inferSelect,
+  | "id"
+  | "classification"
+  | "category"
+  | "action"
+  | "confidence"
+  | "reasonCode"
+  | "diagnosticTraceId"
+  | "suggestedLabels"
+  | "leadId"
+>;
 
 function normalizedNullable(value: string | null | undefined): string | null {
   return value ?? null;
+}
+
+function normalizeExternalId(data: InboundMessageIntakeRequest, diagnosticTraceId: string): string {
+  return (
+    normalizedNullable(data.externalId) ??
+    normalizedNullable(data.messageId) ??
+    `generated:${diagnosticTraceId}`
+  );
 }
 
 function normalizeEmail(value: string): string {
@@ -94,6 +129,114 @@ async function findRecentIdempotentLead(
     .limit(1);
 
   return lead ?? null;
+}
+
+function mapClassificationRow(
+  row: IntakeClassificationRow,
+): InboundMessageIntakeRepositoryResult["classification"] {
+  return {
+    classification: row.classification as IntakeClassifierResult["classification"],
+    category: row.category,
+    action: row.action as IntakeClassifierResult["action"],
+    confidence: row.confidence as IntakeClassifierResult["confidence"],
+    reasonCode: row.reasonCode,
+    diagnosticTraceId: row.diagnosticTraceId,
+    suggestedLabels: row.suggestedLabels,
+    classificationId: row.id,
+  };
+}
+
+function safeClassificationMetadata(classification: IntakeClassifierResult) {
+  return {
+    category: classification.category,
+    action: classification.action,
+    reasonCode: classification.reasonCode,
+    confidence: classification.confidence,
+  };
+}
+
+async function findClassificationByExternalId(
+  tx: WorkspaceDbTransaction,
+  input: { workspaceId: string; externalId: string },
+): Promise<IntakeClassificationRow | null> {
+  const [row] = await tx
+    .select({
+      id: intakeClassifications.id,
+      classification: intakeClassifications.classification,
+      category: intakeClassifications.category,
+      action: intakeClassifications.action,
+      confidence: intakeClassifications.confidence,
+      reasonCode: intakeClassifications.reasonCode,
+      diagnosticTraceId: intakeClassifications.diagnosticTraceId,
+      suggestedLabels: intakeClassifications.suggestedLabels,
+      leadId: intakeClassifications.leadId,
+    })
+    .from(intakeClassifications)
+    .where(
+      and(
+        eq(intakeClassifications.workspaceId, input.workspaceId),
+        eq(intakeClassifications.externalId, input.externalId),
+      ),
+    )
+    .limit(1);
+
+  return row ?? null;
+}
+
+async function insertClassificationIfAbsent(
+  tx: WorkspaceDbTransaction,
+  input: {
+    workspaceId: string;
+    externalId: string;
+    diagnosticTraceId: string;
+    classification: IntakeClassifierResult;
+  },
+): Promise<IntakeClassificationRow | null> {
+  const [row] = await tx
+    .insert(intakeClassifications)
+    .values({
+      workspaceId: input.workspaceId,
+      externalId: input.externalId,
+      classification: input.classification.classification,
+      category: input.classification.category,
+      action: input.classification.action,
+      confidence: input.classification.confidence,
+      reasonCode: input.classification.reasonCode,
+      diagnosticTraceId: input.diagnosticTraceId,
+      suggestedLabels: input.classification.suggestedLabels,
+      leadId: null,
+    })
+    .onConflictDoNothing({
+      target: [intakeClassifications.workspaceId, intakeClassifications.externalId],
+    })
+    .returning({
+      id: intakeClassifications.id,
+      classification: intakeClassifications.classification,
+      category: intakeClassifications.category,
+      action: intakeClassifications.action,
+      confidence: intakeClassifications.confidence,
+      reasonCode: intakeClassifications.reasonCode,
+      diagnosticTraceId: intakeClassifications.diagnosticTraceId,
+      suggestedLabels: intakeClassifications.suggestedLabels,
+      leadId: intakeClassifications.leadId,
+    });
+
+  return row ?? null;
+}
+
+async function attachLeadToClassification(
+  tx: WorkspaceDbTransaction,
+  input: { workspaceId: string; classificationId: string; leadId: string },
+): Promise<void> {
+  await tx
+    .update(intakeClassifications)
+    .set({ leadId: input.leadId })
+    .where(
+      and(
+        eq(intakeClassifications.workspaceId, input.workspaceId),
+        eq(intakeClassifications.id, input.classificationId),
+      ),
+    );
 }
 
 async function findContactByNormalizedEmail(
@@ -181,31 +324,122 @@ export async function createInboundMessageIntake(
       apiKeyId: input.apiKeyId,
     });
 
-    const externalId = normalizedNullable(input.data.externalId);
+    const externalId = normalizeExternalId(input.data, input.diagnosticTraceId);
+    const existingClassification = await findClassificationByExternalId(tx, {
+      workspaceId: input.workspaceId,
+      externalId,
+    });
 
-    if (externalId) {
-      const lead = await findRecentIdempotentLead(tx, {
-        workspaceId: input.workspaceId,
-        externalId,
-        createdAfter: new Date(Date.now() - idempotencyWindowMs),
-      });
+    if (existingClassification) {
+      const classification = mapClassificationRow(existingClassification);
 
-      if (lead) {
+      if (existingClassification.leadId) {
+        const lead =
+          (await findRecentIdempotentLead(tx, {
+            workspaceId: input.workspaceId,
+            externalId,
+            createdAfter: new Date(Date.now() - idempotencyWindowMs),
+          })) ??
+          ({
+            id: existingClassification.leadId,
+            contactId: null,
+            createdAt: new Date(),
+          } satisfies InboundMessageLeadRow);
         const job = await findLatestScoreLeadJobForLead(tx, {
           workspaceId: input.workspaceId,
-          leadId: lead.id,
+          leadId: existingClassification.leadId,
         });
-
-        if (!job) {
-          throw new Error("Failed to load idempotent score_lead job.");
-        }
 
         return {
           result: "idempotent_replay",
           lead,
           job,
+          classification,
         };
       }
+
+      return {
+        result: "idempotent_ignored",
+        lead: null,
+        job: null,
+        classification,
+      };
+    }
+
+    const classificationResult = classifyInboundMessage({
+      fromEmail: input.data.fromEmail,
+      subject: input.data.subject,
+      bodySnippet: input.data.bodySnippet ?? input.data.bodyText,
+      isBulk: input.data.isBulk,
+    });
+    const insertedClassification = await insertClassificationIfAbsent(tx, {
+      workspaceId: input.workspaceId,
+      externalId,
+      diagnosticTraceId: input.diagnosticTraceId,
+      classification: classificationResult,
+    });
+
+    if (!insertedClassification) {
+      const replayedClassification = await findClassificationByExternalId(tx, {
+        workspaceId: input.workspaceId,
+        externalId,
+      });
+
+      if (!replayedClassification) {
+        throw new Error("Failed to load idempotent intake classification.");
+      }
+
+      const classification = mapClassificationRow(replayedClassification);
+
+      if (!replayedClassification.leadId) {
+        return {
+          result: "idempotent_ignored",
+          lead: null,
+          job: null,
+          classification,
+        };
+      }
+
+      const job = await findLatestScoreLeadJobForLead(tx, {
+        workspaceId: input.workspaceId,
+        leadId: replayedClassification.leadId,
+      });
+
+      return {
+        result: "idempotent_replay",
+        lead: {
+          id: replayedClassification.leadId,
+          contactId: null,
+          createdAt: new Date(),
+        },
+        job,
+        classification,
+      };
+    }
+
+    const classification = mapClassificationRow(insertedClassification);
+
+    if (classificationResult.classification === "ignored") {
+      await createActivityLog(tx, {
+        workspaceId: input.workspaceId,
+        actorUserId: null,
+        action: "public_inbound_message.ignored",
+        entityType: "lead",
+        entityId: null,
+        metadataJson: {
+          source: publicInboundMessageSource,
+          diagnosticTraceId: input.diagnosticTraceId,
+          classificationId: insertedClassification.id,
+          ...safeClassificationMetadata(classificationResult),
+        },
+      });
+
+      return {
+        result: "ignored",
+        lead: null,
+        job: null,
+        classification,
+      };
     }
 
     const hasBody = hasText(input.data.bodyText);
@@ -233,6 +467,7 @@ export async function createInboundMessageIntake(
           ...(externalId ? { externalId } : {}),
           ...(input.data.receivedAt ? { receivedAt: input.data.receivedAt } : {}),
           diagnosticTraceId: input.diagnosticTraceId,
+          intakeClassification: safeClassificationMetadata(classificationResult),
           hasBody,
           subjectPresent,
           contactNamePresent,
@@ -258,6 +493,12 @@ export async function createInboundMessageIntake(
       source: publicInboundMessageSource,
     });
 
+    await attachLeadToClassification(tx, {
+      workspaceId: input.workspaceId,
+      classificationId: insertedClassification.id,
+      leadId: lead.id,
+    });
+
     await createActivityLog(tx, {
       workspaceId: input.workspaceId,
       actorUserId: null,
@@ -271,6 +512,7 @@ export async function createInboundMessageIntake(
         diagnosticTraceId: input.diagnosticTraceId,
         leadId: lead.id,
         scoringJobId: job.id,
+        ...safeClassificationMetadata(classificationResult),
         hasBody,
         subjectLength: safeStringLength(input.data.subject),
         bodyLength: safeStringLength(input.data.bodyText),
@@ -281,6 +523,7 @@ export async function createInboundMessageIntake(
       result: "created",
       lead,
       job,
+      classification,
     };
   });
 }

@@ -69,3 +69,12 @@ The 90-day wedge is plumbers and heating contractors with Lead Response and Devi
 
 All other feature ideas belong in `docs/future/` until approved.
 
+## 023Z Intake Classification State
+
+Public API-key Gmail intake now has a conservative deterministic classification gate before lead
+creation. The gate stores only safe classification metadata in `intake_classifications` with
+workspace RLS and FORCE RLS. Obvious machine noise can be ignored without creating leads or
+`score_lead` jobs; human-looking and ambiguous mail still enters the normal review lead path.
+
+The intake route remains backend-only and does not call Gmail, Google, Resend, OpenRouter, or
+external providers. Gmail labeling remains in the client-owned Apps Script bridge.
