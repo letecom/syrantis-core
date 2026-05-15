@@ -2,8 +2,10 @@ import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import {
+  cancelDraftGmailExportRequest,
   getDraftQueue,
   getDraftQueueDetail,
+  requestDraftGmailExport,
   type DraftQueueDetail,
   type DraftQueueItem,
 } from "../lib/api-client";
@@ -106,13 +108,7 @@ function FilterChip({
   );
 }
 
-function DetailTile({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
+function DetailTile({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="rounded-md border border-line bg-field p-3">
       <p className="text-xs font-semibold uppercase text-slate-500">{label}</p>
@@ -121,11 +117,58 @@ function DetailTile({
   );
 }
 
+function DraftQueueActions({
+  actions,
+  disabled,
+  onCancel,
+  onRequest,
+}: {
+  actions: DraftQueueItem["actions"];
+  disabled: boolean;
+  onCancel: () => void;
+  onRequest: () => void;
+}) {
+  if (!actions.canRequestGmailExport && !actions.canCancelGmailExportRequest) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {actions.canRequestGmailExport ? (
+        <button
+          className="min-h-11 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={disabled}
+          onClick={onRequest}
+          type="button"
+        >
+          Request Gmail export
+        </button>
+      ) : null}
+      {actions.canCancelGmailExportRequest ? (
+        <button
+          className="min-h-11 rounded-md border border-line bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-field disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={disabled}
+          onClick={onCancel}
+          type="button"
+        >
+          Cancel request
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function DraftCard({
+  actionInFlight,
   item,
+  onCancelRequest,
+  onRequestExport,
   onView,
 }: {
+  actionInFlight: boolean;
   item: DraftQueueItem;
+  onCancelRequest: (draftId: string) => void;
+  onRequestExport: (draftId: string) => void;
   onView: (draftId: string) => void;
 }) {
   return (
@@ -150,9 +193,9 @@ function DraftCard({
           {[item.score.urgency, item.score.intent].filter(Boolean).join(" / ") || "None"}
         </DetailTile>
         <DetailTile label="Company context">
-          {[item.contextSummary.companyName, item.contextSummary.sector].filter(Boolean).join(
-            " / ",
-          ) || "None"}
+          {[item.contextSummary.companyName, item.contextSummary.sector]
+            .filter(Boolean)
+            .join(" / ") || "None"}
         </DetailTile>
         <DetailTile label="Contact known">
           {formatValue(item.contextSummary.contactKnown)}
@@ -176,25 +219,39 @@ function DraftCard({
         </DetailTile>
       </dl>
 
-      <button
-        className="mt-4 min-h-11 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800"
-        onClick={() => onView(item.draftId)}
-        type="button"
-      >
-        View details
-      </button>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          className="min-h-11 rounded-md border border-line bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-field"
+          onClick={() => onView(item.draftId)}
+          type="button"
+        >
+          View details
+        </button>
+        <DraftQueueActions
+          actions={item.actions}
+          disabled={actionInFlight}
+          onCancel={() => onCancelRequest(item.draftId)}
+          onRequest={() => onRequestExport(item.draftId)}
+        />
+      </div>
     </article>
   );
 }
 
 function DraftDetailDrawer({
+  actionInFlight,
   detail,
   isLoading,
+  onCancelRequest,
   onClose,
+  onRequestExport,
 }: {
+  actionInFlight: boolean;
   detail: DraftQueueDetail | undefined;
   isLoading: boolean;
+  onCancelRequest: (draftId: string) => void;
   onClose: () => void;
+  onRequestExport: (draftId: string) => void;
 }) {
   return (
     <div className="fixed inset-0 z-20 bg-slate-900/30" role="presentation">
@@ -220,6 +277,13 @@ function DraftDetailDrawer({
 
         {detail ? (
           <div className="mt-5 grid gap-5">
+            <DraftQueueActions
+              actions={detail.actions}
+              disabled={actionInFlight}
+              onCancel={() => onCancelRequest(detail.draftId)}
+              onRequest={() => onRequestExport(detail.draftId)}
+            />
+
             <section className="rounded-lg border border-line bg-field p-4">
               <p className="text-xs font-semibold uppercase text-slate-500">Subject</p>
               <h3 className="mt-2 break-words text-xl font-semibold text-ink">
@@ -272,6 +336,11 @@ export function DraftQueuePage() {
   const [exportStatus, setExportStatus] = useState<string | undefined>();
   const [attentionRequired, setAttentionRequired] = useState(false);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
+  const [actionInFlight, setActionInFlight] = useState(false);
+  const [actionMessage, setActionMessage] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
 
   const queueQuery = useQuery({
     queryKey: ["draft-queue", scoreBand, exportStatus, attentionRequired],
@@ -308,14 +377,86 @@ export function DraftQueuePage() {
 
   const summary = queueQuery.data?.summary;
 
+  async function refreshQueueAndDetail() {
+    await queueQuery.refetch();
+
+    if (selectedDraftId) {
+      await detailQuery.refetch();
+    }
+  }
+
+  async function handleRequestExport(draftId: string) {
+    if (!window.confirm("Request Gmail export for this draft?")) {
+      return;
+    }
+
+    setActionInFlight(true);
+    setActionMessage(null);
+
+    try {
+      await requestDraftGmailExport(draftId);
+      await refreshQueueAndDetail();
+      setActionMessage({
+        kind: "success",
+        text: "Gmail export requested. Refresh complete.",
+      });
+    } catch {
+      setActionMessage({
+        kind: "error",
+        text: "Could not request Gmail export.",
+      });
+    } finally {
+      setActionInFlight(false);
+    }
+  }
+
+  async function handleCancelRequest(draftId: string) {
+    if (!window.confirm("Cancel this Gmail export request?")) {
+      return;
+    }
+
+    setActionInFlight(true);
+    setActionMessage(null);
+
+    try {
+      await cancelDraftGmailExportRequest(draftId);
+      await refreshQueueAndDetail();
+      setActionMessage({
+        kind: "success",
+        text: "Gmail export request cancelled. Refresh complete.",
+      });
+    } catch {
+      setActionMessage({
+        kind: "error",
+        text: "Could not cancel Gmail export request.",
+      });
+    } finally {
+      setActionInFlight(false);
+    }
+  }
+
   return (
     <section className="max-w-6xl">
       <p className="text-sm font-semibold uppercase text-accent">Client control surface</p>
-      <h1 className="mt-2 text-3xl font-semibold text-ink">Draft Review Queue</h1>
+      <h1 className="mt-2 text-3xl font-semibold text-ink">Draft Queue</h1>
       <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-900">
-        This is a review queue for AI-generated drafts. It is not an inbox. Sending happens outside
-        this screen.
+        Request export creates a Gmail draft through the existing bridge. Sending still happens in
+        Gmail.
       </div>
+
+      {actionMessage ? (
+        <div
+          className={[
+            "mt-5 rounded-lg border p-4 text-sm font-medium",
+            actionMessage.kind === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-red-200 bg-red-50 text-red-800",
+          ].join(" ")}
+          role="status"
+        >
+          {actionMessage.text}
+        </div>
+      ) : null}
 
       <div className="mt-5 grid gap-3 md:grid-cols-5">
         <SummaryCard label="Pending review" value={summary?.pendingReview ?? 0} />
@@ -400,15 +541,25 @@ export function DraftQueuePage() {
           </div>
         ) : null}
         {queueQuery.data?.items.map((item) => (
-          <DraftCard item={item} key={item.draftId} onView={setSelectedDraftId} />
+          <DraftCard
+            actionInFlight={actionInFlight}
+            item={item}
+            key={item.draftId}
+            onCancelRequest={handleCancelRequest}
+            onRequestExport={handleRequestExport}
+            onView={setSelectedDraftId}
+          />
         ))}
       </div>
 
       {selectedDraftId ? (
         <DraftDetailDrawer
+          actionInFlight={actionInFlight}
           detail={detailQuery.data}
           isLoading={detailQuery.isLoading}
+          onCancelRequest={handleCancelRequest}
           onClose={() => setSelectedDraftId(null)}
+          onRequestExport={handleRequestExport}
         />
       ) : null}
     </section>

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createWorkspaceApiKey,
-  cancelDraftGmailExport,
+  cancelDraftGmailExportRequest,
   getGoogleSheetsSetupStatus,
   getCurrentUser,
   getDraftQueue,
@@ -377,6 +377,11 @@ const draftQueueResponse = {
           blockingReasons: [],
           exportedAt: null,
         },
+        actions: {
+          canRequestGmailExport: false,
+          canCancelGmailExportRequest: true,
+          canViewGmailExportStatus: true,
+        },
         reviewStatus: "pending_review",
         attentionFlags: ["high_score"],
         workspaceId: "forbidden-workspace",
@@ -394,6 +399,11 @@ const draftQueueResponse = {
     },
     limit: 20,
     offset: 0,
+    pagination: {
+      limit: 20,
+      offset: 0,
+      total: 1,
+    },
     generatedAt: "2026-05-15T12:00:00.000Z",
   },
 };
@@ -552,7 +562,9 @@ describe("api client", () => {
     const request = vi.fn(() => mockResponse(draftQueueDetailResponse));
     vi.stubGlobal("fetch", request);
 
-    await expect(getDraftQueueDetail("abababab-abab-4aba-8aba-abababababab")).resolves.toMatchObject({
+    await expect(
+      getDraftQueueDetail("abababab-abab-4aba-8aba-abababababab"),
+    ).resolves.toMatchObject({
       draftId: "abababab-abab-4aba-8aba-abababababab",
       proposedDraft: {
         bodyText: "Full generated draft body for review.",
@@ -562,7 +574,9 @@ describe("api client", () => {
       "/api/client/draft-queue/abababab-abab-4aba-8aba-abababababab",
       expect.objectContaining({ credentials: "include" }),
     );
-    const serialized = JSON.stringify(await getDraftQueueDetail("abababab-abab-4aba-8aba-abababababab"));
+    const serialized = JSON.stringify(
+      await getDraftQueueDetail("abababab-abab-4aba-8aba-abababababab"),
+    );
     expect(serialized).not.toContain("forbidden-detail-workspace");
     expect(serialized).not.toContain("forbidden-prompt");
     expect(serialized).not.toContain("forbidden-output");
@@ -599,7 +613,9 @@ describe("api client", () => {
     );
     vi.stubGlobal("fetch", request);
 
-    await expect(cancelDraftGmailExport("44444444-4444-4444-8444-444444444444")).resolves.toEqual({
+    await expect(
+      cancelDraftGmailExportRequest("44444444-4444-4444-8444-444444444444"),
+    ).resolves.toEqual({
       draftId: "44444444-4444-4444-8444-444444444444",
       leadId: "55555555-5555-4555-8555-555555555555",
       requestStatus: "cancelled",

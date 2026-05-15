@@ -35,6 +35,11 @@ export type DraftQueueListResult = {
   };
   limit: number;
   offset: number;
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+  };
   generatedAt: string;
 };
 
@@ -133,7 +138,9 @@ function scoreBand(row: DraftQueueScoreRow | undefined): DraftQueueScoreBand {
   return scoreBandFromScore(row.score);
 }
 
-function intentFromClassification(row: DraftQueueIntakeClassificationRow | undefined): string | null {
+function intentFromClassification(
+  row: DraftQueueIntakeClassificationRow | undefined,
+): string | null {
   if (!row) {
     return null;
   }
@@ -176,6 +183,19 @@ function significantBlockingReasons(reasons: string[]): string[] {
   return reasons.filter((reason) => reason !== "export_not_requested");
 }
 
+function requestRelatedBlockingReasons(reasons: string[]): string[] {
+  return reasons.filter(
+    (reason) =>
+      reason === "export_not_requested" ||
+      reason === "export_request_expired" ||
+      reason === "export_cancelled",
+  );
+}
+
+function hasOnlyRequestRelatedBlockingReasons(reasons: string[]): boolean {
+  return reasons.length === requestRelatedBlockingReasons(reasons).length;
+}
+
 function deriveGmailExport(row: DraftQueueDraftRow, now: Date) {
   const metadata = metadataRecord(row.metadataJson);
   const gmailExport = gmailExportMetadata(metadata);
@@ -188,8 +208,10 @@ function deriveGmailExport(row: DraftQueueDraftRow, now: Date) {
   const hasBodyText = hasText(row.textBody);
   const hasRecipient = hasText(row.recipientAddress);
   const recipientValid = isEmailValidEnough(row.recipientAddress);
-  const activeLease = typeof gmailExport.leaseToken === "string" && Boolean(leaseExpiresAt && leaseExpiresAt > now);
-  const staleLease = typeof gmailExport.leaseToken === "string" && Boolean(leaseExpiresAt && leaseExpiresAt <= now);
+  const activeLease =
+    typeof gmailExport.leaseToken === "string" && Boolean(leaseExpiresAt && leaseExpiresAt > now);
+  const staleLease =
+    typeof gmailExport.leaseToken === "string" && Boolean(leaseExpiresAt && leaseExpiresAt <= now);
   const exported = gmailExport.status === "exported" || Boolean(exportedAt);
   const cancelled = gmailExport.status === "cancelled" || Boolean(cancelledAt);
   const activeRequest =
@@ -264,6 +286,28 @@ function deriveGmailExport(row: DraftQueueDraftRow, now: Date) {
   };
 }
 
+function draftActions(input: {
+  row: DraftQueueDraftRow;
+  gmailExport: ReturnType<typeof deriveGmailExport>;
+}) {
+  const structurallyReady =
+    input.row.status === "draft" && hasText(input.row.subject) && hasText(input.row.textBody);
+  const requestableStatus =
+    input.gmailExport.exportStatus === "not_exported" ||
+    (input.gmailExport.exportStatus === "blocked" &&
+      hasOnlyRequestRelatedBlockingReasons(input.gmailExport.blockingReasons));
+
+  return {
+    canRequestGmailExport:
+      structurallyReady &&
+      requestableStatus &&
+      !input.gmailExport.blockingReasons.includes("already_exported") &&
+      !input.gmailExport.blockingReasons.includes("export_in_progress"),
+    canCancelGmailExportRequest: input.gmailExport.exportStatus === "requested",
+    canViewGmailExportStatus: Boolean(input.row.draftId),
+  };
+}
+
 function reviewStatus(gmailExportStatus: DraftQueueGmailExportStatus): DraftQueueReviewStatus {
   if (gmailExportStatus === "exported") {
     return "exported";
@@ -324,7 +368,10 @@ function attentionFlags(input: {
 }): string[] {
   const flags = new Set<string>();
 
-  if (input.score.scoreBand === "hot" || (input.score.score !== null && input.score.score >= HIGH_SCORE_MINIMUM)) {
+  if (
+    input.score.scoreBand === "hot" ||
+    (input.score.score !== null && input.score.score >= HIGH_SCORE_MINIMUM)
+  ) {
     flags.add("high_score");
   }
 
@@ -336,7 +383,10 @@ function attentionFlags(input: {
     flags.add("export_blocked");
   }
 
-  if (input.now.getTime() - input.row.createdAt.getTime() > STALE_DRAFT_DAYS * 24 * 60 * 60 * 1000) {
+  if (
+    input.now.getTime() - input.row.createdAt.getTime() >
+    STALE_DRAFT_DAYS * 24 * 60 * 60 * 1000
+  ) {
     flags.add("stale_draft");
   }
 
@@ -351,15 +401,17 @@ function draftTone(row: DraftQueueDraftRow): string | null {
   return safeMetadataString(metadataRecord(row.metadataJson), "tone");
 }
 
-function draftLanguage(row: DraftQueueDraftRow, context: DraftQueueWorkspaceContextRow): string | null {
-  return safeMetadataString(metadataRecord(row.metadataJson), "language") ?? trimToNull(context?.language);
+function draftLanguage(
+  row: DraftQueueDraftRow,
+  context: DraftQueueWorkspaceContextRow,
+): string | null {
+  return (
+    safeMetadataString(metadataRecord(row.metadataJson), "language") ??
+    trimToNull(context?.language)
+  );
 }
 
-function baseDto(input: {
-  row: DraftQueueDraftRow;
-  rows: DraftQueueRows;
-  now: Date;
-}) {
+function baseDto(input: { row: DraftQueueDraftRow; rows: DraftQueueRows; now: Date }) {
   const leadId = input.row.leadId;
 
   if (!leadId) {
@@ -377,6 +429,7 @@ function baseDto(input: {
     scoreConfidence: score.confidence,
   });
   const gmailExport = deriveGmailExport(input.row, input.now);
+  const actions = draftActions({ row: input.row, gmailExport });
   const resolvedReviewStatus = reviewStatus(gmailExport.exportStatus);
   const flags = attentionFlags({
     row: input.row,
@@ -395,6 +448,7 @@ function baseDto(input: {
     score,
     contextSummary: context,
     gmailExport,
+    actions,
     reviewStatus: resolvedReviewStatus,
     attentionFlags: flags,
     tone,
@@ -402,7 +456,11 @@ function baseDto(input: {
   };
 }
 
-function mapItem(input: { row: DraftQueueDraftRow; rows: DraftQueueRows; now: Date }): DraftQueueItem | null {
+function mapItem(input: {
+  row: DraftQueueDraftRow;
+  rows: DraftQueueRows;
+  now: Date;
+}): DraftQueueItem | null {
   const base = baseDto(input);
 
   if (!base) {
@@ -422,7 +480,11 @@ function mapItem(input: { row: DraftQueueDraftRow; rows: DraftQueueRows; now: Da
   });
 }
 
-function mapDetail(input: { row: DraftQueueDraftRow; rows: DraftQueueRows; now: Date }): DraftQueueDetail | null {
+function mapDetail(input: {
+  row: DraftQueueDraftRow;
+  rows: DraftQueueRows;
+  now: Date;
+}): DraftQueueDetail | null {
   const base = baseDto(input);
 
   if (!base) {
@@ -459,7 +521,8 @@ function scoreBandRank(value: DraftQueueScoreBand): number {
 
 function sortedItems(items: DraftQueueItem[]): DraftQueueItem[] {
   return [...items].sort((left, right) => {
-    const attention = Number(right.attentionFlags.length > 0) - Number(left.attentionFlags.length > 0);
+    const attention =
+      Number(right.attentionFlags.length > 0) - Number(left.attentionFlags.length > 0);
 
     if (attention !== 0) {
       return attention;
@@ -471,7 +534,9 @@ function sortedItems(items: DraftQueueItem[]): DraftQueueItem[] {
       return hot;
     }
 
-    const urgent = Number(right.attentionFlags.includes("urgent_action")) - Number(left.attentionFlags.includes("urgent_action"));
+    const urgent =
+      Number(right.attentionFlags.includes("urgent_action")) -
+      Number(left.attentionFlags.includes("urgent_action"));
 
     if (urgent !== 0) {
       return urgent;
@@ -553,6 +618,11 @@ export function createDraftQueueService(
         summary: summarize(allItems),
         limit: query.limit,
         offset: query.offset,
+        pagination: {
+          limit: query.limit,
+          offset: query.offset,
+          total: filtered.length,
+        },
         generatedAt: now.toISOString(),
       };
     },
@@ -560,7 +630,9 @@ export function createDraftQueueService(
     async getDraftQueueDetail(workspaceId, draftId) {
       const now = nowProvider();
       const rows = await repository.findDetailRows({ workspaceId, draftId });
-      const row = rows.drafts.find((draft) => draft.draftId === draftId && isAiGeneratedDraft(draft));
+      const row = rows.drafts.find(
+        (draft) => draft.draftId === draftId && isAiGeneratedDraft(draft),
+      );
 
       if (!row) {
         return { result: "not_found" };

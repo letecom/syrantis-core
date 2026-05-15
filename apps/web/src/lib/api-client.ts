@@ -435,6 +435,12 @@ export async function cancelDraftGmailExport(id: string): Promise<GmailExportCan
   return gmailExportCancelResponseSchema.parse(payload).data;
 }
 
+export async function cancelDraftGmailExportRequest(
+  id: string,
+): Promise<GmailExportCancelResponse> {
+  return cancelDraftGmailExport(id);
+}
+
 export async function replayEmailSendPushback(
   id: string,
 ): Promise<EmailSendPushbackReplayResponse> {
@@ -497,13 +503,15 @@ export async function getClientCockpitSummary(): Promise<ClientCockpitSummary> {
   return ClientCockpitSummaryResponseSchema.parse(payload).data;
 }
 
-export async function getDraftQueue(params: {
-  limit?: number;
-  offset?: number;
-  scoreBand?: string;
-  exportStatus?: string;
-  attentionRequired?: boolean;
-} = {}): Promise<DraftQueueData> {
+export async function getDraftQueue(
+  params: {
+    limit?: number;
+    offset?: number;
+    scoreBand?: string;
+    exportStatus?: string;
+    attentionRequired?: boolean;
+  } = {},
+): Promise<DraftQueueData> {
   const search = new URLSearchParams();
 
   if (params.limit !== undefined) {

@@ -41,6 +41,12 @@ const DraftQueueGmailExportSchema = z.object({
   exportedAt: z.string().datetime().nullable(),
 });
 
+const DraftQueueActionsSchema = z.object({
+  canRequestGmailExport: z.boolean(),
+  canCancelGmailExportRequest: z.boolean(),
+  canViewGmailExportStatus: z.boolean(),
+});
+
 export const DraftQueueItemSchema = z.object({
   draftId: z.string().uuid(),
   leadId: z.string().uuid(),
@@ -56,6 +62,7 @@ export const DraftQueueItemSchema = z.object({
     language: z.string().nullable(),
   }),
   gmailExport: DraftQueueGmailExportSchema,
+  actions: DraftQueueActionsSchema,
   reviewStatus: DraftQueueReviewStatusSchema,
   attentionFlags: z.array(z.string()),
 });
@@ -67,6 +74,7 @@ export const DraftQueueDetailSchema = z.object({
   score: DraftQueueScoreSchema,
   contextSummary: DraftQueueContextSummarySchema,
   gmailExport: DraftQueueGmailExportSchema,
+  actions: DraftQueueActionsSchema,
   reviewStatus: DraftQueueReviewStatusSchema,
   attentionFlags: z.array(z.string()),
   proposedDraft: z.object({
@@ -91,6 +99,11 @@ export const DraftQueueResponseSchema = z.object({
   data: z.object({
     items: z.array(DraftQueueItemSchema),
     summary: DraftQueueSummarySchema,
+    pagination: z.object({
+      limit: z.number().int().min(1).max(50),
+      offset: z.number().int().min(0),
+      total: z.number().int().min(0),
+    }),
     limit: z.number().int().min(1).max(50),
     offset: z.number().int().min(0),
     generatedAt: z.string().datetime(),
