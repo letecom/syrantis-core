@@ -351,6 +351,11 @@ const draftQueue = {
           blockingReasons: [],
           exportedAt: null,
         },
+        actions: {
+          canRequestGmailExport: false,
+          canCancelGmailExportRequest: true,
+          canViewGmailExportStatus: true,
+        },
         reviewStatus: "pending_review",
         attentionFlags: ["high_score", "urgent_action"],
         workspaceId: "forbidden-draft-queue-workspace",
@@ -372,6 +377,11 @@ const draftQueue = {
     },
     limit: 20,
     offset: 0,
+    pagination: {
+      limit: 20,
+      offset: 0,
+      total: 1,
+    },
     generatedAt: "2026-05-15T12:00:00.000Z",
   },
 };
@@ -393,6 +403,61 @@ const draftQueueEmpty = {
 
 const draftQueueFirstItem = draftQueue.data.items[0]!;
 
+type DraftQueueActionFixture = Omit<typeof draftQueue, "data"> & {
+  data: Omit<(typeof draftQueue)["data"], "items"> & {
+    items: Array<
+      Omit<(typeof draftQueue)["data"]["items"][number], "actions" | "gmailExport"> & {
+        gmailExport: {
+          exportStatus: string;
+          canExport: boolean;
+          blockingReasons: string[];
+          exportedAt: string | null;
+        };
+        actions: {
+          canRequestGmailExport: boolean;
+          canCancelGmailExportRequest: boolean;
+          canViewGmailExportStatus: boolean;
+        };
+      }
+    >;
+  };
+};
+
+function draftQueueWithAction(action: "request" | "cancel" = "request") {
+  const cloned = JSON.parse(JSON.stringify(draftQueue)) as DraftQueueActionFixture;
+  const item = cloned.data.items[0]!;
+
+  if (action === "request") {
+    item.gmailExport = {
+      exportStatus: "not_exported",
+      canExport: false,
+      blockingReasons: ["export_not_requested"],
+      exportedAt: null,
+    };
+    item.actions = {
+      canRequestGmailExport: true,
+      canCancelGmailExportRequest: false,
+      canViewGmailExportStatus: true,
+    };
+    cloned.data.summary.readyForGmailExport = 0;
+    return cloned;
+  }
+
+  item.gmailExport = {
+    exportStatus: "requested",
+    canExport: true,
+    blockingReasons: [],
+    exportedAt: null,
+  };
+  item.actions = {
+    canRequestGmailExport: false,
+    canCancelGmailExportRequest: true,
+    canViewGmailExportStatus: true,
+  };
+  cloned.data.summary.readyForGmailExport = 1;
+  return cloned;
+}
+
 const draftQueueDetail = {
   success: true,
   data: {
@@ -402,6 +467,7 @@ const draftQueueDetail = {
     score: draftQueueFirstItem.score,
     contextSummary: draftQueueFirstItem.contextSummary,
     gmailExport: draftQueueFirstItem.gmailExport,
+    actions: draftQueueFirstItem.actions,
     reviewStatus: "pending_review",
     attentionFlags: ["high_score", "urgent_action"],
     proposedDraft: {
@@ -851,8 +917,10 @@ describe("admin app", () => {
 
     renderApp("/app/draft-queue");
 
-    expect(await screen.findByRole("heading", { name: "Draft Review Queue" })).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "Intervention plomberie" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Draft Queue" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Intervention plomberie" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Pending review")).toBeInTheDocument();
     expect(screen.getByText("Ready for Gmail export")).toBeInTheDocument();
     expect(screen.getAllByText("Attention required").length).toBeGreaterThan(0);
@@ -878,7 +946,9 @@ describe("admin app", () => {
 
     renderApp("/app/draft-queue");
 
-    expect(await screen.findByText("No generated drafts are waiting in this queue.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("No generated drafts are waiting in this queue."),
+    ).toBeInTheDocument();
   });
 
   it("updates draft queue filters and refreshes", async () => {
@@ -928,6 +998,157 @@ describe("admin app", () => {
     expect(within(drawer).getByText("Blocking reasons")).toBeInTheDocument();
     expect(screen.queryByText("forbidden-detail-workspace")).not.toBeInTheDocument();
     expect(screen.queryByText("forbidden-detail-prompt")).not.toBeInTheDocument();
+  });
+
+  it("requests Gmail export from the draft queue and refreshes the list", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    let listCalls = 0;
+    let resolvePost: (() => void) | undefined;
+    const postDone = new Promise<void>((resolve) => {
+      resolvePost = resolve;
+    });
+    const request = vi.fn((url: string, init?: RequestInit) => {
+      if (url === draftQueueUrl) {
+        listCalls += 1;
+        return mockJson(listCalls === 1 ? draftQueueWithAction("request") : draftQueue);
+      }
+
+      if (
+        url === `/api/drafts/${draftQueueDraftId}/gmail-export-request` &&
+        init?.method === "POST"
+      ) {
+        return postDone.then(() => mockJson(gmailExportRequestResponse));
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/draft-queue");
+    const requestButton = await screen.findByRole("button", { name: "Request Gmail export" });
+    await user.click(requestButton);
+
+    expect(confirm).toHaveBeenCalledWith("Request Gmail export for this draft?");
+    expect(requestButton).toBeDisabled();
+    resolvePost?.();
+    expect(
+      await screen.findByText("Gmail export requested. Refresh complete."),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(listCalls).toBe(2));
+    expect(
+      gmailExportPostCalls(request, `/api/drafts/${draftQueueDraftId}/gmail-export-request`),
+    ).toHaveLength(1);
+    expect((await screen.findAllByText("requested")).length).toBeGreaterThan(0);
+  });
+
+  it("cancels a Gmail export request from the draft queue", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const request = vi.fn((url: string, init?: RequestInit) => {
+      if (url === draftQueueUrl) {
+        return mockJson(draftQueueWithAction("cancel"));
+      }
+
+      if (
+        url === `/api/drafts/${draftQueueDraftId}/gmail-export-cancel` &&
+        init?.method === "POST"
+      ) {
+        return mockJson(gmailExportCancelResponse);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/draft-queue");
+    await user.click(await screen.findByRole("button", { name: "Cancel request" }));
+
+    expect(confirm).toHaveBeenCalledWith("Cancel this Gmail export request?");
+    expect(
+      await screen.findByText("Gmail export request cancelled. Refresh complete."),
+    ).toBeInTheDocument();
+    expect(
+      gmailExportPostCalls(request, `/api/drafts/${draftQueueDraftId}/gmail-export-cancel`),
+    ).toHaveLength(1);
+  });
+
+  it("shows draft queue action errors and keeps forbidden actions hidden", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const request = vi.fn((url: string, init?: RequestInit) => {
+      if (url === draftQueueUrl) {
+        return mockJson(draftQueueWithAction("request"));
+      }
+
+      if (
+        url === `/api/drafts/${draftQueueDraftId}/gmail-export-request` &&
+        init?.method === "POST"
+      ) {
+        return mockJson({ success: false }, 409);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/draft-queue");
+    await user.click(await screen.findByRole("button", { name: "Request Gmail export" }));
+
+    expect(await screen.findByText("Could not request Gmail export.")).toBeInTheDocument();
+    for (const name of ["Send", "Approve", "Reject", "Edit", "Mark reviewed", "Dismiss"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByText(/bulk/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw json/i)).not.toBeInTheDocument();
+  });
+
+  it("shows draft queue action buttons in the detail drawer with the same rules", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let detailCalls = 0;
+    const requestableQueue = draftQueueWithAction("request");
+    const requestableDetail = {
+      ...draftQueueDetail,
+      data: {
+        ...draftQueueDetail.data,
+        gmailExport: requestableQueue.data.items[0]!.gmailExport,
+        actions: requestableQueue.data.items[0]!.actions,
+      },
+    };
+    const request = vi.fn((url: string, init?: RequestInit) => {
+      if (url === draftQueueUrl) {
+        return mockJson(requestableQueue);
+      }
+
+      if (url === draftQueueDetailUrl) {
+        detailCalls += 1;
+        return mockJson(detailCalls === 1 ? requestableDetail : draftQueueDetail);
+      }
+
+      if (
+        url === `/api/drafts/${draftQueueDraftId}/gmail-export-request` &&
+        init?.method === "POST"
+      ) {
+        return mockJson(gmailExportRequestResponse);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/draft-queue");
+    await user.click(await screen.findByRole("button", { name: "View details" }));
+    const drawer = await screen.findByLabelText("Draft detail");
+    await user.click(within(drawer).getByRole("button", { name: "Request Gmail export" }));
+
+    await waitFor(() => expect(detailCalls).toBe(2));
+    expect(
+      gmailExportPostCalls(request, `/api/drafts/${draftQueueDraftId}/gmail-export-request`),
+    ).toHaveLength(1);
+    expect(within(drawer).queryByRole("button", { name: "Send" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw json/i)).not.toBeInTheDocument();
   });
 
   it("keeps the draft queue out of mutation and inbox patterns", async () => {

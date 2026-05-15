@@ -84,6 +84,11 @@ function queueItem(overrides: Partial<DraftQueueItem> = {}): DraftQueueItem {
       blockingReasons: [],
       exportedAt: null,
     },
+    actions: {
+      canRequestGmailExport: false,
+      canCancelGmailExportRequest: true,
+      canViewGmailExportStatus: true,
+    },
     reviewStatus: "pending_review",
     attentionFlags: ["high_score", "urgent_action", "duplicate_risk"],
     ...overrides,
@@ -123,6 +128,11 @@ function queueService(overrides: Partial<DraftQueueService> = {}): DraftQueueSer
         },
         limit: query.limit,
         offset: query.offset,
+        pagination: {
+          limit: query.limit,
+          offset: query.offset,
+          total: items.length,
+        },
         generatedAt: now.toISOString(),
       };
     }),
@@ -163,6 +173,7 @@ function assertNoForbiddenKeys(value: unknown, options: { allowDetailBody?: bool
     "output",
     "providerMessageId",
     "provider_message_id",
+    "providerPayload",
     "leaseToken",
     "apiKey",
     "plaintextApiKey",
@@ -299,19 +310,26 @@ describe("client draft queue routes", () => {
 
   it("returns a safe empty list DTO", async () => {
     const service = queueService({
-      listDraftQueue: vi.fn(async (_workspaceId, query): Promise<DraftQueueListResult> => ({
-        items: [],
-        summary: {
-          pendingReview: 0,
-          readyForGmailExport: 0,
-          exported: 0,
-          blocked: 0,
-          attentionRequired: 0,
-        },
-        limit: query.limit,
-        offset: query.offset,
-        generatedAt: now.toISOString(),
-      })),
+      listDraftQueue: vi.fn(
+        async (_workspaceId, query): Promise<DraftQueueListResult> => ({
+          items: [],
+          summary: {
+            pendingReview: 0,
+            readyForGmailExport: 0,
+            exported: 0,
+            blocked: 0,
+            attentionRequired: 0,
+          },
+          limit: query.limit,
+          offset: query.offset,
+          pagination: {
+            limit: query.limit,
+            offset: query.offset,
+            total: 0,
+          },
+          generatedAt: now.toISOString(),
+        }),
+      ),
     });
     const response = await createDraftQueueApp(service).request("/api/client/draft-queue", {
       headers: validSessionHeaders(),
@@ -321,6 +339,7 @@ describe("client draft queue routes", () => {
     expect(response.status).toBe(200);
     expect(DraftQueueResponseSchema.parse(body)).toEqual(body);
     expect(body.data.items).toEqual([]);
+    expect(body.data.pagination).toEqual({ limit: 20, offset: 0, total: 0 });
     expect(body.data.summary.pendingReview).toBe(0);
     expect(service.listDraftQueue).toHaveBeenCalledWith(workspaceId, {
       limit: 20,
@@ -344,6 +363,17 @@ describe("client draft queue routes", () => {
     expect(detailResponse.status).toBe(200);
     expect(DraftQueueResponseSchema.parse(listBody)).toEqual(listBody);
     expect(DraftQueueDetailResponseSchema.parse(detailBody)).toEqual(detailBody);
+    expect(listBody.data.items[0].actions).toEqual({
+      canRequestGmailExport: false,
+      canCancelGmailExportRequest: true,
+      canViewGmailExportStatus: true,
+    });
+    expect(detailBody.data.actions).toEqual({
+      canRequestGmailExport: false,
+      canCancelGmailExportRequest: true,
+      canViewGmailExportStatus: true,
+    });
+    expect(listBody.data.pagination).toEqual({ limit: 20, offset: 0, total: 1 });
     expect(JSON.stringify(listBody)).not.toContain(fullBody);
     expect(detailBody.data.proposedDraft.bodyText).toBe(fullBody);
     assertNoForbiddenKeys(listBody);
@@ -370,7 +400,9 @@ describe("client draft queue routes", () => {
   it("rejects client-provided workspace selectors", async () => {
     const response = await createDraftQueueApp().request(
       "/api/client/draft-queue?workspaceId=00000000-0000-4000-8000-000000023fff",
-      { headers: validSessionHeaders({ "x-workspace-id": "00000000-0000-4000-8000-000000023ffe" }) },
+      {
+        headers: validSessionHeaders({ "x-workspace-id": "00000000-0000-4000-8000-000000023ffe" }),
+      },
     );
 
     expect(response.status).toBe(400);
@@ -401,6 +433,12 @@ describe("client draft queue service", () => {
     expect(list.items[0]?.score.scoreBand).toBe("hot");
     expect(list.items[0]?.gmailExport.exportStatus).toBe("requested");
     expect(list.items[0]?.gmailExport.canExport).toBe(true);
+    expect(list.items[0]?.actions).toEqual({
+      canRequestGmailExport: false,
+      canCancelGmailExportRequest: true,
+      canViewGmailExportStatus: true,
+    });
+    expect(list.pagination).toEqual({ limit: 20, offset: 0, total: 1 });
     expect(list.items[0]?.attentionFlags).toEqual(
       expect.arrayContaining(["high_score", "urgent_action", "duplicate_risk"]),
     );
@@ -411,6 +449,72 @@ describe("client draft queue service", () => {
       expect(detail.detail.proposedDraft.bodyText).toBe(fullBody);
       assertNoForbiddenKeys({ success: true, data: detail.detail }, { allowDetailBody: true });
     }
+  });
+
+  it("derives safe Gmail export action capabilities", async () => {
+    const draftRows = [
+      baseDraft({ metadataJson: { origin: "ai_draft_generation" } }),
+      baseDraft(),
+      baseDraft({
+        metadataJson: {
+          origin: "ai_draft_generation",
+          gmailExport: {
+            requestedAt: "2026-05-15T10:05:00.000Z",
+            requestExpiresAt: "2026-05-16T10:05:00.000Z",
+            leaseToken: "secret-lease-token",
+            leaseExpiresAt: "2026-05-15T12:10:00.000Z",
+          },
+        },
+      }),
+      baseDraft({
+        metadataJson: {
+          origin: "ai_draft_generation",
+          gmailExport: {
+            status: "exported",
+            exportedAt: "2026-05-15T10:20:00.000Z",
+          },
+        },
+      }),
+      baseDraft({
+        textBody: null,
+        metadataJson: { origin: "ai_draft_generation" },
+      }),
+    ].map((row, index) => ({
+      ...row,
+      draftId: `00000000-0000-4000-8000-000000023b${index}1`,
+      leadId,
+    }));
+    const service = createDraftQueueService(repository(rows({ drafts: draftRows })), () => now);
+    const list = await service.listDraftQueue(workspaceId, { limit: 20, offset: 0 });
+    const actionsByDraftId = new Map(
+      list.items.map((item) => [item.draftId, item.actions] as const),
+    );
+
+    expect(actionsByDraftId.get("00000000-0000-4000-8000-000000023b01")).toEqual({
+      canRequestGmailExport: true,
+      canCancelGmailExportRequest: false,
+      canViewGmailExportStatus: true,
+    });
+    expect(actionsByDraftId.get("00000000-0000-4000-8000-000000023b11")).toEqual({
+      canRequestGmailExport: false,
+      canCancelGmailExportRequest: true,
+      canViewGmailExportStatus: true,
+    });
+    expect(actionsByDraftId.get("00000000-0000-4000-8000-000000023b21")).toEqual({
+      canRequestGmailExport: false,
+      canCancelGmailExportRequest: false,
+      canViewGmailExportStatus: true,
+    });
+    expect(actionsByDraftId.get("00000000-0000-4000-8000-000000023b31")).toEqual({
+      canRequestGmailExport: false,
+      canCancelGmailExportRequest: false,
+      canViewGmailExportStatus: true,
+    });
+    expect(actionsByDraftId.get("00000000-0000-4000-8000-000000023b41")).toEqual({
+      canRequestGmailExport: false,
+      canCancelGmailExportRequest: false,
+      canViewGmailExportStatus: true,
+    });
   });
 
   it("filters by score band, export status, attention flag, limit, and offset", async () => {
@@ -446,10 +550,20 @@ describe("client draft queue service", () => {
       () => now,
     );
 
-    expect((await service.listDraftQueue(workspaceId, { limit: 20, offset: 0, scoreBand: "hot" })).items).toHaveLength(1);
-    expect((await service.listDraftQueue(workspaceId, { limit: 20, offset: 0, exportStatus: "blocked" })).items).toHaveLength(1);
-    expect((await service.listDraftQueue(workspaceId, { limit: 20, offset: 0, attentionRequired: true })).items.length).toBeGreaterThan(0);
-    expect((await service.listDraftQueue(workspaceId, { limit: 1, offset: 1 })).items).toHaveLength(1);
+    expect(
+      (await service.listDraftQueue(workspaceId, { limit: 20, offset: 0, scoreBand: "hot" })).items,
+    ).toHaveLength(1);
+    expect(
+      (await service.listDraftQueue(workspaceId, { limit: 20, offset: 0, exportStatus: "blocked" }))
+        .items,
+    ).toHaveLength(1);
+    expect(
+      (await service.listDraftQueue(workspaceId, { limit: 20, offset: 0, attentionRequired: true }))
+        .items.length,
+    ).toBeGreaterThan(0);
+    expect((await service.listDraftQueue(workspaceId, { limit: 1, offset: 1 })).items).toHaveLength(
+      1,
+    );
   });
 
   it("returns no detail for non-generated drafts", async () => {

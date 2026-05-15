@@ -330,3 +330,34 @@ After validation:
 5. Remove any test emails from the validation mailbox if the client policy requires it.
 
 Do not delete Syrantis audit records or database rows as part of 023L.
+
+## 023AB Draft Queue Gmail Export Action Validation
+
+Use this section to validate the full controlled bridge:
+
+```txt
+fresh realistic business email -> intake -> score/pushback -> AI draft
+  -> Draft Queue -> request Gmail export -> Gmail draft bridge
+```
+
+This validation must still keep final editing and sending inside Gmail. The Draft Queue action only
+requests or cancels export through the existing Syrantis backend route.
+
+1. Create a fresh temporary workspace API key from `/app/api-keys`. Store it only in the approved
+   test client location, never in docs, screenshots, shell history, or issue comments.
+2. Send a fresh realistic plumber/heating business email sample through
+   `POST /api/intake/inbound-message` using the temporary key.
+3. Let the worker create the score and pushback records for the resulting lead.
+4. Trigger draft generation for that lead and let the worker create the generated draft.
+5. Confirm the fresh generated draft appears in `GET /api/client/draft-queue`.
+6. From `/app/draft-queue`, request Gmail export for the draft.
+7. Verify `GET /api/drafts/:id/gmail-export-status` changes to `requestStatus = requested`.
+8. Verify `/app/draft-queue` reflects the requested status after refetch.
+9. If testing cancellation only, cancel the request before it is leased and verify the status becomes
+   `cancelled`. If testing the full bridge, let Apps Script lease and confirm the export instead.
+10. Verify no `email_sends` or approvals are created by the Draft Queue action.
+11. Verify the Draft Queue action itself made no provider, Gmail, Google, or Resend call.
+12. Verify only the expected safe 023U activity log is created:
+    `draft.gmail_export_requested` and, if cancelled, `draft.gmail_export_cancelled`.
+13. Revoke the temporary API key and remove the temporary key file or client-side storage used for
+    this validation.
