@@ -11,7 +11,7 @@ const scriptProperties = [
   ["SYRANTIS_SOURCE", "gmail_apps_script_client"],
   [
     "SYRANTIS_GMAIL_QUERY",
-    'subject:"[SYRANTIS-E2E]" newer_than:1d -label:"Syrantis/Processed" -label:"Syrantis/Failed"',
+    'subject:"[SYRANTIS-E2E]" newer_than:1d -label:"Syrantis/Processed" -label:"Syrantis/Ignored" -label:"Syrantis/Failed"',
   ],
   ["INTAKE_BATCH_LIMIT", "10"],
   ["EXPORT_BATCH_LIMIT", "5"],
