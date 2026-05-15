@@ -5,6 +5,8 @@ import {
   cancelDraftGmailExport,
   getGoogleSheetsSetupStatus,
   getCurrentUser,
+  getDraftQueue,
+  getDraftQueueDetail,
   getDraftGmailExportStatus,
   getOpsHealth,
   getRecentOpsChecks,
@@ -337,6 +339,83 @@ const workspaceApiKeyRevokedResponse = {
   },
 };
 
+const draftQueueResponse = {
+  success: true,
+  data: {
+    items: [
+      {
+        draftId: "abababab-abab-4aba-8aba-abababababab",
+        leadId: "bcbcbcbc-bcbc-4bcb-8bcb-bcbcbcbcbcbc",
+        createdAt: "2026-05-15T10:00:00.000Z",
+        score: {
+          scoreBand: "hot",
+          score: 88,
+          confidence: 74,
+          recommendedAction: "Call today.",
+          urgency: "high",
+          intent: "urgent_service_intent",
+        },
+        contextSummary: {
+          companyName: "Aqua Nord",
+          sector: "Plomberie",
+          language: "fr",
+          contactKnown: true,
+          previousLeadCount: 1,
+          riskFlags: ["duplicate_risk"],
+        },
+        draftPreview: {
+          hasSubject: true,
+          hasBodyText: true,
+          subjectPreview: "Intervention plomberie",
+          bodyPreview: "Bonjour.",
+          tone: null,
+          language: "fr",
+        },
+        gmailExport: {
+          exportStatus: "requested",
+          canExport: true,
+          blockingReasons: [],
+          exportedAt: null,
+        },
+        reviewStatus: "pending_review",
+        attentionFlags: ["high_score"],
+        workspaceId: "forbidden-workspace",
+        contactEmail: "forbidden@example.test",
+        metadata_json: { hidden: true },
+        leaseToken: "forbidden-lease-token",
+      },
+    ],
+    summary: {
+      pendingReview: 1,
+      readyForGmailExport: 1,
+      exported: 0,
+      blocked: 0,
+      attentionRequired: 1,
+    },
+    limit: 20,
+    offset: 0,
+    generatedAt: "2026-05-15T12:00:00.000Z",
+  },
+};
+
+const draftQueueDetailResponse = {
+  success: true,
+  data: {
+    ...draftQueueResponse.data.items[0],
+    proposedDraft: {
+      subject: "Intervention plomberie",
+      bodyText: "Full generated draft body for review.",
+      tone: null,
+      language: "fr",
+      generatedAt: "2026-05-15T10:00:00.000Z",
+    },
+    workspaceId: "forbidden-detail-workspace",
+    metadata_json: { hidden: true },
+    prompt: "forbidden-prompt",
+    output: "forbidden-output",
+  },
+};
+
 function mockResponse(body: unknown, status = 200) {
   return Promise.resolve(
     new Response(JSON.stringify(body), {
@@ -434,6 +513,59 @@ describe("api client", () => {
       "/api/drafts/44444444-4444-4444-8444-444444444444/gmail-export-status",
       expect.objectContaining({ credentials: "include" }),
     );
+  });
+
+  it("calls the client draft queue endpoint and strips unsafe fields", async () => {
+    const request = vi.fn(() => mockResponse(draftQueueResponse));
+    vi.stubGlobal("fetch", request);
+
+    await expect(
+      getDraftQueue({ limit: 20, scoreBand: "hot", attentionRequired: true }),
+    ).resolves.toMatchObject({
+      items: [
+        {
+          draftId: "abababab-abab-4aba-8aba-abababababab",
+          draftPreview: {
+            subjectPreview: "Intervention plomberie",
+            bodyPreview: "Bonjour.",
+          },
+          score: {
+            scoreBand: "hot",
+          },
+        },
+      ],
+      summary: {
+        pendingReview: 1,
+      },
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/client/draft-queue?limit=20&scoreBand=hot&attentionRequired=true",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    const serialized = JSON.stringify(await getDraftQueue({ limit: 20 }));
+    expect(serialized).not.toContain("forbidden-workspace");
+    expect(serialized).not.toContain("forbidden@example.test");
+    expect(serialized).not.toContain("forbidden-lease-token");
+  });
+
+  it("calls the client draft queue detail endpoint and keeps only generated draft body", async () => {
+    const request = vi.fn(() => mockResponse(draftQueueDetailResponse));
+    vi.stubGlobal("fetch", request);
+
+    await expect(getDraftQueueDetail("abababab-abab-4aba-8aba-abababababab")).resolves.toMatchObject({
+      draftId: "abababab-abab-4aba-8aba-abababababab",
+      proposedDraft: {
+        bodyText: "Full generated draft body for review.",
+      },
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/client/draft-queue/abababab-abab-4aba-8aba-abababababab",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    const serialized = JSON.stringify(await getDraftQueueDetail("abababab-abab-4aba-8aba-abababababab"));
+    expect(serialized).not.toContain("forbidden-detail-workspace");
+    expect(serialized).not.toContain("forbidden-prompt");
+    expect(serialized).not.toContain("forbidden-output");
   });
 
   it("requests draft Gmail export without client workspace material", async () => {

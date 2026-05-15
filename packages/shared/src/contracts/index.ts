@@ -9,6 +9,7 @@ export * from "./client-cockpit.js";
 export * from "./contact-context.js";
 export * from "./contacts.js";
 export * from "./drafts.js";
+export * from "./draft-queue.js";
 export * from "./email-sends.js";
 export * from "./errors.js";
 export * from "./gmail-export.js";
