@@ -105,6 +105,11 @@ const gmailExportStatusUrl = `/api/drafts/${gmailExportDraftId}/gmail-export-sta
 const gmailExportRequestUrl = `/api/drafts/${gmailExportDraftId}/gmail-export-request`;
 const gmailExportCancelUrl = `/api/drafts/${gmailExportDraftId}/gmail-export-cancel`;
 const clientCockpitSummaryUrl = "/api/client/cockpit-summary";
+const draftQueueUrl = "/api/client/draft-queue?limit=20";
+const draftQueueHotUrl = "/api/client/draft-queue?limit=20&scoreBand=hot";
+const draftQueueAttentionUrl = "/api/client/draft-queue?limit=20&attentionRequired=true";
+const draftQueueDraftId = "abababab-abab-4aba-8aba-abababababab";
+const draftQueueDetailUrl = `/api/client/draft-queue/${draftQueueDraftId}`;
 
 const replayResponse = {
   success: true,
@@ -300,6 +305,118 @@ const clientCockpitSummaryEmpty = {
       failedJobs24h: 0,
       oldestPendingJobMinutes: null,
     },
+  },
+};
+
+const draftQueueBodyFull =
+  "Bonjour, merci pour votre demande. Nous pouvons organiser une intervention et revenir vers vous avec les prochaines etapes.".repeat(
+    3,
+  );
+
+const draftQueue = {
+  success: true,
+  data: {
+    items: [
+      {
+        draftId: draftQueueDraftId,
+        leadId: "bcbcbcbc-bcbc-4bcb-8bcb-bcbcbcbcbcbc",
+        createdAt: "2026-05-15T10:00:00.000Z",
+        score: {
+          scoreBand: "hot",
+          score: 88,
+          confidence: 74,
+          recommendedAction: "Call today and prepare a quote follow-up.",
+          urgency: "high",
+          intent: "urgent_service_intent",
+        },
+        contextSummary: {
+          companyName: "Aqua Nord",
+          sector: "Plomberie",
+          language: "fr",
+          contactKnown: true,
+          previousLeadCount: 1,
+          riskFlags: ["duplicate_risk"],
+        },
+        draftPreview: {
+          hasSubject: true,
+          hasBodyText: true,
+          subjectPreview: "Intervention plomberie",
+          bodyPreview: "Bonjour, merci pour votre demande.",
+          tone: null,
+          language: "fr",
+        },
+        gmailExport: {
+          exportStatus: "requested",
+          canExport: true,
+          blockingReasons: [],
+          exportedAt: null,
+        },
+        reviewStatus: "pending_review",
+        attentionFlags: ["high_score", "urgent_action"],
+        workspaceId: "forbidden-draft-queue-workspace",
+        contactEmail: "forbidden@example.test",
+        metadata_json: { hidden: true },
+        payload_json: { hidden: true },
+        leaseToken: "forbidden-lease-token",
+        providerMessageId: "forbidden-provider-message-id",
+        prompt: "forbidden-prompt",
+        output: "forbidden-output",
+      },
+    ],
+    summary: {
+      pendingReview: 1,
+      readyForGmailExport: 1,
+      exported: 0,
+      blocked: 0,
+      attentionRequired: 1,
+    },
+    limit: 20,
+    offset: 0,
+    generatedAt: "2026-05-15T12:00:00.000Z",
+  },
+};
+
+const draftQueueEmpty = {
+  success: true,
+  data: {
+    ...draftQueue.data,
+    items: [],
+    summary: {
+      pendingReview: 0,
+      readyForGmailExport: 0,
+      exported: 0,
+      blocked: 0,
+      attentionRequired: 0,
+    },
+  },
+};
+
+const draftQueueFirstItem = draftQueue.data.items[0]!;
+
+const draftQueueDetail = {
+  success: true,
+  data: {
+    draftId: draftQueueDraftId,
+    leadId: "bcbcbcbc-bcbc-4bcb-8bcb-bcbcbcbcbcbc",
+    createdAt: "2026-05-15T10:00:00.000Z",
+    score: draftQueueFirstItem.score,
+    contextSummary: draftQueueFirstItem.contextSummary,
+    gmailExport: draftQueueFirstItem.gmailExport,
+    reviewStatus: "pending_review",
+    attentionFlags: ["high_score", "urgent_action"],
+    proposedDraft: {
+      subject: "Intervention plomberie",
+      bodyText: draftQueueBodyFull,
+      tone: null,
+      language: "fr",
+      generatedAt: "2026-05-15T10:00:00.000Z",
+    },
+    workspaceId: "forbidden-detail-workspace",
+    metadata_json: { hidden: true },
+    leaseToken: "forbidden-detail-lease-token",
+    contactEmail: "forbidden-detail@example.test",
+    prompt: "forbidden-detail-prompt",
+    output: "forbidden-detail-output",
   },
 };
 
@@ -715,10 +832,127 @@ describe("admin app", () => {
     expect(screen.getByRole("link", { name: "Pushback" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Client Dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Client Install" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Draft Queue" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Gmail Export" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "API Keys" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Google Sheets" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ops" })).toBeInTheDocument();
+  });
+
+  it("renders the draft queue page with summary cards and cards", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === draftQueueUrl) {
+        return mockJson(draftQueue);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/draft-queue");
+
+    expect(await screen.findByRole("heading", { name: "Draft Review Queue" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Intervention plomberie" })).toBeInTheDocument();
+    expect(screen.getByText("Pending review")).toBeInTheDocument();
+    expect(screen.getByText("Ready for Gmail export")).toBeInTheDocument();
+    expect(screen.getAllByText("Attention required").length).toBeGreaterThan(0);
+    expect(screen.getByText("Bonjour, merci pour votre demande.")).toBeInTheDocument();
+    expect(screen.getByText("Aqua Nord / Plomberie")).toBeInTheDocument();
+    expect(screen.getAllByText("requested").length).toBeGreaterThan(0);
+    expect(screen.queryByText("forbidden-draft-queue-workspace")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden@example.test")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-prompt")).not.toBeInTheDocument();
+  });
+
+  it("renders the draft queue empty state", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url === draftQueueUrl) {
+          return mockJson(draftQueueEmpty);
+        }
+
+        return mockJson(currentUser);
+      }),
+    );
+
+    renderApp("/app/draft-queue");
+
+    expect(await screen.findByText("No generated drafts are waiting in this queue.")).toBeInTheDocument();
+  });
+
+  it("updates draft queue filters and refreshes", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => {
+      if (url === draftQueueHotUrl || url === draftQueueAttentionUrl || url === draftQueueUrl) {
+        return mockJson(draftQueue);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/draft-queue");
+    await screen.findByRole("heading", { name: "Intervention plomberie" });
+    await user.click(screen.getByRole("button", { name: "hot" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith(draftQueueHotUrl, expect.anything()));
+    await user.click(screen.getByRole("button", { name: "hot" }));
+    await user.click(screen.getByRole("button", { name: "Attention required" }));
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(draftQueueAttentionUrl, expect.anything()),
+    );
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(request).toHaveBeenCalled();
+  });
+
+  it("opens the draft detail drawer with full generated draft only", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => {
+      if (url === draftQueueUrl) {
+        return mockJson(draftQueue);
+      }
+
+      if (url === draftQueueDetailUrl) {
+        return mockJson(draftQueueDetail);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/draft-queue");
+    await user.click(await screen.findByRole("button", { name: "View details" }));
+
+    const drawer = await screen.findByLabelText("Draft detail");
+    expect(within(drawer).getByText(draftQueueBodyFull)).toBeInTheDocument();
+    expect(within(drawer).getByText("Blocking reasons")).toBeInTheDocument();
+    expect(screen.queryByText("forbidden-detail-workspace")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-detail-prompt")).not.toBeInTheDocument();
+  });
+
+  it("keeps the draft queue out of mutation and inbox patterns", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url === draftQueueUrl) {
+          return mockJson(draftQueue);
+        }
+
+        return mockJson(currentUser);
+      }),
+    );
+
+    renderApp("/app/draft-queue");
+    await screen.findByRole("heading", { name: "Intervention plomberie" });
+
+    for (const name of ["Send", "Approve", "Reject", "Edit", "Mark reviewed", "Export"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByText(/bulk/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw json/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/From|To|CC|BCC/)).not.toBeInTheDocument();
   });
 
   it("logs out through the backend and redirects", async () => {
@@ -1605,7 +1839,7 @@ describe("admin app", () => {
       "href",
       "/app/client-install",
     );
-    expect(screen.getByText("Draft Queue")).toBeInTheDocument();
+    expect(screen.getAllByText("Draft Queue").length).toBeGreaterThan(0);
     expect(request).toHaveBeenCalledWith(
       clientCockpitSummaryUrl,
       expect.objectContaining({ credentials: "include" }),

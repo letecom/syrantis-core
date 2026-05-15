@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { ClientCockpitSummaryResponseSchema } from "@syrantis/shared";
+import {
+  ClientCockpitSummaryResponseSchema,
+  DraftQueueDetailResponseSchema,
+  DraftQueueResponseSchema,
+} from "@syrantis/shared";
 
 const { stringify: encodeJsonBody } = JSON;
 
@@ -331,6 +335,9 @@ export type GmailExportStatusResponse = z.infer<typeof gmailExportStatusSuccessS
 export type GmailExportRequestResponse = z.infer<typeof gmailExportRequestResponseSchema>["data"];
 export type GmailExportCancelResponse = z.infer<typeof gmailExportCancelResponseSchema>["data"];
 export type ClientCockpitSummary = z.infer<typeof ClientCockpitSummaryResponseSchema>["data"];
+export type DraftQueueData = z.infer<typeof DraftQueueResponseSchema>["data"];
+export type DraftQueueItem = DraftQueueData["items"][number];
+export type DraftQueueDetail = z.infer<typeof DraftQueueDetailResponseSchema>["data"];
 export type WorkspaceApiKeySafe = z.infer<typeof workspaceApiKeyListResponseSchema>["data"][number];
 export type WorkspaceApiKeyCreateResponse = z.infer<
   typeof workspaceApiKeyCreateResponseSchema
@@ -488,6 +495,45 @@ export async function getRecentOpsChecks(
 export async function getClientCockpitSummary(): Promise<ClientCockpitSummary> {
   const payload = await requestJson("/api/client/cockpit-summary");
   return ClientCockpitSummaryResponseSchema.parse(payload).data;
+}
+
+export async function getDraftQueue(params: {
+  limit?: number;
+  offset?: number;
+  scoreBand?: string;
+  exportStatus?: string;
+  attentionRequired?: boolean;
+} = {}): Promise<DraftQueueData> {
+  const search = new URLSearchParams();
+
+  if (params.limit !== undefined) {
+    search.set("limit", String(params.limit));
+  }
+
+  if (params.offset !== undefined) {
+    search.set("offset", String(params.offset));
+  }
+
+  if (params.scoreBand) {
+    search.set("scoreBand", params.scoreBand);
+  }
+
+  if (params.exportStatus) {
+    search.set("exportStatus", params.exportStatus);
+  }
+
+  if (params.attentionRequired !== undefined) {
+    search.set("attentionRequired", String(params.attentionRequired));
+  }
+
+  const query = search.toString();
+  const payload = await requestJson(`/api/client/draft-queue${query ? `?${query}` : ""}`);
+  return DraftQueueResponseSchema.parse(payload).data;
+}
+
+export async function getDraftQueueDetail(draftId: string): Promise<DraftQueueDetail> {
+  const payload = await requestJson(`/api/client/draft-queue/${encodeURIComponent(draftId)}`);
+  return DraftQueueDetailResponseSchema.parse(payload).data;
 }
 
 export async function listWorkspaceApiKeys(): Promise<WorkspaceApiKeySafe[]> {

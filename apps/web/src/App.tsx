@@ -7,6 +7,7 @@ import { ApiKeysPage } from "./pages/ApiKeysPage";
 import { ClientInstallPage } from "./pages/ClientInstallPage";
 import { ClientDashboardPage } from "./pages/ClientDashboardPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { DraftQueuePage } from "./pages/DraftQueuePage";
 import { GmailExportOpsPage } from "./pages/GmailExportOpsPage";
 import { GoogleSheetsPage } from "./pages/GoogleSheetsPage";
 import { LoginPage } from "./pages/LoginPage";
@@ -41,6 +42,7 @@ export function App() {
         <Route element={<PushbackPage />} path="pushback" />
         <Route element={<ClientDashboardPage />} path="client-dashboard" />
         <Route element={<ClientInstallPage />} path="client-install" />
+        <Route element={<DraftQueuePage />} path="draft-queue" />
         <Route element={<GmailExportOpsPage />} path="gmail-export" />
         <Route element={<ApiKeysPage />} path="api-keys" />
         <Route element={<GoogleSheetsPage />} path="google-sheets" />
