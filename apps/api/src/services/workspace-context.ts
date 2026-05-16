@@ -27,12 +27,24 @@ export type WorkspaceContextService = {
 };
 
 function mapWorkspaceContextProfileRow(row: WorkspaceContextProfileRow): WorkspaceContextProfile {
+  const contextJson = row.contextJson as Record<string, unknown>;
   const normalized = WorkspaceContextInputSchema.parse({
-    ...(row.contextJson as Record<string, unknown>),
     companyName: row.companyName,
     sector: row.sector,
     language: row.language,
     timezone: row.timezone,
+    companySummary: contextJson.companySummary,
+    offers: contextJson.offers,
+    serviceAreas: contextJson.serviceAreas,
+    idealCustomerProfile: contextJson.idealCustomerProfile,
+    badFitSignals: contextJson.badFitSignals,
+    qualificationRules: contextJson.qualificationRules,
+    commonObjections: contextJson.commonObjections,
+    proofPoints: contextJson.proofPoints,
+    tone: contextJson.tone,
+    ctaPreference: contextJson.ctaPreference,
+    forbiddenClaims: contextJson.forbiddenClaims,
+    handoffRules: contextJson.handoffRules,
   });
 
   return WorkspaceContextProfileSchema.parse({

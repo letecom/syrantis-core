@@ -7,7 +7,15 @@ import type { AiCompletionInput } from "./providers.js";
 export const DRAFT_GENERATION_PROMPT_TEMPLATE_ID = "draft-email-v1";
 
 const DraftGenerationLanguageSchema = z.enum(["fr", "en"]);
-const DraftGenerationToneSchema = z.enum(["professional", "warm", "direct", "formal"]);
+const DraftGenerationToneSchema = z.enum([
+  "professional",
+  "warm",
+  "direct",
+  "formal",
+  "premium",
+  "technical",
+  "custom",
+]);
 
 export const DraftGenerationOutputSchema = z.object({
   subject: z.string().trim().min(1).max(160),
@@ -19,6 +27,7 @@ export const DraftGenerationOutputSchema = z.object({
     score: z.boolean(),
     companyContext: z.boolean(),
     contactContext: z.boolean(),
+    responsePolicy: z.boolean(),
   }),
   safetyNotes: z.array(z.string().trim().max(200)).max(5),
 });
@@ -100,7 +109,28 @@ export class DraftGenerationOutputSafetyError extends Error {
 }
 
 function resolveLanguage(context: DraftGenerationContext): "fr" | "en" {
+  if (
+    context.responsePolicy.policy?.language === "fr" ||
+    context.responsePolicy.policy?.language === "en"
+  ) {
+    return context.responsePolicy.policy.language;
+  }
+
   return context.companyContext.language?.toLowerCase().startsWith("en") ? "en" : "fr";
+}
+
+function responsePolicyInstructions(context: DraftGenerationContext): string[] {
+  if (!context.responsePolicy.present || !context.responsePolicy.policy) {
+    return [];
+  }
+
+  return [
+    "Follow the client response policy when present.",
+    "Never invent prices, services, availability, guarantees, certifications, or commercial terms outside the response policy and company context.",
+    "Obey forbiddenClaims and escalationRules. If escalationRules apply, produce a cautious human-review draft and note the escalation in safetyNotes without revealing internal policy text.",
+    "Use defaultGreeting, defaultClosing, and signature when available.",
+    "Use exampleReplies only as style guidance. Do not treat examples as factual product, pricing, service, or availability evidence.",
+  ];
 }
 
 function contactInstructions(context: DraftGenerationContext): string[] {
@@ -158,12 +188,13 @@ export function buildDraftGenerationPrompt(
       subject: "required string <= 160 chars",
       bodyText: "required string <= 3000 chars",
       language: "required enum fr|en",
-      tone: "required enum professional|warm|direct|formal",
+      tone: "required enum professional|warm|direct|formal|premium|technical|custom",
       contextUsed: {
         lead: "boolean",
         score: "boolean",
         companyContext: "boolean",
         contactContext: "boolean",
+        responsePolicy: "boolean",
       },
       safetyNotes: "array <= 5 short strings",
     },
@@ -184,6 +215,7 @@ export function buildDraftGenerationPrompt(
         "hallucinated prior history",
       ],
     },
+    responsePolicy: context.responsePolicy.present ? context.responsePolicy.policy : null,
     context: {
       lead: {
         ...context.lead,
@@ -193,7 +225,10 @@ export function buildDraftGenerationPrompt(
       companyContext: context.companyContext,
       contactContext: context.contactContext,
     },
-    contextualInstructions: contactInstructions(context),
+    contextualInstructions: [
+      ...responsePolicyInstructions(context),
+      ...contactInstructions(context),
+    ],
   };
 
   return {

@@ -1,7 +1,11 @@
 import { and, desc, eq } from "drizzle-orm";
 
 import { contacts, leadScores, leads } from "@syrantis/db";
-import type { ContactContextWarningCode } from "@syrantis/shared";
+import {
+  ClientResponsePolicyInputSchema,
+  type ClientResponsePolicyInput,
+  type ContactContextWarningCode,
+} from "@syrantis/shared";
 
 import type { WorkspaceDbTransaction } from "../lib/db.js";
 import {
@@ -50,6 +54,10 @@ export type DraftGenerationContext = {
     lastOutboundAt: string | null;
     lastOutboundDeliveryStatus: "delivered" | "bounced" | "complained" | null;
     warnings: ContactContextWarningCode[];
+  };
+  responsePolicy: {
+    present: boolean;
+    policy: ClientResponsePolicyInput | null;
   };
 };
 
@@ -237,7 +245,7 @@ function collectContextLines(value: unknown, prefix: string, lines: string[]): v
 
   if (typeof value === "object" && value !== null) {
     for (const [key, child] of Object.entries(value)) {
-      if (isForbiddenCompanyKey(key)) {
+      if (key === "responsePolicy" || isForbiddenCompanyKey(key)) {
         continue;
       }
 
@@ -346,30 +354,56 @@ async function contactContextInTx(
 async function companyContextInTx(
   tx: WorkspaceDbTransaction,
   workspaceId: string,
-): Promise<DraftGenerationContext["companyContext"]> {
+): Promise<{
+  companyContext: DraftGenerationContext["companyContext"];
+  responsePolicy: DraftGenerationContext["responsePolicy"];
+}> {
   const profile = await findWorkspaceContextProfileInTx(tx, workspaceId);
 
   if (!profile) {
     return {
-      present: false,
-      companyName: null,
-      sector: null,
-      language: null,
-      timezone: null,
-      safeContextLines: [],
+      companyContext: {
+        present: false,
+        companyName: null,
+        sector: null,
+        language: null,
+        timezone: null,
+        safeContextLines: [],
+      },
+      responsePolicy: {
+        present: false,
+        policy: null,
+      },
     };
   }
 
   const safeContextLines: string[] = [];
   collectContextLines(profile.contextJson, "", safeContextLines);
+  const contextJson = profile.contextJson as Record<string, unknown>;
+  const responsePolicy =
+    typeof contextJson.responsePolicy === "object" && contextJson.responsePolicy !== null
+      ? contextJson.responsePolicy as Record<string, unknown>
+      : null;
+  const responsePolicyCandidate = { ...(responsePolicy ?? {}) };
+  const status = responsePolicyCandidate.status;
+  delete responsePolicyCandidate.updatedAt;
+  delete responsePolicyCandidate.status;
+  const parsedResponsePolicy = ClientResponsePolicyInputSchema.safeParse(responsePolicyCandidate);
+  const responsePolicyConfigured = status === "configured" && parsedResponsePolicy.success;
 
   return {
-    present: true,
-    companyName: trimToNull(profile.companyName),
-    sector: trimToNull(profile.sector),
-    language: trimToNull(profile.language),
-    timezone: trimToNull(profile.timezone),
-    safeContextLines,
+    companyContext: {
+      present: true,
+      companyName: trimToNull(profile.companyName),
+      sector: trimToNull(profile.sector),
+      language: trimToNull(profile.language),
+      timezone: trimToNull(profile.timezone),
+      safeContextLines,
+    },
+    responsePolicy: {
+      present: responsePolicyConfigured,
+      policy: responsePolicyConfigured ? parsedResponsePolicy.data : null,
+    },
   };
 }
 
@@ -384,7 +418,7 @@ export async function assembleDraftGenerationContext(
   }
 
   const safeContent = leadSafeContent(leadAndScore.lead);
-  const companyContext = await companyContextInTx(tx, input.workspaceId);
+  const { companyContext, responsePolicy } = await companyContextInTx(tx, input.workspaceId);
   const contactContext = await contactContextInTx(tx, input);
 
   return {
@@ -402,6 +436,7 @@ export async function assembleDraftGenerationContext(
       latestScore: scoreContext(leadAndScore.latestScore),
       companyContext,
       contactContext,
+      responsePolicy,
     },
   };
 }

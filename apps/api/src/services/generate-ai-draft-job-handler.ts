@@ -65,6 +65,7 @@ function contextSourcesUsed(context: DraftGenerationContext) {
     score: context.latestScore.present,
     companyContext: context.companyContext.present,
     contactContext: context.contactContext.present,
+    responsePolicy: context.responsePolicy.present,
   };
 }
 
@@ -228,6 +229,10 @@ async function persistSuccessfulDraftGenerationRun(input: {
 }): Promise<void> {
   const parsed = parseDraftGenerationOutput(input.completion.content);
   assertSafeDraftGenerationOutput(parsed);
+  const outputWithContextUsed = {
+    ...parsed,
+    contextUsed: contextSourcesUsed(input.context),
+  };
   const costEstimateMicroUsd = input.completion.costEstimateMicroUsd;
   const costEstimateCents = convertMicroUsdToCentsConservative(costEstimateMicroUsd);
 
@@ -258,8 +263,8 @@ async function persistSuccessfulDraftGenerationRun(input: {
       .set({
         status: "success",
         modelUsed: input.completion.model,
-        outputPayload: parsed,
-        outputJson: parsed,
+        outputPayload: outputWithContextUsed,
+        outputJson: outputWithContextUsed,
         inputTokens: input.completion.inputTokens,
         outputTokens: input.completion.outputTokens,
         costEstimateCents,

@@ -2,6 +2,9 @@ import { z } from "zod";
 
 import {
   ClientCockpitSummaryResponseSchema,
+  ClientResponsePolicyGetSuccessSchema,
+  ClientResponsePolicyInputSchema,
+  ClientResponsePolicyPutSuccessSchema,
   DraftQueueDetailResponseSchema,
   DraftQueueResponseSchema,
   MailQueueDetailResponseSchema,
@@ -343,6 +346,10 @@ export type DraftQueueDetail = z.infer<typeof DraftQueueDetailResponseSchema>["d
 export type MailQueueData = z.infer<typeof MailQueueResponseSchema>["data"];
 export type MailQueueItem = MailQueueData["items"][number];
 export type MailQueueDetail = z.infer<typeof MailQueueDetailResponseSchema>["data"];
+export type ClientResponsePolicyInput = z.infer<typeof ClientResponsePolicyInputSchema>;
+export type ClientResponsePolicy = z.infer<
+  typeof ClientResponsePolicyGetSuccessSchema
+>["data"]["policy"];
 export type WorkspaceApiKeySafe = z.infer<typeof workspaceApiKeyListResponseSchema>["data"][number];
 export type WorkspaceApiKeyCreateResponse = z.infer<
   typeof workspaceApiKeyCreateResponseSchema
@@ -614,6 +621,23 @@ export async function getMailQueueDetail(classificationId: string): Promise<Mail
     `/api/client/mail-queue/${encodeURIComponent(classificationId)}`,
   );
   return MailQueueDetailResponseSchema.parse(payload).data;
+}
+
+export async function getClientResponsePolicy(): Promise<ClientResponsePolicy> {
+  const payload = await requestJson("/api/client/response-policy");
+  return ClientResponsePolicyGetSuccessSchema.parse(payload).data.policy;
+}
+
+export async function putClientResponsePolicy(
+  input: ClientResponsePolicyInput,
+): Promise<ClientResponsePolicy> {
+  const parsed = ClientResponsePolicyInputSchema.parse(input);
+  const payload = await requestJson("/api/client/response-policy", {
+    method: "PUT",
+    body: encodeJsonBody(parsed),
+  });
+
+  return ClientResponsePolicyPutSuccessSchema.parse(payload).data.policy;
 }
 
 export async function listWorkspaceApiKeys(): Promise<WorkspaceApiKeySafe[]> {

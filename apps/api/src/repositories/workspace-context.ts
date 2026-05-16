@@ -37,8 +37,14 @@ const topLevelContextFields = [
   ...contextJsonFields,
 ] as const satisfies readonly (keyof WorkspaceContextInput)[];
 
-function toContextJson(input: WorkspaceContextInput): Record<string, unknown> {
-  return Object.fromEntries(contextJsonFields.map((field) => [field, input[field]]));
+function toContextJson(
+  input: WorkspaceContextInput,
+  existingContextJson: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    ...existingContextJson,
+    ...Object.fromEntries(contextJsonFields.map((field) => [field, input[field]])),
+  };
 }
 
 function toComparableInput(row: WorkspaceContextProfileRow): WorkspaceContextInput {
@@ -138,7 +144,10 @@ export async function upsertWorkspaceContextProfile(
         sector: parsedInput.sector,
         language: parsedInput.language,
         timezone: parsedInput.timezone,
-        contextJson: toContextJson(parsedInput),
+        contextJson: toContextJson(
+          parsedInput,
+          existingProfile.contextJson as Record<string, unknown>,
+        ),
         updatedBy: userId,
       })
       .where(eq(workspaceContextProfiles.workspaceId, workspaceId))
