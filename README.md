@@ -1,78 +1,100 @@
 # Syrantis Core
 
-Syrantis Core is a backend-first B2B AI orchestration and controlled execution layer.
+Syrantis Core is a controlled AI operations layer for commercial mail and lead workflows.
 
-It is not a CRM.
+It sits above Gmail, Apps Script, Google Sheets, CRMs, forms, and client business tools. It receives
+inbound messages, filters obvious noise, creates lead and contact context, scores intent, generates
+context-aware drafts, exposes safe founder/admin review surfaces, and exports approved draft
+requests to Gmail while keeping final human control.
 
-It is not a chatbot.
+It is not a CRM clone. It is not a Gmail clone. It is not a chatbot. It is not an autonomous
+outbound agent.
 
-It is not an uncontrolled agent system.
-
-It is a controlled action layer above CRMs, forms, sheets, and business tools. The client CRM remains the commercial source of truth. Syrantis handles intake, admin-only inbound email test intake, public API-key inbound message intake, admin API key management, canonical lead context, AI scoring, AI draft generation, AI audit read model, Gmail draft export by client-side Apps Script pull, approval readiness, human approval, send readiness, request-send, optional cancel-send while pending, worker execution, send status, send attempts, delivery proof, DB proof, Google Sheets push-back, push-back diagnostics, and manual push-back replay.
+The current product loop is mail-first and backend-source-of-truth-first: deterministic intake
+classification before lead creation, tenant-safe read models before broad client UX, response policy
+before personalized drafting, human review before Gmail export, and Gmail human send before any
+future Scout outbound acquisition.
 
 ```txt
-Client CRM / form / sheet
-        ↓
-Syrantis public/internal intake
-        ↓
-Canonical lead context
-        ↓
-AI scoring
-        ↓
-AI draft generation
-        ↓
-AI audit read model
-        ↓
-Approval readiness
-        ↓
-Human approval
-        ↓
-Send readiness
-        ↓
-request-send
-        ↓
-optional cancel-send while pending
-        ↓
-Worker execution
-        ↓
-send-status / send-attempts
-        ↓
-Resend webhook delivery proof when real provider is enabled
-        ↓
-Google Sheets push-back MVP + diagnostics
-        ↓
-022E Manual Pushback Replay / 023C Setup Verification / 023E Ops Health / 023H Worker Failed Review
-        ↓
-023F API systemd supervisor foundation
-        ↓
-023I admin-only inbound email test harness
-        ↓
-023J public API-key inbound message intake
-        ↓
-023K API key management and public intake hardening
-        ↓
-023M Lead Score Read Model
-        ↓
-023V Worker Continuous Runtime
-        ↓
-023P Company Context Pack
-        ↓
-023Q Contact Context Read Model
-        ↓
-023R Contextual AI Draft Generation
-        ↓
-023S Gmail Draft Bridge via Apps Script pull
-        ↓
-023T Gmail Draft Export Status Read Model
-        ↓
-023U Gmail Draft Export Request Gate
-        ↓
-023W-X Client Bridge Install Pack + Admin Gmail Export Ops Panel
-        ↓
-023Y Client Cockpit + Bridge Status Read Models
-        ↓
-Future CRM connector hardening / additional targets
+Gmail / Apps Script / public intake
+  ↓
+023Z intake classification gate
+  ↓
+ignored noise OR lead creation
+  ↓
+contact linking + company context
+  ↓
+score_lead
+  ↓
+lead score read model + Google Sheets score pushback
+  ↓
+response policy + context-aware draft generation
+  ↓
+Mail Queue / Draft Queue
+  ↓
+Gmail export request / cancel / status
+  ↓
+Apps Script creates Gmail draft
+  ↓
+human edits/sends in Gmail
+  ↓
+future client Inbox / Config / Dashboard
+  ↓
+future Scout
 ```
+
+## Current Product Loop
+
+Validated current loop:
+
+1. Gmail or another client-owned source submits a safe public inbound message with a workspace API key.
+2. 023Z classifies the message before lead creation.
+3. Obvious automation/noise is ignored with no lead, job, draft, approval, send, or provider call.
+4. Human-looking or ambiguous messages create review leads and enqueue `score_lead`.
+5. Contact linking, company context, contact context, and lead score status provide safe context.
+6. Lead score pushback can append score results to Google Sheets without blocking scoring.
+7. 023AD response policy and existing context are consumed by `generate_ai_draft`.
+8. 023AC Mail Queue shows the safe inbound/classification state.
+9. 023AA/023AB Draft Queue shows generated draft review and safe Gmail export actions.
+10. 023S/023T/023U Gmail draft bridge exports only requested drafts through client-owned Apps Script.
+11. The human edits and sends inside Gmail.
+
+## Current Client/Admin Surfaces
+
+These surfaces are currently founder/admin validation surfaces. They are not final client UX and
+must not be treated as a broad CRM, Gmail clone, or autonomous agent console.
+
+- `/app/client-dashboard`: safe cockpit summary for pipeline, Gmail intake/export, Sheets, system,
+  and action state.
+- `/app/mail-queue`: read-only classified inbound mail review queue from `intake_classifications`.
+- `/app/draft-queue`: generated draft review queue with full generated draft detail and safe Gmail
+  export request/cancel buttons.
+- `/app/gmail-export`: single-draft Gmail export status, request, cancel, and refresh panel.
+- `/app/response-policy`: bounded response policy configuration for draft generation.
+- `/app/client-install`: bridge install guide, Script Properties, and Apps Script template.
+- `/app/google-sheets`: Google Sheets setup status and backend-only setup test.
+- `/app/api-keys`: workspace API key create/list/detail/revoke with copy-once plaintext display.
+- `/app/ops`: bounded ops health checks and worker failed-summary review.
+
+## Current Backend Capabilities
+
+Current validated backend capabilities include:
+
+- public inbound message intake
+- API key management
+- intake classifications
+- lead score status
+- lead score pushback
+- workspace context
+- contact context
+- contextual draft generation
+- Gmail draft bridge
+- Gmail export status/request/cancel
+- draft review queue
+- mail review queue
+- response policy
+- worker continuous runtime
+- systemd API/worker runtime foundations
 
 ## Gmail Draft Bridge / 023S
 
@@ -159,12 +181,55 @@ Gmail, Google Sheets, providers, workers, or send behavior.
 
 023AC adds a read-only Client Mail Review Queue:
 
-- `GET /api/client/mail-queue` returns a safe paginated read model from `intake_classifications`.
+- `intake_classifications` is the source of truth.
+- `GET /api/client/mail-queue` returns a safe paginated read model.
 - `GET /api/client/mail-queue/:classificationId` returns safe detail without raw inbound body.
-- `/app/mail-queue` shows classification, lead/scoring/draft/export state, contact status, company
-  context, attention flags, and links toward Draft Queue/Gmail Export.
-- It adds no migration, no provider calls, no mutation route, no Gmail clone UI, and no raw metadata,
-  contact email/name, prompt/output, lease token, API key, or workspace ID exposure.
+- `/app/mail-queue` shows classification, lead, score, draft, export, contact, company, pipeline,
+  attention, and next-action state.
+- It adds no migration, no provider calls, no mutation route, no Gmail clone UI, and no raw inbound
+  body, raw metadata, contact email/name, prompt/output, lease token, API key, or workspace ID
+  exposure.
+
+## Draft Queue / 023AA-023AB
+
+023AA adds a read-only Client Draft Review Queue:
+
+- `GET /api/client/draft-queue` returns safe queue items, summaries, filters, and preview-only
+  generated draft snippets.
+- `GET /api/client/draft-queue/:draftId` returns safe detail with the full generated draft body.
+- `/app/draft-queue` shows generated drafts, score/context/export signals, attention flags, and a
+  read-only detail drawer.
+- List responses remain preview-only; full generated draft content appears only in detail.
+- Queue reads create no activity logs, background jobs, email sends, approvals, mutations, provider
+  calls, or Gmail calls.
+
+023AB adds controlled Gmail export actions to Draft Queue:
+
+- It reuses existing 023U routes: `POST /api/drafts/:id/gmail-export-request`,
+  `POST /api/drafts/:id/gmail-export-cancel`, and `GET /api/drafts/:id/gmail-export-status`.
+- It adds safe DTO action flags and UI buttons for request/cancel.
+- It adds no new `/api/client` mutation route.
+- Request/cancel uses existing draft routes and final send remains in Gmail.
+- No optimistic export state, send, approval, edit, reject, bulk action, provider call, or Gmail
+  backend call was added.
+
+## Response Policy / 023AD
+
+023AD adds a bounded Client Response Policy Pack:
+
+- `GET /api/client/response-policy`
+- `PUT /api/client/response-policy`
+- stored under `workspace_context_profiles.context_json.responsePolicy`
+- admin/founder session only
+- tenant-guarded
+- no migration
+- safe activity logs only
+- consumed by `generate_ai_draft` prompt context
+- no prompt or output exposure from policy routes
+
+The policy lets the client configure language, tone, greeting, closing, signature, response
+structure, business rules, forbidden claims, escalation rules, offer notes, catalog summary, and
+example replies. Policy routes do not call Gmail, Google, Resend, OpenRouter, or any provider.
 
 ## Contextual AI Draft Generation / 023R
 
@@ -197,7 +262,7 @@ activity log on GET. Scoring jobs are linked by `background_jobs.payload_json->>
 
 ## Product Positioning
 
-Syrantis is the controlled action layer for small and mid-sized businesses.
+Syrantis is the controlled AI operations layer for small and mid-sized businesses.
 
 Primary wedge:
 
@@ -209,28 +274,23 @@ Primary wedge:
 The first sellable loop is:
 
 ```txt
-lead received
-  → normalized
-  → scored
-  → AI draft
-  → AI audit
-  → approval readiness
-  → approval
-  → send readiness
-  → request-send
-  → optional cancel-send while pending
-  → worker execution
-  → send status / send attempts / delivery proof
-  → Google Sheets push-back MVP + diagnostics
-  → 022E Manual Pushback Replay
-  → Google Sheets setup verification in admin UI
-  → bounded admin ops health checks and safe worker failed-job review
-  → admin-only inbound email test harness
-  → public API-key inbound message intake
-  → admin API key management and public intake hardening
+inbound mail
+  → deterministic classification gate
+  → ignored noise OR review lead
+  → contact/company context
+  → score_lead
+  → score read model + Sheets pushback
+  → response policy
+  → contextual AI draft
+  → Mail Queue / Draft Queue review
+  → requested Gmail draft export
+  → Apps Script creates Gmail draft
+  → human edits/sends in Gmail
 ```
 
 No CRM clone.
+
+No Gmail clone.
 
 No chatbot.
 
@@ -382,18 +442,16 @@ Runbook:
 Manual `nohup` startup is kept only as a human rollback path, not as the normal
 production runtime mode.
 
-Current baseline through 023F:
+Current baseline through 023AD:
 
 - production default `SEND_EMAIL_PROVIDER=internal`
 - Resend provider exists only behind explicit env config
 - Resend webhook foundation exists at `POST /api/webhooks/resend`
 - current AI model `mistralai/mistral-small-2603`
-- API tests: 30 files, 487 tests
-- DB verify tests: 46 tests
-- `verify-schema`: 34 invariants
-- migration files: 20 SQL files / 20 journal entries
+- exact test and verify-schema counts are intentionally not hardcoded here; see latest validation logs
+- migration files: 22 SQL files / 22 journal entries
 - `verify-migration-files` passes with `drift=0`
-- current `verify-schema` expected result: `checked=34 passed=34 failed=0`
+- `verify-schema` must pass against the current registry
 - 022B Google Sheets sandbox verifier exists
 - 022C Google Sheets push-back MVP exists
 - 022D Google Sheets push-back diagnostics exist through compact `activity_logs`
@@ -485,8 +543,26 @@ Current baseline through 023F:
 - API key rotation remains operational: create new key, update the external integration, revoke old key
 - 023K added no migration, Redis, backend rotate endpoint, Caddy, Docker, systemd, worker runtime, or prod env change
 - use `docs/runbooks/api-key-management.md` for create, copy-once, use, revoke, and rotation procedure
-- no global dashboard exists
-- no `email_sends` list exists
+- 023L real-client Gmail E2E validation pack exists through Apps Script templates and runbooks
+- 023M Lead Score Read Model exists at `GET /api/leads/:id/score-status`
+- 023N Lead Score Pushback exists through `pushback_lead_score`
+- 023P Company Context Pack exists at `GET /api/workspace-context` and `PUT /api/workspace-context`
+- 023Q Contact Context Read Model exists at `GET /api/leads/:id/contact-context`
+- 023R Contextual AI Draft Generation uses safe lead, score, company, and contact context
+- 023S Gmail Draft Bridge exists for Apps Script pull/export confirmation
+- 023T Gmail Draft Export Status Read Model exists
+- 023U Gmail Draft Export Request Gate exists
+- 023V Worker Continuous Runtime exists through `worker:run` and `ops/systemd/syrantis-worker.service`
+- 023W-X Client Bridge Install Pack and Admin Gmail Export Ops Panel exist
+- 023Y Client Cockpit and Bridge Status Read Models exist at `/app/client-dashboard`
+- 023Y-H Gmail export stale lease hygiene exists as a bounded admin route
+- 023Z Gmail Intake Classification Gate exists with `intake_classifications` RLS/FORCE RLS
+- 023AA Client Draft Review Queue exists at `/app/draft-queue`
+- 023AB Draft Queue Gmail Export Actions exist using existing 023U routes
+- 023AC Client Mail Review Queue exists at `/app/mail-queue`
+- 023AD Client Response Policy Pack exists at `/app/response-policy`
+- no final client dashboard exists yet
+- no broad `email_sends` list exists
 - frontend performs no provider calls
 - frontend sends no `workspaceId`
 - admin UI does not show `provider_message_id`, raw metadata, raw payloads, subject, body, or email fields
@@ -508,9 +584,14 @@ Current baseline through 023F:
   - Google Sheets push-back to `Pushback_Log!A:Q` succeeded after delivery proof
   - Full test loop produced a row in the Sheet
 
-Implemented state now includes migration integrity, schema drift guard, RLS catalog verification, test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation, terminal delivery immutability, Google Sheets push-back, safe push-back diagnostics, manual push-back replay, push-back status read models, the minimal internal admin console foundation, the first bounded admin action panel, the 023D admin static deploy, the 023C Google Sheets setup verification screen, the 023E bounded admin ops health panel, and the 023F API systemd supervisor foundation.
+Implemented state now includes migration integrity, schema drift guard, RLS catalog verification,
+test environment isolation, send-attempt history, send proof hardening, Resend webhook foundation,
+terminal delivery immutability, Google Sheets push-back, safe diagnostics/replay/read models, API
+and worker systemd foundations, public Gmail intake through Apps Script/API keys, deterministic
+classification, contextual scoring/drafting, response policy, mail/draft review queues, and
+requested Gmail draft export.
 
-Next recommended step after 023F implementation: 023H Worker Queue Cleanup / Failed Job Review. 023G Admin Controlled API Restart remains optional only if a restart UI is wanted later.
+023G Admin Controlled API Restart remains optional only if a restart UI is wanted later.
 
 Targeted API read-model tests after shared contract edits should run after:
 
@@ -700,6 +781,18 @@ Implemented:
 - 021G Draft Send Cancellation
 - 021J Send Proof Hardening
 - 021L Send Attempt History Read Model
+- 023M Lead Score Read Model
+- 023P Company Context Pack
+- 023Q Contact Context Read Model
+- 023R Contextual AI Draft Generation
+- 023S Gmail Draft Bridge
+- 023T Gmail Draft Export Status Read Model
+- 023U Gmail Draft Export Request Gate
+- 023Z Gmail Intake Classification Gate
+- 023AA Client Draft Review Queue
+- 023AB Draft Queue Gmail Export Actions
+- 023AC Client Mail Review Queue
+- 023AD Client Response Policy Pack
 
 Implemented routes:
 
@@ -711,7 +804,16 @@ Implemented routes:
 - `/api/leads`
 - `/api/leads/:id/score`
 - `/api/leads/:id/scores`
+- `/api/leads/:id/score-status`
+- `/api/leads/:id/contact-context`
 - `/api/leads/:id/generate-draft`
+- `/api/workspace-context`
+- `/api/client/cockpit-summary`
+- `/api/client/draft-queue`
+- `/api/client/draft-queue/:draftId`
+- `/api/client/mail-queue`
+- `/api/client/mail-queue/:classificationId`
+- `/api/client/response-policy`
 - `/api/drafts`
 - `/api/drafts/:id/ai-audit`
 - `/api/drafts/:id/approval-readiness`
@@ -721,12 +823,18 @@ Implemented routes:
 - `/api/drafts/:id/send-status`
 - `/api/drafts/:id/send-attempts`
 - `/api/drafts/:id/cancel-send`
+- `/api/drafts/gmail-export-pending`
+- `/api/drafts/:id/gmail-export-confirmed`
+- `/api/drafts/:id/gmail-export-status`
+- `/api/drafts/:id/gmail-export-request`
+- `/api/drafts/:id/gmail-export-cancel`
 - `/api/email-sends`
 - `/api/email-sends/:id`
 - `/api/email-sends/:id/pushback-replay`
 - `/api/integrations`
 - `/api/workspace-api-keys`
 - `/api/public/leads`
+- `/api/intake/inbound-message`
 - `/api/webhooks/resend`
 
 ### Draft Send Status Behavior
@@ -1051,6 +1159,8 @@ Current `send_email` worker behavior:
 - 021A AI Draft Generation Foundation
 - 021B Draft AI Audit Read Model
 - 023S Gmail Draft Bridge via Apps Script
+- 023R Contextual AI Draft Generation
+- 023AD Client Response Policy Pack
 
 Current scoring AI model:
 
@@ -1075,6 +1185,7 @@ Current AI guarantees:
 - result stored in `lead_scores`
 - provider audit stored in `ai_runs`
 - draft generation creates `drafts.status = draft`
+- draft generation can use company context, contact context, and response policy
 - AI audit route is read-only and safe
 - manual drafts return null audit
 - no `email_sends` or `send_email` job from AI draft generation
@@ -1091,6 +1202,8 @@ Current AI guarantees:
 - 022C Google Sheets Push-back MVP
 - 022D Pushback Observability & Diagnostics
 - 022E Manual Pushback Replay
+- 023P Workspace Context Profile table
+- 023Z Intake Classifications table
 
 Implemented validation:
 
@@ -1102,10 +1215,12 @@ Implemented validation:
 - Resend webhook delivery proof columns and constraints
 - provider-message lookup policy proof
 - terminal delivery immutability trigger proof
+- workspace context profile RLS/index/updated_at proof
+- intake classification RLS/constraints/index proof
 
 ## Database Security Status
 
-RLS enabled and forced on all 15 verified tenant tables:
+RLS enabled and forced on all verified tenant tables:
 
 - organizations
 - contacts
@@ -1122,6 +1237,8 @@ RLS enabled and forced on all 15 verified tenant tables:
 - background_jobs
 - ai_runs
 - lead_scores
+- workspace_context_profiles
+- intake_classifications
 
 RLS policy shape:
 
@@ -1150,11 +1267,7 @@ Status:
 - verify-schema checks RLS enabled
 - verify-schema checks FORCE RLS enabled
 - verify-schema checks expected policy names
-- 021N verified RLS catalog state in production with `checked=21`
-- 021O extended verify-schema to 31 invariants
-- 021P extended verify-schema to 33 invariants
-- 023N extended verify-schema to 34 invariants
-- current expected result: `checked=34 passed=34 failed=0`
+- verify-schema checks the current registry; do not rely on old invariant counts
 
 ## Migration Integrity Status
 
@@ -1165,16 +1278,20 @@ Implemented:
 - 021N RLS catalog verification
 - 021O webhook delivery proof catalog verification
 - 021P terminal delivery immutability catalog verification
+- 023P workspace context profile catalog verification
+- 023Z intake classification catalog verification
 
 Current production state:
 
-- 20 SQL migration files
-- 20 journal entries
+- 22 SQL migration files
+- 22 journal entries
 - `verify-migration-files` result: `drift=0`
-- `verify-schema` result: `checked=34 passed=34 failed=0`
+- `verify-schema` must pass against the current registry
 - migration `0017_resend_webhook_delivery_proof.sql` exists
 - migration `0018_email_sends_terminal_delivery_immutability.sql` exists
 - migration `0019_pushback_lead_score_job_type.sql` exists
+- migration `0020_workspace_context_profiles.sql` exists
+- migration `0021_intake_classifications.sql` exists
 
 Hard rules:
 
@@ -1226,11 +1343,14 @@ workspaceId resolved
   ↓
 withWorkspaceDb
   ↓
-lead/contact/org/mapping/event/log
+023Z classification
+  ↓
+ignored classification OR lead/contact/org/mapping/event/log
 ```
 
 Used by:
 
+- Gmail Apps Script bridge
 - forms
 - Make
 - Zapier
@@ -1414,6 +1534,8 @@ background_jobs.generate_ai_draft
   ↓
 worker
   ↓
+company context + contact context + response policy
+  ↓
 redacted prompt
   ↓
 OpenRouter
@@ -1429,8 +1551,55 @@ Status:
 - no prompt/output in activity_logs
 - optional `AI_DRAFT_MODEL=google/gemini-3.1-flash-lite` affects draft generation only
 - manual drafts return null AI audit
+- response policy is server-derived and route-managed; clients cannot submit prompts/models
 
-### 10. Future CRM Connector Lane
+### 10. Mail / Draft Review Lane
+
+```txt
+intake_classifications / drafts
+  ↓
+GET /api/client/mail-queue
+GET /api/client/draft-queue
+  ↓
+safe founder/admin review surfaces
+  ↓
+links to Gmail export status/request/cancel
+```
+
+Status:
+
+- Mail Queue is read-only and backed by `intake_classifications`.
+- Draft Queue list is preview-only; detail shows full generated draft body.
+- No raw inbound body, contact email/name, prompt/output, lease token, API key, or workspace ID is
+  exposed.
+- No queue read creates mutations, activity logs, provider calls, jobs, approvals, sends, or drafts.
+
+### 11. Gmail Draft Export Lane
+
+```txt
+generated draft
+  ↓
+POST /api/drafts/:id/gmail-export-request
+  ↓
+GET /api/drafts/gmail-export-pending by Apps Script
+  ↓
+GmailApp.createDraft(...)
+  ↓
+POST /api/drafts/:id/gmail-export-confirmed
+  ↓
+human edits/sends in Gmail
+```
+
+Status:
+
+- request/cancel/status are session-only founder/admin routes
+- pending/confirmed routes are workspace API-key bridge routes
+- no backend Gmail OAuth
+- no automatic send
+- no Gmail draft ID storage
+- no `email_sends` creation from export
+
+### 12. Future CRM Connector Lane
 
 ```txt
 delivery proof / task done / approval accepted
@@ -1513,56 +1682,64 @@ Not implemented yet.
 | 023I     | Inbound Email Test Intake                             | done   |
 | 023J     | Public API-Key Inbound Message Intake                 | done   |
 | 023K     | API Key Management & Public Intake Hardening          | done   |
+| 023L     | Real Client Gmail E2E Validation Pack                 | done   |
+| 023M     | Lead Score Read Model                                 | done   |
+| 023N     | Google Sheets Lead Score Pushback                     | done   |
+| 023P     | Company Context Pack                                  | done   |
+| 023Q     | Contact Context Read Model                            | done   |
+| 023R     | Contextual AI Draft Generation                        | done   |
 | 023S     | Gmail Draft Bridge via Apps Script                    | done   |
 | 023T     | Gmail Draft Export Status Read Model                  | done   |
 | 023U     | Gmail Draft Export Request Gate                       | done   |
+| 023V     | Worker Continuous Runtime                             | done   |
 | 023W-X   | Client Bridge Install Pack + Admin Gmail Export Ops   | done   |
 | 023Y     | Client Cockpit + Bridge Status Read Models            | done   |
+| 023Y-H   | Gmail Export Stale Lease Hygiene                      | done   |
+| 023Z     | Gmail Intake Classification Gate                      | done   |
+| 023AA    | Client Draft Review Queue                             | done   |
+| 023AB    | Draft Queue Gmail Export Actions                      | done   |
+| 023AC    | Client Mail Review Queue                              | done   |
+| 023AD    | Client Response Policy Pack                           | done   |
 
 Near-term candidates:
 
-- Future E2E lead automation loop
-- 023G Admin Controlled API Restart, optional only if a restart UI is needed later
+- client Inbox / Config / Dashboard cleanup on `app.syrantis.fr`
+- admin/founder UI refactor with client/workspace switcher, users/roles, and safe
+  impersonation/debug
+- future Scout outbound acquisition after client Inbox and Config are clean
+- 023G Admin Controlled API Restart remains optional only if a restart UI is needed later
 
 ## Current Execution Focus
 
 Current focus:
 
-- 022C Google Sheets push-back is implemented and production-validated.
-- 022D Pushback Observability & Diagnostics is implemented and production-validated.
-- 022E Manual Pushback Replay is implemented locally and validated.
-- 022F Pushback Status Read Model is implemented locally and validated.
-- 023A Minimal Admin Console is implemented locally and validated.
-- 023B Admin Action Panel is implemented locally and validated.
-- 023D Admin Static Deploy is production-validated.
-- `admin.syrantis.fr` is publicly browser-validated.
-- 023C Google Sheets Setup Verification is production-validated.
-- 023E Admin Ops Health & Test Panel is completed.
-- 023F API Process Supervisor Foundation is implemented locally and ready for human review.
-- 023H Worker Queue Failed Job Review is implemented locally and ready for human review.
-- 023Y Client Cockpit + Bridge Status Read Models is implemented locally and ready for human
-  review.
-- 023A = see.
-- 023B = act.
-- 023D = expose safely.
-- 023C = configure.
-- 023E = diagnose safely.
-- 023F = supervise API runtime.
-- 023H = interpret worker failed-job debt safely.
-- Next recommended step after 023H is 023I Inbound Email Test Intake or 023J E2E Lead Automation
-  Loop.
-- Reason: operators can now see pushback status, trigger manual replay, verify active Google
-  Sheets setup, run bounded ops checks, distinguish historical worker failures from active worker
-  failures, and move the API from manual startup to a reproducible systemd service without exposing
-  secrets or adding restart/shell/log controls.
+- Keep the durable mail operations loop stable: intake classification, score, context, policy,
+  draft, review, requested Gmail export, human Gmail send.
+- Keep admin/founder surfaces bounded and safe while validating client workflows.
+- Separate current validated capabilities from future client UX and future Scout work.
+- Keep runtime operational proof boring: migration drift `0`, current verify-schema registry passing,
+  API/worker systemd supervision, health checks, ops health, and worker failed summary.
 
-Explicit next sequence:
+## Future Product Direction
 
-- human review for 023F
-- human-approved manual systemd transition for the API only
-- human review for 023H
-- 023I Inbound Email Test Intake or 023J E2E Lead Automation Loop
-- 023G Admin Controlled API Restart only if a restart UI is wanted later
+Future client app:
+
+- client app will be `app.syrantis.fr`
+- final client primitives: Dashboard, Inbox, Config
+- current admin UI is founder/operator validation, not final client UX
+- future admin refactor needs client/workspace switcher, users/roles, and safe impersonation/debug
+- future Scout will be outbound acquisition, after client Inbox and Config are clean
+
+Doctrine for future work:
+
+- not a CRM clone
+- not a Gmail clone
+- not a chatbot
+- not an uncontrolled agent
+- human control before outbound
+- backend source of truth
+- tenant-safe
+- deterministic workflows before unbounded agents
 
 ## Development Workflow
 
@@ -1579,15 +1756,17 @@ git fetch origin
 git checkout main
 git reset --hard origin/main
 git clean -fd
-git checkout -b docs/update-readme-through-021o
+git checkout -b docs/update-readme-through-023ad
 ```
 
 Baseline checks:
 
 ```bash
 pnpm --filter @syrantis/db verify-migration-files
+pnpm --filter @syrantis/db test
 pnpm --filter @syrantis/shared build
-pnpm test
+pnpm --filter @syrantis/api test
+pnpm --filter @syrantis/web test
 pnpm typecheck
 pnpm lint
 pnpm build
@@ -1621,7 +1800,10 @@ Minimum local gates:
 
 ```bash
 pnpm --filter @syrantis/db verify-migration-files
-pnpm test
+pnpm --filter @syrantis/db test
+pnpm --filter @syrantis/shared build
+pnpm --filter @syrantis/api test
+pnpm --filter @syrantis/web test
 pnpm typecheck
 pnpm lint
 pnpm build
@@ -1661,8 +1843,10 @@ Install and build:
 ```bash
 pnpm install --frozen-lockfile
 pnpm --filter @syrantis/db verify-migration-files
+pnpm --filter @syrantis/db test
 pnpm --filter @syrantis/shared build
-pnpm test
+pnpm --filter @syrantis/api test
+pnpm --filter @syrantis/web test
 pnpm typecheck
 pnpm lint
 pnpm build
@@ -1687,16 +1871,32 @@ bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter 
 bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter @syrantis/db verify-schema'
 ```
 
-Expected verify-schema after 023N:
+Expected verify-schema:
 
 ```txt
-checked=34 passed=34 failed=0
+all current registry checks pass; do not use old hardcoded counts
 ```
 
-Restart API manually from prod runtime if needed:
+Restart API/worker through systemd when needed:
+
+```bash
+sudo systemctl restart syrantis-api.service
+sudo systemctl restart syrantis-worker.service
+sudo systemctl status syrantis-api.service --no-pager
+sudo systemctl status syrantis-worker.service --no-pager
+```
+
+Manual API start remains a human rollback path only:
 
 ```bash
 bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; PORT=8787 pnpm --filter @syrantis/api start'
+```
+
+Health and ops validation:
+
+```bash
+curl -fsS http://127.0.0.1:8787/health
+curl -fsS https://api.syrantis.fr/health
 ```
 
 Google Sheets push-back validation:
@@ -1723,6 +1923,14 @@ Actual public health:
 
 - `https://api.syrantis.fr/health`
 
+Ops health:
+
+- use `/app/ops`
+- run `api-health`
+- run `db-health`
+- run `worker-queue-summary`
+- run `worker-failed-summary`
+
 ## DB Validation Commands
 
 Migration file and journal integrity:
@@ -1734,8 +1942,8 @@ pnpm --filter @syrantis/db verify-migration-files
 Expected:
 
 ```txt
-20 SQL files
-20 journal entries
+22 SQL files
+22 journal entries
 drift=0
 ```
 
@@ -1748,7 +1956,7 @@ bash -lc 'set -a; source /opt/syrantis/env/core.prod.env; set +a; pnpm --filter 
 Expected:
 
 ```txt
-checked=34 passed=34 failed=0
+all current registry checks pass; see latest validation output for checked count
 ```
 
 Migration history:
@@ -2274,42 +2482,41 @@ Recommended order:
 
 Near-term:
 
-1. 022D Pushback Observability & Diagnostics
-2. 022E Manual Pushback Replay
-3. 022F Pushback Status Read Model
-4. 023A Minimal Admin Console
-5. 023B Admin Action Panel
-6. 023D / 023A-Ops Admin Static Deploy
-7. 023C Google Sheets Setup Verification Screen
-8. 023E Admin Ops Health & Test Panel
-9. 023F API Process Supervisor Foundation
-10. 023H Worker Queue Cleanup / Failed Job Review
+1. Stabilize the validated mail operations loop.
+2. Clean up the future client primitives: Dashboard, Inbox, Config.
+3. Move final client UX toward `app.syrantis.fr`.
+4. Refactor admin/founder UX for client/workspace switcher, users/roles, and safe
+   impersonation/debug.
+5. Keep API and worker systemd operations human-controlled.
+6. Keep Gmail export as draft creation only; final send remains in Gmail.
+7. Keep response policy bounded before any richer configuration surface.
 
 Acquisition:
 
-11. 024A Scout Doctrine & Data Model
-12. 024B Local Prospect Import MVP
-13. 024C Weakness Scoring Engine
-14. 024D AI Outreach Draft Generator
-15. 024E Outreach Compliance Guard
+8. 024A Scout Doctrine & Data Model
+9. 024B Local Prospect Import MVP
+10. 024C Weakness Scoring Engine
+11. 024D AI Outreach Draft Generator
+12. 024E Outreach Compliance Guard
 
 Channels:
 
-16. 025A WhatsApp Business Sandbox Research
-17. 025B WhatsApp Inbound Capture MVP
-18. 025C WhatsApp Opt-in Follow-up
+13. 025A WhatsApp Business Sandbox Research
+14. 025B WhatsApp Inbound Capture MVP
+15. 025C WhatsApp Opt-in Follow-up
 
 CRM:
 
-19. 026A Dolibarr Sandbox Setup
-20. 026B Dolibarr Push-back MVP
-21. 026C Dolibarr Diagnostics
+16. 026A Dolibarr Sandbox Setup
+17. 026B Dolibarr Push-back MVP
+18. 026C Dolibarr Diagnostics
 
 Not implemented:
 
 - CRM proof push-back runtime behavior (other than Sheets)
 - CRM connector code
-- Pipeline UI read layer
+- final client Inbox / Config / Dashboard
+- final client onboarding UI
 - webhook event store
 
 Later connector candidates:
@@ -2322,22 +2529,25 @@ Later connector candidates:
 
 ## Known Current Limitations
 
-- push-back status read models exist for email sends and drafts
 - Ops Health is bounded diagnostics only; it does not restart services, run shell commands, run
   arbitrary SQL, read logs, or run migrations
 - Ops Panel includes safe worker queue summary and worker failed summary aggregates only
-- no client onboarding UI
+- current admin UI is founder/operator validation, not final client UX
+- current client-facing surfaces are not yet the final `app.syrantis.fr` Dashboard / Inbox / Config
 - no OAuth Google integration
 - no Dolibarr connector
 - no generic CRM adapter
 - no WhatsApp integration
 - no Scout acquisition engine yet
-- API systemd supervisor foundation exists; human production transition and validation remain required
+- no autonomous outbound agent
+- no backend Gmail OAuth
+- no Gmail clone inbox behavior
 - worker failed-job review exists as safe aggregates only; retry/delete cleanup remains unapproved
 
 ## Future: Syrantis Scout / Acquisition Roadmap
 
-Syrantis should become a controlled local B2B acquisition OS, not only a send/proof tool.
+Syrantis Scout is future outbound acquisition. It comes after the client Inbox and Config primitives
+are clean.
 
 Future loop:
 
