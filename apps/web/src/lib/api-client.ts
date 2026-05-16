@@ -4,6 +4,8 @@ import {
   ClientCockpitSummaryResponseSchema,
   DraftQueueDetailResponseSchema,
   DraftQueueResponseSchema,
+  MailQueueDetailResponseSchema,
+  MailQueueResponseSchema,
 } from "@syrantis/shared";
 
 const { stringify: encodeJsonBody } = JSON;
@@ -338,6 +340,9 @@ export type ClientCockpitSummary = z.infer<typeof ClientCockpitSummaryResponseSc
 export type DraftQueueData = z.infer<typeof DraftQueueResponseSchema>["data"];
 export type DraftQueueItem = DraftQueueData["items"][number];
 export type DraftQueueDetail = z.infer<typeof DraftQueueDetailResponseSchema>["data"];
+export type MailQueueData = z.infer<typeof MailQueueResponseSchema>["data"];
+export type MailQueueItem = MailQueueData["items"][number];
+export type MailQueueDetail = z.infer<typeof MailQueueDetailResponseSchema>["data"];
 export type WorkspaceApiKeySafe = z.infer<typeof workspaceApiKeyListResponseSchema>["data"][number];
 export type WorkspaceApiKeyCreateResponse = z.infer<
   typeof workspaceApiKeyCreateResponseSchema
@@ -542,6 +547,73 @@ export async function getDraftQueue(
 export async function getDraftQueueDetail(draftId: string): Promise<DraftQueueDetail> {
   const payload = await requestJson(`/api/client/draft-queue/${encodeURIComponent(draftId)}`);
   return DraftQueueDetailResponseSchema.parse(payload).data;
+}
+
+export async function getMailQueue(
+  params: {
+    limit?: number;
+    offset?: number;
+    since?: string;
+    includeIgnored?: boolean;
+    category?: string[];
+    action?: string[];
+    scoreBand?: string[];
+    contactStatus?: string[];
+    hasDraft?: boolean;
+    exportStatus?: string[];
+    pipelineState?: string[];
+    attentionRequired?: boolean;
+  } = {},
+): Promise<MailQueueData> {
+  const search = new URLSearchParams();
+
+  if (params.limit !== undefined) {
+    search.set("limit", String(params.limit));
+  }
+
+  if (params.offset !== undefined) {
+    search.set("offset", String(params.offset));
+  }
+
+  if (params.since) {
+    search.set("since", params.since);
+  }
+
+  if (params.includeIgnored !== undefined) {
+    search.set("includeIgnored", String(params.includeIgnored));
+  }
+
+  for (const [key, values] of [
+    ["category", params.category],
+    ["action", params.action],
+    ["scoreBand", params.scoreBand],
+    ["contactStatus", params.contactStatus],
+    ["exportStatus", params.exportStatus],
+    ["pipelineState", params.pipelineState],
+  ] as const) {
+    if (values?.length) {
+      search.set(key, values.join(","));
+    }
+  }
+
+  if (params.hasDraft !== undefined) {
+    search.set("hasDraft", String(params.hasDraft));
+  }
+
+  if (params.attentionRequired !== undefined) {
+    search.set("attentionRequired", String(params.attentionRequired));
+  }
+
+  const query = search.toString();
+  const payload = await requestJson(`/api/client/mail-queue${query ? `?${query}` : ""}`);
+  return MailQueueResponseSchema.parse(payload).data;
+}
+
+export async function getMailQueueDetail(classificationId: string): Promise<MailQueueDetail> {
+  const payload = await requestJson(
+    `/api/client/mail-queue/${encodeURIComponent(classificationId)}`,
+  );
+  return MailQueueDetailResponseSchema.parse(payload).data;
 }
 
 export async function listWorkspaceApiKeys(): Promise<WorkspaceApiKeySafe[]> {

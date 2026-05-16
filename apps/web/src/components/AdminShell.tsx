@@ -58,6 +58,9 @@ export function AdminShell({ user, children }: AdminShellProps) {
             <NavLink className={navLinkClass} to="/app/draft-queue">
               Draft Queue
             </NavLink>
+            <NavLink className={navLinkClass} to="/app/mail-queue">
+              Mail Queue
+            </NavLink>
             <NavLink className={navLinkClass} to="/app/gmail-export">
               Gmail Export
             </NavLink>

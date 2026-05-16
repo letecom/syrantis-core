@@ -78,3 +78,18 @@ workspace RLS and FORCE RLS. Obvious machine noise can be ignored without creati
 
 The intake route remains backend-only and does not call Gmail, Google, Resend, OpenRouter, or
 external providers. Gmail labeling remains in the client-owned Apps Script bridge.
+
+## 023AC Client Mail Review Queue State
+
+Admin/founder sessions now have a read-only mail-centric review queue backed by
+`intake_classifications`:
+
+- `GET /api/client/mail-queue` returns a safe paginated view of classifications and derived
+  lead/scoring/draft/Gmail export state.
+- `GET /api/client/mail-queue/:classificationId` returns safe detail for one classification.
+- `/app/mail-queue` shows summary cards, filters, compact queue cards, and a detail drawer.
+
+The queue does not expose raw inbound email bodies, raw metadata, provider payloads, contact
+email/name, workspace IDs, prompts, outputs, lease tokens, API key material, or mutation actions.
+It does not call Gmail, Google, Resend, or any provider and does not create activity logs,
+background jobs, drafts, approvals, or sends.
