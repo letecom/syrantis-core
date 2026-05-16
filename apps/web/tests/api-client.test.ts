@@ -8,6 +8,8 @@ import {
   getDraftQueue,
   getDraftQueueDetail,
   getDraftGmailExportStatus,
+  getMailQueue,
+  getMailQueueDetail,
   getOpsHealth,
   getRecentOpsChecks,
   getDraftPushbackStatus,
@@ -426,6 +428,120 @@ const draftQueueDetailResponse = {
   },
 };
 
+const mailQueueResponse = {
+  success: true,
+  data: {
+    generatedAt: "2026-05-15T12:00:00.000Z",
+    filters: {
+      applied: {
+        limit: 20,
+        offset: 0,
+        since: "2026-04-15T12:00:00.000Z",
+        includeIgnored: false,
+        category: ["service"],
+        action: [],
+        scoreBand: [],
+        contactStatus: [],
+        hasDraft: null,
+        exportStatus: [],
+        pipelineState: [],
+        attentionRequired: null,
+      },
+    },
+    pagination: {
+      limit: 20,
+      offset: 0,
+      total: 1,
+    },
+    summary: {
+      totalClassified: 1,
+      totalIgnored: 0,
+      totalLeadsCreated: 1,
+      totalScored: 1,
+      totalWithDraft: 1,
+      totalExportRequested: 1,
+      totalExported: 0,
+      totalAttentionRequired: 1,
+    },
+    items: [
+      {
+        classificationId: "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd",
+        classifiedAt: "2026-05-15T09:00:00.000Z",
+        classification: {
+          category: "service",
+          action: "create_lead",
+          confidence: "high",
+          reasonCode: "urgent_service_intent",
+        },
+        lead: {
+          leadId: "dededede-dede-4ded-8ded-dededededede",
+          leadCreatedAt: "2026-05-15T09:05:00.000Z",
+          leadStatus: "scored",
+        },
+        score: {
+          scoreBand: "hot",
+          score: 88,
+          confidence: 74,
+          recommendedAction: "Call today.",
+          urgency: "high",
+          intent: "urgent_service_intent",
+          scoredAt: "2026-05-15T09:30:00.000Z",
+        },
+        contact: {
+          known: true,
+          previousLeadCount: 1,
+          status: "returning",
+        },
+        draft: {
+          draftId: "efefefef-efef-4efe-8efe-efefefefefef",
+          status: "draft",
+          hasSubject: true,
+          hasBodyText: true,
+          subjectPreview: "Intervention plomberie",
+          bodyPreview: "Bonjour.",
+          tone: null,
+          language: "fr",
+          createdAt: "2026-05-15T10:00:00.000Z",
+        },
+        gmailExport: {
+          exportStatus: "requested",
+          canExport: true,
+          exportedAt: null,
+        },
+        companyContext: {
+          companyName: "Aqua Nord",
+          sector: "Plomberie",
+          language: "fr",
+        },
+        derived: {
+          pipelineState: "export_requested",
+          attentionFlags: ["high_score"],
+          nextBestAction: "wait",
+        },
+        workspaceId: "forbidden-mail-workspace",
+        contactEmail: "forbidden-mail@example.test",
+        metadata_json: { hidden: true },
+        payload_json: { hidden: true },
+        leaseToken: "forbidden-mail-lease-token",
+        prompt: "forbidden-mail-prompt",
+        output: "forbidden-mail-output",
+        rawMetadata: "forbidden-mail-raw-metadata",
+      },
+    ],
+  },
+};
+
+const mailQueueDetailResponse = {
+  success: true,
+  data: {
+    ...mailQueueResponse.data.items[0],
+    workspace_id: "forbidden-mail-detail-workspace",
+    fromEmail: "forbidden-from@example.test",
+    providerMessageId: "forbidden-provider-message-id",
+    bodyText: "forbidden-full-body",
+  },
+};
+
 function mockResponse(body: unknown, status = 200) {
   return Promise.resolve(
     new Response(JSON.stringify(body), {
@@ -580,6 +696,70 @@ describe("api client", () => {
     expect(serialized).not.toContain("forbidden-detail-workspace");
     expect(serialized).not.toContain("forbidden-prompt");
     expect(serialized).not.toContain("forbidden-output");
+  });
+
+  it("calls the client mail queue endpoint and strips unsafe fields", async () => {
+    const request = vi.fn(() => mockResponse(mailQueueResponse));
+    vi.stubGlobal("fetch", request);
+
+    await expect(
+      getMailQueue({
+        limit: 20,
+        includeIgnored: true,
+        category: ["service", "quote"],
+        action: ["create_lead"],
+        scoreBand: ["hot"],
+        contactStatus: ["returning"],
+        hasDraft: true,
+        exportStatus: ["requested"],
+        pipelineState: ["export_requested"],
+        attentionRequired: true,
+      }),
+    ).resolves.toMatchObject({
+      items: [
+        {
+          classificationId: "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd",
+          classification: { category: "service" },
+          draft: { bodyPreview: "Bonjour." },
+        },
+      ],
+      summary: {
+        totalClassified: 1,
+      },
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/client/mail-queue?limit=20&includeIgnored=true&category=service%2Cquote&action=create_lead&scoreBand=hot&contactStatus=returning&exportStatus=requested&pipelineState=export_requested&hasDraft=true&attentionRequired=true",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    const serialized = JSON.stringify(await getMailQueue({ limit: 20 }));
+    expect(serialized).not.toContain("forbidden-mail-workspace");
+    expect(serialized).not.toContain("forbidden-mail@example.test");
+    expect(serialized).not.toContain("forbidden-mail-lease-token");
+    expect(serialized).not.toContain("forbidden-mail-prompt");
+  });
+
+  it("calls the client mail queue detail endpoint without raw mail body", async () => {
+    const request = vi.fn(() => mockResponse(mailQueueDetailResponse));
+    vi.stubGlobal("fetch", request);
+
+    await expect(getMailQueueDetail("cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd")).resolves.toMatchObject(
+      {
+        classificationId: "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd",
+        draft: {
+          bodyPreview: "Bonjour.",
+        },
+      },
+    );
+    expect(request).toHaveBeenCalledWith(
+      "/api/client/mail-queue/cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    const serialized = JSON.stringify(
+      await getMailQueueDetail("cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd"),
+    );
+    expect(serialized).not.toContain("forbidden-mail-detail-workspace");
+    expect(serialized).not.toContain("forbidden-from@example.test");
+    expect(serialized).not.toContain("forbidden-full-body");
   });
 
   it("requests draft Gmail export without client workspace material", async () => {

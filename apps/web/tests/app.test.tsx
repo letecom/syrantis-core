@@ -110,6 +110,12 @@ const draftQueueHotUrl = "/api/client/draft-queue?limit=20&scoreBand=hot";
 const draftQueueAttentionUrl = "/api/client/draft-queue?limit=20&attentionRequired=true";
 const draftQueueDraftId = "abababab-abab-4aba-8aba-abababababab";
 const draftQueueDetailUrl = `/api/client/draft-queue/${draftQueueDraftId}`;
+const mailQueueUrl = "/api/client/mail-queue?limit=20&includeIgnored=false";
+const mailQueueIncludeIgnoredUrl = "/api/client/mail-queue?limit=20&includeIgnored=true";
+const mailQueueCategoryUrl =
+  "/api/client/mail-queue?limit=20&includeIgnored=false&category=service";
+const mailQueueClassificationId = "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd";
+const mailQueueDetailUrl = `/api/client/mail-queue/${mailQueueClassificationId}`;
 
 const replayResponse = {
   success: true,
@@ -483,6 +489,145 @@ const draftQueueDetail = {
     contactEmail: "forbidden-detail@example.test",
     prompt: "forbidden-detail-prompt",
     output: "forbidden-detail-output",
+  },
+};
+
+const mailQueue = {
+  success: true,
+  data: {
+    generatedAt: "2026-05-15T12:00:00.000Z",
+    filters: {
+      applied: {
+        limit: 20,
+        offset: 0,
+        since: "2026-04-15T12:00:00.000Z",
+        includeIgnored: false,
+        category: [],
+        action: [],
+        scoreBand: [],
+        contactStatus: [],
+        hasDraft: null,
+        exportStatus: [],
+        pipelineState: [],
+        attentionRequired: null,
+      },
+    },
+    pagination: {
+      limit: 20,
+      offset: 0,
+      total: 1,
+    },
+    summary: {
+      totalClassified: 1,
+      totalIgnored: 0,
+      totalLeadsCreated: 1,
+      totalScored: 1,
+      totalWithDraft: 1,
+      totalExportRequested: 1,
+      totalExported: 0,
+      totalAttentionRequired: 1,
+    },
+    items: [
+      {
+        classificationId: mailQueueClassificationId,
+        classifiedAt: "2026-05-15T09:00:00.000Z",
+        classification: {
+          category: "service",
+          action: "create_lead",
+          confidence: "high",
+          reasonCode: "urgent_service_intent",
+        },
+        lead: {
+          leadId: "dededede-dede-4ded-8ded-dededededede",
+          leadCreatedAt: "2026-05-15T09:05:00.000Z",
+          leadStatus: "scored",
+        },
+        score: {
+          scoreBand: "hot",
+          score: 88,
+          confidence: 74,
+          recommendedAction: "Call today.",
+          urgency: "high",
+          intent: "urgent_service_intent",
+          scoredAt: "2026-05-15T09:30:00.000Z",
+        },
+        contact: {
+          known: true,
+          previousLeadCount: 1,
+          status: "returning",
+        },
+        draft: {
+          draftId: "efefefef-efef-4efe-8efe-efefefefefef",
+          status: "draft",
+          hasSubject: true,
+          hasBodyText: true,
+          subjectPreview: "Intervention plomberie",
+          bodyPreview: "Bonjour, merci pour votre demande.",
+          tone: null,
+          language: "fr",
+          createdAt: "2026-05-15T10:00:00.000Z",
+        },
+        gmailExport: {
+          exportStatus: "requested",
+          canExport: true,
+          exportedAt: null,
+        },
+        companyContext: {
+          companyName: "Aqua Nord",
+          sector: "Plomberie",
+          language: "fr",
+        },
+        derived: {
+          pipelineState: "export_requested",
+          attentionFlags: ["high_score", "urgent_action"],
+          nextBestAction: "wait",
+        },
+        workspaceId: "forbidden-mail-workspace",
+        contactEmail: "forbidden-mail@example.test",
+        fromEmail: "forbidden-from@example.test",
+        toEmail: "forbidden-to@example.test",
+        metadata_json: { hidden: true },
+        payload_json: { hidden: true },
+        leaseToken: "forbidden-mail-lease-token",
+        prompt: "forbidden-mail-prompt",
+        output: "forbidden-mail-output",
+      },
+    ],
+  },
+};
+
+const mailQueueEmpty = {
+  success: true,
+  data: {
+    ...mailQueue.data,
+    items: [],
+    summary: {
+      totalClassified: 0,
+      totalIgnored: 0,
+      totalLeadsCreated: 0,
+      totalScored: 0,
+      totalWithDraft: 0,
+      totalExportRequested: 0,
+      totalExported: 0,
+      totalAttentionRequired: 0,
+    },
+    pagination: {
+      limit: 20,
+      offset: 0,
+      total: 0,
+    },
+  },
+};
+
+const mailQueueDetail = {
+  success: true,
+  data: {
+    ...mailQueue.data.items[0],
+    workspace_id: "forbidden-mail-detail-workspace",
+    contactEmail: "forbidden-mail-detail@example.test",
+    bodyText: "forbidden-full-mail-body",
+    rawPayload: "forbidden-raw-payload",
+    providerMessageId: "forbidden-provider-message-id",
   },
 };
 
@@ -899,6 +1044,7 @@ describe("admin app", () => {
     expect(screen.getByRole("link", { name: "Client Dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Client Install" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Draft Queue" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Mail Queue" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Gmail Export" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "API Keys" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Google Sheets" })).toBeInTheDocument();
@@ -1173,6 +1319,178 @@ describe("admin app", () => {
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByText(/bulk/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/raw json/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/From|To|CC|BCC/)).not.toBeInTheDocument();
+  });
+
+  it("renders the mail queue page with summary cards, filters, and cards", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === mailQueueUrl) {
+        return mockJson(mailQueue);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/mail-queue");
+
+    expect(await screen.findByRole("heading", { name: "Mail Review Queue" })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This is a mail review queue for AI-classified inbound messages. It is not an inbox.",
+      ),
+    ).toBeInTheDocument();
+    for (const label of [
+      "Classified",
+      "Ignored",
+      "Leads created",
+      "Scored",
+      "With draft",
+      "Exported",
+      "Attention required",
+    ]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+    for (const label of [
+      "Include ignored",
+      "Has draft",
+      "Attention required",
+      "service",
+      "create_lead",
+      "hot",
+      "export_requested",
+      "returning",
+      "requested",
+    ]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+    expect(screen.getByRole("button", { name: /Refresh/ })).toBeInTheDocument();
+    expect(await screen.findByText("urgent_service_intent")).toBeInTheDocument();
+    expect(screen.getByText("Draft")).toBeInTheDocument();
+    expect(screen.getAllByText("Gmail export").length).toBeGreaterThan(0);
+    expect(screen.queryByText("forbidden-mail-workspace")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-mail@example.test")).not.toBeInTheDocument();
+  });
+
+  it("renders the mail queue empty state", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url === mailQueueUrl) {
+          return mockJson(mailQueueEmpty);
+        }
+
+        return mockJson(currentUser);
+      }),
+    );
+
+    renderApp("/app/mail-queue");
+
+    expect(
+      await screen.findByText("No classified inbound mail is visible in this queue."),
+    ).toBeInTheDocument();
+  });
+
+  it("updates mail queue filters and refreshes", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => {
+      if (
+        url === mailQueueUrl ||
+        url === mailQueueIncludeIgnoredUrl ||
+        url === mailQueueCategoryUrl
+      ) {
+        return mockJson(mailQueue);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/mail-queue");
+    await screen.findByText("urgent_service_intent");
+    await user.click(screen.getByRole("button", { name: "Include ignored" }));
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(mailQueueIncludeIgnoredUrl, expect.anything()),
+    );
+    await user.click(screen.getByRole("button", { name: "Include ignored" }));
+    await user.click(screen.getByRole("button", { name: "service" }));
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(mailQueueCategoryUrl, expect.anything()),
+    );
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(request).toHaveBeenCalled();
+  });
+
+  it("opens the mail queue detail drawer with safe read-only cards and links", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => {
+      if (url === mailQueueUrl) {
+        return mockJson(mailQueue);
+      }
+
+      if (url === mailQueueDetailUrl) {
+        return mockJson(mailQueueDetail);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/mail-queue");
+    await user.click(await screen.findByRole("button", { name: "View details" }));
+
+    const drawer = await screen.findByLabelText("Mail queue detail");
+    for (const label of [
+      "Classification",
+      "Score",
+      "Contact status",
+      "Draft preview",
+      "Export status",
+      "Company context",
+    ]) {
+      expect(within(drawer).getByText(label)).toBeInTheDocument();
+    }
+    expect(within(drawer).getByRole("link", { name: "View Draft Queue" })).toBeInTheDocument();
+    expect(within(drawer).getByRole("link", { name: "View Gmail Export" })).toBeInTheDocument();
+    expect(within(drawer).getByText("Bonjour, merci pour votre demande.")).toBeInTheDocument();
+    expect(screen.queryByText("forbidden-mail-detail-workspace")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-full-mail-body")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-mail-detail@example.test")).not.toBeInTheDocument();
+  });
+
+  it("keeps the mail queue free of inbox, mutation, raw JSON, and contact exposure patterns", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url === mailQueueUrl) {
+          return mockJson(mailQueue);
+        }
+
+        return mockJson(currentUser);
+      }),
+    );
+
+    renderApp("/app/mail-queue");
+    await screen.findByText("urgent_service_intent");
+
+    for (const name of [
+      "Send",
+      "Approve",
+      "Reject",
+      "Edit",
+      "Archive",
+      "Delete",
+      "Reply",
+      "Forward",
+      "Mark reviewed",
+    ]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByText(/bulk/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw json/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/forbidden-mail@example\.test/)).not.toBeInTheDocument();
     expect(screen.queryByText(/From|To|CC|BCC/)).not.toBeInTheDocument();
   });
 

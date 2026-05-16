@@ -157,6 +157,15 @@ Gmail, Google Sheets, providers, workers, or send behavior.
 - The client bridge can label `Syrantis/Processed`, `Syrantis/Ignored`, and `Syrantis/Failed`
   based on the safe API result.
 
+023AC adds a read-only Client Mail Review Queue:
+
+- `GET /api/client/mail-queue` returns a safe paginated read model from `intake_classifications`.
+- `GET /api/client/mail-queue/:classificationId` returns safe detail without raw inbound body.
+- `/app/mail-queue` shows classification, lead/scoring/draft/export state, contact status, company
+  context, attention flags, and links toward Draft Queue/Gmail Export.
+- It adds no migration, no provider calls, no mutation route, no Gmail clone UI, and no raw metadata,
+  contact email/name, prompt/output, lease token, API key, or workspace ID exposure.
+
 ## Contextual AI Draft Generation / 023R
 
 023R upgrades the existing `POST /api/leads/:id/generate-draft` flow without adding a route, UI, job type, or migration. The route still only creates or reuses a `generate_ai_draft` job and does not call the provider.

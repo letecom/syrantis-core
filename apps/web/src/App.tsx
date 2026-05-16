@@ -11,6 +11,7 @@ import { DraftQueuePage } from "./pages/DraftQueuePage";
 import { GmailExportOpsPage } from "./pages/GmailExportOpsPage";
 import { GoogleSheetsPage } from "./pages/GoogleSheetsPage";
 import { LoginPage } from "./pages/LoginPage";
+import { MailQueuePage } from "./pages/MailQueuePage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { OpsPage } from "./pages/OpsPage";
 import { PushbackPage } from "./pages/PushbackPage";
@@ -43,6 +44,7 @@ export function App() {
         <Route element={<ClientDashboardPage />} path="client-dashboard" />
         <Route element={<ClientInstallPage />} path="client-install" />
         <Route element={<DraftQueuePage />} path="draft-queue" />
+        <Route element={<MailQueuePage />} path="mail-queue" />
         <Route element={<GmailExportOpsPage />} path="gmail-export" />
         <Route element={<ApiKeysPage />} path="api-keys" />
         <Route element={<GoogleSheetsPage />} path="google-sheets" />

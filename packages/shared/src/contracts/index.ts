@@ -22,6 +22,7 @@ export * from "./integrations.js";
 export * from "./intake-classification.js";
 export * from "./lead-score-status.js";
 export * from "./leads.js";
+export * from "./mail-queue.js";
 export * from "./organizations.js";
 export * from "./public-leads.js";
 export * from "./pushback-status.js";
