@@ -5,6 +5,7 @@ import {
   cancelDraftGmailExportRequest,
   getGoogleSheetsSetupStatus,
   getCurrentUser,
+  getClientResponsePolicy,
   getDraftQueue,
   getDraftQueueDetail,
   getDraftGmailExportStatus,
@@ -21,6 +22,7 @@ import {
   revokeWorkspaceApiKey,
   runOpsCheck,
   testGoogleSheetsSetup,
+  putClientResponsePolicy,
 } from "../src/lib/api-client";
 
 const userResponse = {
@@ -542,6 +544,33 @@ const mailQueueDetailResponse = {
   },
 };
 
+const clientResponsePolicyResponse = {
+  success: true,
+  data: {
+    policy: {
+      language: "fr",
+      tone: "warm",
+      customToneNotes: "Clear and calm.",
+      signature: "Acme team",
+      defaultGreeting: "Bonjour,",
+      defaultClosing: "Bien cordialement,",
+      responseStructure: ["acknowledge request"],
+      businessRules: ["confirm slots before promising timing"],
+      forbiddenClaims: ["do not guarantee exact price"],
+      escalationRules: ["complaints require human review"],
+      offerNotes: ["lead with diagnostic visit"],
+      catalogSummary: "Heating services.",
+      exampleReplies: [{ label: "Quote", bodyText: "Bonjour, merci pour votre demande." }],
+      updatedAt: "2026-05-16T09:00:00.000Z",
+      status: "configured",
+      workspaceId: "forbidden-workspace",
+      contextJson: { hidden: true },
+      createdBy: "forbidden-created-by",
+      updatedBy: "forbidden-updated-by",
+    },
+  },
+};
+
 function mockResponse(body: unknown, status = 200) {
   return Promise.resolve(
     new Response(JSON.stringify(body), {
@@ -760,6 +789,60 @@ describe("api client", () => {
     expect(serialized).not.toContain("forbidden-mail-detail-workspace");
     expect(serialized).not.toContain("forbidden-from@example.test");
     expect(serialized).not.toContain("forbidden-full-body");
+  });
+
+  it("loads client response policy through the session backend route", async () => {
+    const request = vi.fn(() => mockResponse(clientResponsePolicyResponse));
+    vi.stubGlobal("fetch", request);
+
+    const result = await getClientResponsePolicy();
+
+    expect(result).toMatchObject({
+      language: "fr",
+      tone: "warm",
+      status: "configured",
+      signature: "Acme team",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/client/response-policy",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(JSON.stringify(result)).not.toContain("workspaceId");
+    expect(JSON.stringify(result)).not.toContain("contextJson");
+  });
+
+  it("saves client response policy without tenant material", async () => {
+    const request = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
+      mockResponse(clientResponsePolicyResponse),
+    );
+    vi.stubGlobal("fetch", request);
+
+    await expect(
+      putClientResponsePolicy({
+        language: "fr",
+        tone: "warm",
+        customToneNotes: null,
+        signature: "Acme team",
+        defaultGreeting: "Bonjour,",
+        defaultClosing: "Bien cordialement,",
+        responseStructure: ["acknowledge request"],
+        businessRules: ["confirm slots before promising timing"],
+        forbiddenClaims: ["do not guarantee exact price"],
+        escalationRules: ["complaints require human review"],
+        offerNotes: ["lead with diagnostic visit"],
+        catalogSummary: "Heating services.",
+        exampleReplies: [{ label: "Quote", bodyText: "Bonjour, merci pour votre demande." }],
+      }),
+    ).resolves.toMatchObject({ status: "configured" });
+    expect(request).toHaveBeenCalledWith(
+      "/api/client/response-policy",
+      expect.objectContaining({
+        credentials: "include",
+        method: "PUT",
+      }),
+    );
+    expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("workspaceId");
+    expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("Authorization");
   });
 
   it("requests draft Gmail export without client workspace material", async () => {

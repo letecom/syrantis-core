@@ -67,6 +67,8 @@ export const ActivityLogActionSchema = z.enum([
   "workspace_api_key.revoked",
   "workspace_context.created",
   "workspace_context.updated",
+  "client_response_policy.created",
+  "client_response_policy.updated",
   "public_lead.received",
 ]);
 

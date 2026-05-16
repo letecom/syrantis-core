@@ -93,3 +93,24 @@ The queue does not expose raw inbound email bodies, raw metadata, provider paylo
 email/name, workspace IDs, prompts, outputs, lease tokens, API key material, or mutation actions.
 It does not call Gmail, Google, Resend, or any provider and does not create activity logs,
 background jobs, drafts, approvals, or sends.
+
+## 023AD Client Response Policy Pack State
+
+Admin/founder sessions now have a bounded client response policy configuration surface:
+
+- `GET /api/client/response-policy` returns a safe empty/default policy or configured policy.
+- `PUT /api/client/response-policy` stores policy under
+  `workspace_context_profiles.context_json.responsePolicy`.
+- `/app/response-policy` provides a compact form for language, tone, signature, response structure,
+  business rules, forbidden claims, escalation rules, offer notes, catalog summary, and example
+  replies.
+
+No migration was added. Existing workspace context columns and unrelated `context_json` keys are
+preserved. Policy activity logs contain only `policyConfigured`, `changedFields`, and `source`.
+
+`generate_ai_draft` consumes configured response policy in prompt context and records
+`contextUsed.responsePolicy`/`contextSourcesUsed.responsePolicy` as server-derived booleans. The
+worker still blocks `prior_complaint` before provider calls, AI run creation, or draft creation.
+
+The feature does not add provider calls from routes, Gmail/Google/Resend calls, send/export/approval
+actions, file uploads, raw JSON panels, or prompt/output exposure.

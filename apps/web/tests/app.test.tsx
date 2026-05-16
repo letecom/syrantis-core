@@ -116,6 +116,7 @@ const mailQueueCategoryUrl =
   "/api/client/mail-queue?limit=20&includeIgnored=false&category=service";
 const mailQueueClassificationId = "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd";
 const mailQueueDetailUrl = `/api/client/mail-queue/${mailQueueClassificationId}`;
+const responsePolicyUrl = "/api/client/response-policy";
 
 const replayResponse = {
   success: true,
@@ -743,6 +744,54 @@ const workspaceApiKeyRevoked = {
     updatedAt: "2026-05-09T12:00:00.000Z",
     plaintextApiKey: "syr_live_forbidden_plaintext",
     key_hash: "forbidden-hash",
+  },
+};
+
+const responsePolicyEmpty = {
+  success: true,
+  data: {
+    policy: {
+      language: "auto",
+      tone: "professional",
+      customToneNotes: null,
+      signature: null,
+      defaultGreeting: null,
+      defaultClosing: null,
+      responseStructure: [],
+      businessRules: [],
+      forbiddenClaims: [],
+      escalationRules: [],
+      offerNotes: [],
+      catalogSummary: null,
+      exampleReplies: [],
+      updatedAt: null,
+      status: "empty",
+    },
+  },
+};
+
+const responsePolicyConfigured = {
+  success: true,
+  data: {
+    policy: {
+      language: "fr",
+      tone: "warm",
+      customToneNotes: "Keep replies clear and calm.",
+      signature: "Acme team",
+      defaultGreeting: "Bonjour,",
+      defaultClosing: "Bien cordialement,",
+      responseStructure: ["acknowledge request", "propose next step"],
+      businessRules: ["confirm slots before promising timing"],
+      forbiddenClaims: ["do not guarantee exact price"],
+      escalationRules: ["complaints require human review"],
+      offerNotes: ["lead with diagnostic visit"],
+      catalogSummary: "Heating services.",
+      exampleReplies: [{ label: "Quote", bodyText: "Bonjour, merci pour votre demande." }],
+      updatedAt: "2026-05-16T09:00:00.000Z",
+      status: "configured",
+      workspaceId: "forbidden-response-policy-workspace",
+      contextJson: { raw: true },
+    },
   },
 };
 
@@ -2041,6 +2090,102 @@ describe("admin app", () => {
     renderApp("/app/api-keys");
 
     expect(await screen.findByText("No API keys yet.")).toBeInTheDocument();
+  });
+
+  it("renders response policy empty state and nav link", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === responsePolicyUrl) {
+        return mockJson(responsePolicyEmpty);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/response-policy");
+
+    expect(await screen.findByRole("heading", { name: "Response Policy" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Response Policy" })).toBeInTheDocument();
+    expect(screen.getByText("No response policy configured yet.")).toBeInTheDocument();
+    expect(screen.queryByText(/raw json/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/file/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /test/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /send|export|approve/i })).not.toBeInTheDocument();
+  });
+
+  it("loads existing response policy into the form", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === responsePolicyUrl) {
+        return mockJson(responsePolicyConfigured);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/response-policy");
+
+    expect(await screen.findByDisplayValue("Acme team")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Bonjour,")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Heating services.")).toBeInTheDocument();
+    expect(screen.getByText("configured")).toBeInTheDocument();
+    expect(screen.queryByText("forbidden-response-policy-workspace")).not.toBeInTheDocument();
+  });
+
+  it("saves response policy changes with PUT", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string, init?: RequestInit) => {
+      if (url === responsePolicyUrl && init?.method === "PUT") {
+        return mockJson(responsePolicyConfigured);
+      }
+
+      if (url === responsePolicyUrl) {
+        return mockJson(responsePolicyEmpty);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/response-policy");
+    await user.type(await screen.findByLabelText("Signature"), "Acme team");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(
+        request.mock.calls.some(([url, init]) => url === responsePolicyUrl && init?.method === "PUT"),
+      ).toBe(true);
+    });
+    const putCall = request.mock.calls.find(
+      ([url, init]) => url === responsePolicyUrl && init?.method === "PUT",
+    );
+    expect(JSON.stringify(putCall?.[1])).toContain("Acme team");
+    expect(JSON.stringify(putCall?.[1])).not.toContain("workspaceId");
+  });
+
+  it("shows response policy validation errors", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => {
+      if (url === responsePolicyUrl) {
+        return mockJson(responsePolicyEmpty);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/response-policy");
+    await user.type(
+      await screen.findByLabelText("Services, products, pricing notes"),
+      `syr_live_${"a".repeat(24)}`,
+    );
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(
+      await screen.findByText(
+        "Response policy could not be saved. Check field lengths and sensitive material.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("creates an API key, copies it, and clears the one-time value on close", async () => {
