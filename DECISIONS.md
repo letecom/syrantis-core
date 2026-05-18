@@ -203,3 +203,18 @@ Decision: the future client product app is separate from the founder/admin valid
   draft/export mutations are implemented.
 
 Admin queues and debug read models must not be reused directly as the live client Inbox contract.
+
+## 2026-05-18 - 023AF Dedicated Client Inbox Domain
+
+Decision: the live Client Inbox backend has a dedicated `client_mail_items` domain table and
+`/api/client/inbox` read/action routes instead of reusing founder/admin validation queues.
+
+Full inbound mail body and email addresses are allowed only in `client_mail_items` and the dedicated
+Inbox detail DTO. They remain forbidden in public intake responses, list DTOs, activity log
+metadata, background job payloads, admin queues, Google Sheets, prompts, provider payloads, and raw
+metadata.
+
+Inbox draft edit and Gmail export request/cancel actions resolve through the workspace-scoped mail
+item relation and reuse existing draft/export rules. This does not approve live UI, AI rewrite,
+direct send, backend Gmail OAuth, provider calls, Resend changes, Google Sheets changes, deployment,
+or client RBAC.

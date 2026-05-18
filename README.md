@@ -58,8 +58,9 @@ Validated current loop:
 9. 023AA/023AB Draft Queue shows generated draft review and safe Gmail export actions.
 10. 023S/023T/023U Gmail draft bridge exports only requested drafts through client-owned Apps Script.
 11. The human edits and sends inside Gmail.
-12. 023AE defines the future client app design contract and mock Inbox preview; live Inbox behavior
-    still requires a dedicated Client Inbox Domain.
+12. 023AE defines the future client app design contract and mock Inbox preview.
+13. 023AF adds the dedicated backend Client Inbox Domain for future live Inbox list/detail,
+    draft-edit, and Gmail export request/cancel actions.
 
 ## Current Client/Admin Surfaces
 
@@ -96,6 +97,7 @@ Current validated backend capabilities include:
 - Gmail export status/request/cancel
 - draft review queue
 - mail review queue
+- client inbox domain read/action API
 - response policy
 - worker continuous runtime
 - systemd API/worker runtime foundations
@@ -208,6 +210,29 @@ The preview is static mock UI only. The future live Inbox still requires a dedic
 Domain backend before full client-visible mail bodies, draft editing, rewrite, or Gmail export
 actions can be implemented. 023AE adds no migration, no API route, no intake change, and no backend
 behavior change.
+
+## Client Inbox Domain / 023AF
+
+023AF creates the dedicated backend foundation for the future live Inbox without implementing live
+UI:
+
+- `client_mail_items` is the approved Client Inbox Domain table for client-visible inbound mail,
+  with RLS, FORCE RLS, tenant policy, updated-at trigger, and external id idempotency.
+- Public inbound intake now writes a mail item for every validated message. Ignored mail creates a
+  mail item and classification without becoming a lead or job.
+- `GET /api/client/inbox/messages` returns safe list summaries and intentionally omits full body,
+  subject values, email addresses, workspace id, raw metadata, provider ids, prompt/output, lease
+  token, and API key material. The nullable `subject` field returns `null` in v1.
+- `GET /api/client/inbox/messages/:mailItemId` is the dedicated detail context where selected mail
+  `bodyText`, `fromEmail`, and `toEmail` may be returned.
+- `PATCH /api/client/inbox/messages/:mailItemId/draft` edits the linked draft without returning
+  subject/body and without provider, send, export, approval, `email_sends`, or job side effects.
+- Inbox Gmail export request/cancel wrappers resolve mail item to draft and reuse the existing 023U
+  service rules.
+
+Full inbound mail body remains forbidden outside `client_mail_items` and the dedicated detail DTO.
+023AF adds no client RBAC, AI rewrite, direct send, provider call, Gmail backend call, Resend,
+Google Sheets, Apps Script, deployment, Caddy, systemd, or env behavior.
 
 ## Draft Queue / 023AA-023AB
 

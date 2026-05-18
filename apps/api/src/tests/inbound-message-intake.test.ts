@@ -342,6 +342,12 @@ function jobRow(id = jobId) {
   };
 }
 
+function mailItemRow(id = "00000000-0000-4000-8000-000000023297") {
+  return {
+    id,
+  };
+}
+
 function classificationRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "00000000-0000-4000-8000-000000023298",
@@ -675,6 +681,7 @@ describe("public inbound message repository", () => {
         contactRow({ email: "lead@example.com" }),
         { id: leadId, contactId, createdAt },
         jobRow(),
+        mailItemRow(),
       ],
     });
     mockDb.tx = harness.tx;
@@ -744,7 +751,13 @@ describe("public inbound message repository", () => {
       }),
     });
     expectNoUnsafeNormalizedJson(harness.insertedValues[2]?.normalizedJson);
-    expect(String(harness.insertedValues[2]?.rawContent)).toContain("Need urgent boiler help.");
+    expect(String(harness.insertedValues[2]?.rawContent)).toContain(
+      "Public inbound message captured for the Client Inbox Domain.",
+    );
+    expect(String(harness.insertedValues[2]?.rawContent)).not.toContain("lead@example.com");
+    expect(String(harness.insertedValues[2]?.rawContent)).not.toContain(
+      "Need urgent boiler help.",
+    );
     expect(harness.insertedValues[3]).toMatchObject({
       workspaceId,
       type: "score_lead",
@@ -756,6 +769,21 @@ describe("public inbound message repository", () => {
       },
     });
     expectSafeSerialized(harness.insertedValues[3]?.payloadJson);
+    expect(harness.insertedValues[4]).toMatchObject({
+      workspaceId,
+      classificationId: "00000000-0000-4000-8000-000000023298",
+      leadId,
+      contactId,
+      externalId: "external-1",
+      source: "zapier",
+      direction: "inbound",
+      fromDisplay: "Jean Client",
+      fromEmail: " Lead@Example.COM ",
+      subject: "Need urgent boiler quote",
+      bodyText: "Need urgent boiler help.",
+      hasAttachments: false,
+      attachmentsJson: [],
+    });
     expect(createActivityLog).toHaveBeenCalledWith(
       harness.tx,
       expect.objectContaining({
@@ -790,7 +818,12 @@ describe("public inbound message repository", () => {
   it("reuses an existing same-workspace contact by normalized fromEmail", async () => {
     const harness = createMockTx({
       selectResponses: [[], [contactRow({ email: "Lead@Example.com" })]],
-      insertResponses: [classificationRow(), { id: secondLeadId, contactId, createdAt }, jobRow()],
+      insertResponses: [
+        classificationRow(),
+        { id: secondLeadId, contactId, createdAt },
+        jobRow(),
+        mailItemRow(),
+      ],
     });
     mockDb.tx = harness.tx;
 
@@ -812,7 +845,7 @@ describe("public inbound message repository", () => {
         contactId,
       },
     });
-    expect(harness.insertedValues).toHaveLength(3);
+    expect(harness.insertedValues).toHaveLength(4);
     expect(harness.insertedValues[0]).toMatchObject({
       workspaceId,
       classification: "leadable",
@@ -831,6 +864,13 @@ describe("public inbound message repository", () => {
     expect(harness.insertedValues[2]).toMatchObject({
       type: "score_lead",
     });
+    expect(harness.insertedValues[3]).toMatchObject({
+      workspaceId,
+      leadId: secondLeadId,
+      contactId,
+      fromEmail: " lead@example.com ",
+      bodyText: "Need urgent boiler help.",
+    });
   });
 
   it("returns an idempotent replay without inserting a new lead or job", async () => {
@@ -840,7 +880,7 @@ describe("public inbound message repository", () => {
         [{ id: replayLeadId, contactId, createdAt }],
         [jobRow(replayJobId)],
       ],
-      insertResponses: [],
+      insertResponses: [mailItemRow()],
     });
     mockDb.tx = harness.tx;
 
@@ -865,7 +905,14 @@ describe("public inbound message repository", () => {
         category: "quote_request",
       },
     });
-    expect(harness.insertedValues).toHaveLength(0);
+    expect(harness.insertedValues).toHaveLength(1);
+    expect(harness.insertedValues[0]).toMatchObject({
+      workspaceId,
+      classificationId: "00000000-0000-4000-8000-000000023298",
+      leadId: replayLeadId,
+      contactId,
+      bodyText: "Need urgent boiler help.",
+    });
     expect(createActivityLog).not.toHaveBeenCalled();
   });
 
@@ -880,7 +927,7 @@ describe("public inbound message repository", () => {
     });
     const harness = createMockTx({
       selectResponses: [[]],
-      insertResponses: [ignoredClassification],
+      insertResponses: [ignoredClassification, mailItemRow()],
     });
     mockDb.tx = harness.tx;
 
@@ -905,7 +952,16 @@ describe("public inbound message repository", () => {
         action: "ignore",
       },
     });
-    expect(harness.insertedValues).toHaveLength(1);
+    expect(harness.insertedValues).toHaveLength(2);
+    expect(harness.insertedValues[1]).toMatchObject({
+      workspaceId,
+      classificationId: "00000000-0000-4000-8000-000000023298",
+      leadId: null,
+      contactId: null,
+      fromEmail: "newsletter@example.com",
+      subject: "Newsletter",
+      bodyText: "Promo du mois. Se desabonner.",
+    });
     expect(createActivityLog).toHaveBeenCalledWith(
       harness.tx,
       expect.objectContaining({
@@ -932,7 +988,7 @@ describe("public inbound message repository", () => {
           }),
         ],
       ],
-      insertResponses: [],
+      insertResponses: [mailItemRow()],
     });
     mockDb.tx = harness.tx;
 
@@ -948,14 +1004,20 @@ describe("public inbound message repository", () => {
       lead: null,
       job: null,
     });
-    expect(harness.insertedValues).toHaveLength(0);
+    expect(harness.insertedValues).toHaveLength(1);
+    expect(harness.insertedValues[0]).toMatchObject({
+      workspaceId,
+      leadId: null,
+      contactId: null,
+      bodyText: "Need urgent boiler help.",
+    });
     expect(createActivityLog).not.toHaveBeenCalled();
   });
 
   it("handles a concurrent duplicate created classification without duplicate lead or job inserts", async () => {
     const harness = createMockTx({
       selectResponses: [[], [classificationRow({ leadId: replayLeadId })], [jobRow(replayJobId)]],
-      insertResponses: [],
+      insertResponses: [undefined, mailItemRow()],
     });
     mockDb.tx = harness.tx;
 
@@ -971,7 +1033,12 @@ describe("public inbound message repository", () => {
       lead: { id: replayLeadId },
       job: { id: replayJobId },
     });
-    expect(harness.insertedValues).toHaveLength(1);
+    expect(harness.insertedValues).toHaveLength(2);
+    expect(harness.insertedValues[1]).toMatchObject({
+      workspaceId,
+      leadId: replayLeadId,
+      bodyText: "Need urgent boiler help.",
+    });
   });
 
   it("propagates job enqueue failure before writing activity metadata", async () => {

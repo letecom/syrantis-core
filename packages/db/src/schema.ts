@@ -15,6 +15,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 const emptyJson = sql`'{}'::jsonb`;
+const emptyJsonArray = sql`'[]'::jsonb`;
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -599,6 +600,59 @@ export const intakeClassifications = pgTable(
       table.workspaceId,
       table.externalId,
     ),
+  ],
+);
+
+export const clientMailItems = pgTable(
+  "client_mail_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    classificationId: uuid("classification_id").references(() => intakeClassifications.id, {
+      onDelete: "set null",
+    }),
+    leadId: uuid("lead_id").references(() => leads.id, { onDelete: "set null" }),
+    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+    draftId: uuid("draft_id").references(() => drafts.id, { onDelete: "set null" }),
+    externalId: text("external_id"),
+    externalThreadId: text("external_thread_id"),
+    source: text("source").notNull(),
+    direction: text("direction").notNull().default("inbound"),
+    fromDisplay: text("from_display"),
+    fromEmail: text("from_email"),
+    toDisplay: text("to_display"),
+    toEmail: text("to_email"),
+    subject: text("subject"),
+    snippet: text("snippet"),
+    bodyText: text("body_text"),
+    receivedAt: timestamp("received_at", { withTimezone: true }),
+    hasAttachments: boolean("has_attachments").notNull().default(false),
+    attachmentsJson: jsonb("attachments_json").$type<unknown[]>().notNull().default(emptyJsonArray),
+    ...timestamps,
+  },
+  (table) => [
+    check("client_mail_items_direction_check", sql`${table.direction} in ('inbound')`),
+    check("client_mail_items_source_non_empty_check", sql`btrim(${table.source}) <> ''`),
+    check(
+      "client_mail_items_attachments_json_array_check",
+      sql`jsonb_typeof(${table.attachmentsJson}) = 'array'`,
+    ),
+    uniqueIndex("client_mail_items_workspace_external_id_unique_idx")
+      .on(table.workspaceId, table.externalId)
+      .where(sql`${table.externalId} is not null`),
+    index("client_mail_items_workspace_received_at_idx").on(
+      table.workspaceId,
+      table.receivedAt.desc(),
+    ),
+    index("client_mail_items_workspace_classification_id_idx").on(
+      table.workspaceId,
+      table.classificationId,
+    ),
+    index("client_mail_items_workspace_lead_id_idx").on(table.workspaceId, table.leadId),
+    index("client_mail_items_workspace_contact_id_idx").on(table.workspaceId, table.contactId),
+    index("client_mail_items_workspace_draft_id_idx").on(table.workspaceId, table.draftId),
   ],
 );
 

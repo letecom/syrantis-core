@@ -43,13 +43,13 @@ function buildCatalog(input: {
   trigger?: TriggerCatalogRow | null | Record<string, TriggerCatalogRow | null>;
 }): SchemaCatalog {
   return {
-    findColumn: async ({ column }) => {
+    findColumn: async ({ table, column }) => {
       if (input.column === null || input.column === undefined) {
         return null;
       }
 
       if (!isColumnCatalogRow(input.column)) {
-        return input.column[column] ?? null;
+        return input.column[`${table}.${column}`] ?? input.column[column] ?? null;
       }
 
       return input.column;
@@ -92,7 +92,7 @@ function buildCatalog(input: {
         input.trigger ?? {
           enabled: true,
           functionName:
-            triggerName === "workspace_context_profiles_set_updated_at_trg"
+            triggerName.endsWith("_set_updated_at_trg")
               ? "syrantis_set_updated_at"
               : "enforce_email_sends_terminal_delivery_immutability",
         }
@@ -114,6 +114,12 @@ const allCheckConstraints = {
   email_sends_bounced_requires_bounced_at: true,
   email_sends_complained_requires_complained_at: true,
   background_jobs_type_check: true,
+  intake_classifications_classification_check: true,
+  intake_classifications_action_check: true,
+  intake_classifications_confidence_check: true,
+  client_mail_items_direction_check: true,
+  client_mail_items_source_non_empty_check: true,
+  client_mail_items_attachments_json_array_check: true,
 };
 
 const deliveryColumns = [
@@ -143,6 +149,24 @@ const allColumns = {
   suggested_labels: { dataType: "ARRAY", isNullable: false },
   lead_id: { dataType: "uuid", isNullable: true },
   created_at: { dataType: "timestamp with time zone", isNullable: false },
+  updated_at: { dataType: "timestamp with time zone", isNullable: false },
+  classification_id: { dataType: "uuid", isNullable: true },
+  contact_id: { dataType: "uuid", isNullable: true },
+  draft_id: { dataType: "uuid", isNullable: true },
+  "client_mail_items.external_id": { dataType: "text", isNullable: true },
+  external_thread_id: { dataType: "text", isNullable: true },
+  source: { dataType: "text", isNullable: false },
+  direction: { dataType: "text", isNullable: false },
+  from_display: { dataType: "text", isNullable: true },
+  from_email: { dataType: "text", isNullable: true },
+  to_display: { dataType: "text", isNullable: true },
+  to_email: { dataType: "text", isNullable: true },
+  subject: { dataType: "text", isNullable: true },
+  snippet: { dataType: "text", isNullable: true },
+  body_text: { dataType: "text", isNullable: true },
+  received_at: { dataType: "timestamp with time zone", isNullable: true },
+  has_attachments: { dataType: "boolean", isNullable: false },
+  attachments_json: { dataType: "jsonb", isNullable: false },
 };
 
 const expectedRlsTables = [
@@ -163,6 +187,7 @@ const expectedRlsTables = [
   "lead_scores",
   "workspace_context_profiles",
   "intake_classifications",
+  "client_mail_items",
 ];
 
 describe("schema invariant registry", () => {
@@ -351,6 +376,58 @@ describe("schema invariant registry", () => {
     );
   });
 
+  it("includes the 0022 client mail item invariants", () => {
+    for (const column of [
+      "workspace_id",
+      "classification_id",
+      "lead_id",
+      "contact_id",
+      "draft_id",
+      "external_id",
+      "body_text",
+      "attachments_json",
+    ]) {
+      assert.ok(
+        schemaInvariantRegistry.some(
+          (invariant) =>
+            invariant.kind === "column" &&
+            invariant.migration === "0022" &&
+            invariant.table === "client_mail_items" &&
+            invariant.column === column,
+        ),
+        `missing registry entry for ${column}`,
+      );
+    }
+
+    for (const indexName of [
+      "client_mail_items_workspace_external_id_unique_idx",
+      "client_mail_items_workspace_received_at_idx",
+      "client_mail_items_workspace_draft_id_idx",
+    ]) {
+      assert.ok(
+        schemaInvariantRegistry.some(
+          (invariant) =>
+            invariant.kind === "index" &&
+            invariant.migration === "0022" &&
+            invariant.table === "client_mail_items" &&
+            invariant.indexName === indexName,
+        ),
+        `missing registry entry for ${indexName}`,
+      );
+    }
+
+    assert.ok(
+      schemaInvariantRegistry.some(
+        (invariant) =>
+          invariant.kind === "trigger" &&
+          invariant.migration === "0022" &&
+          invariant.table === "client_mail_items" &&
+          invariant.triggerName === "client_mail_items_set_updated_at_trg" &&
+          invariant.functionName === "syrantis_set_updated_at",
+      ),
+    );
+  });
+
   it("includes RLS tenant isolation invariants for expected tenant tables", () => {
     const rlsInvariants = schemaInvariantRegistry.filter(
       (invariant) =>
@@ -385,8 +462,8 @@ describe("schema invariant verifier", () => {
     );
 
     assert.equal(result.success, true);
-    assert.equal(result.checked, 54);
-    assert.equal(result.passed.length, 54);
+    assert.equal(result.checked, 87);
+    assert.equal(result.passed.length, 87);
     assert.equal(result.failed.length, 0);
   });
 
@@ -836,8 +913,8 @@ describe("schema invariant verifier", () => {
     );
 
     assert.equal(getSchemaVerifyExitCode(result), 1);
-    assert.equal(result.checked, 54);
-    assert.equal(result.failed.length, 33);
+    assert.equal(result.checked, 87);
+    assert.equal(result.failed.length, 64);
   });
 
   it("keeps verification SQL limited to PostgreSQL catalog metadata", () => {
@@ -854,7 +931,7 @@ describe("schema invariant verifier", () => {
     assert.match(combinedSql, /relkind = 'r'/);
     assert.doesNotMatch(
       combinedSql,
-      /from\s+(organizations|contacts|leads|tasks|approvals|activity_logs|drafts|email_sends|background_jobs|ai_runs|lead_scores|workspace_context_profiles|intake_classifications|external_connections|external_object_mappings|integration_events|workspace_api_keys)\b/i,
+      /from\s+(organizations|contacts|leads|tasks|approvals|activity_logs|drafts|email_sends|background_jobs|ai_runs|lead_scores|workspace_context_profiles|intake_classifications|client_mail_items|external_connections|external_object_mappings|integration_events|workspace_api_keys)\b/i,
     );
   });
 
@@ -878,8 +955,8 @@ describe("schema invariant verifier", () => {
     };
 
     assert.equal(parsed.success, true);
-    assert.equal(parsed.checked, 54);
-    assert.equal(parsed.passed, 54);
+    assert.equal(parsed.checked, 87);
+    assert.equal(parsed.passed, 87);
     assert.deepEqual(parsed.failed, []);
   });
 });

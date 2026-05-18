@@ -20,6 +20,7 @@ const rlsTenantInvariants = [
   ["0012", "lead_scores", "tenant_isolation_lead_scores"],
   ["0020", "workspace_context_profiles", "tenant_isolation_workspace_context_profiles"],
   ["0021", "intake_classifications", "tenant_isolation_intake_classifications"],
+  ["0022", "client_mail_items", "tenant_isolation_client_mail_items"],
 ] as const satisfies readonly (readonly [MigrationId, string, string])[];
 
 const emailSendDeliveryColumns = [
@@ -56,6 +57,46 @@ const intakeClassificationConstraints = [
   "intake_classifications_classification_check",
   "intake_classifications_action_check",
   "intake_classifications_confidence_check",
+] as const;
+
+const clientMailItemColumns = [
+  ["id", "uuid", false],
+  ["workspace_id", "uuid", false],
+  ["classification_id", "uuid", true],
+  ["lead_id", "uuid", true],
+  ["contact_id", "uuid", true],
+  ["draft_id", "uuid", true],
+  ["external_id", "text", true],
+  ["external_thread_id", "text", true],
+  ["source", "text", false],
+  ["direction", "text", false],
+  ["from_display", "text", true],
+  ["from_email", "text", true],
+  ["to_display", "text", true],
+  ["to_email", "text", true],
+  ["subject", "text", true],
+  ["snippet", "text", true],
+  ["body_text", "text", true],
+  ["received_at", "timestamp with time zone", true],
+  ["has_attachments", "boolean", false],
+  ["attachments_json", "jsonb", false],
+  ["created_at", "timestamp with time zone", false],
+  ["updated_at", "timestamp with time zone", false],
+] as const satisfies readonly (readonly [string, string, boolean])[];
+
+const clientMailItemConstraints = [
+  "client_mail_items_direction_check",
+  "client_mail_items_source_non_empty_check",
+  "client_mail_items_attachments_json_array_check",
+] as const;
+
+const clientMailItemIndexes = [
+  "client_mail_items_workspace_external_id_unique_idx",
+  "client_mail_items_workspace_received_at_idx",
+  "client_mail_items_workspace_classification_id_idx",
+  "client_mail_items_workspace_lead_id_idx",
+  "client_mail_items_workspace_contact_id_idx",
+  "client_mail_items_workspace_draft_id_idx",
 ] as const;
 
 export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
@@ -191,6 +232,37 @@ export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
     schema: defaultSchema,
     table: "intake_classifications",
     indexName: "intake_classifications_workspace_external_id_unique_idx",
+  },
+  ...clientMailItemColumns.map(([column, dataType, isNullable]) => ({
+    kind: "column" as const,
+    migration: "0022" as const,
+    schema: defaultSchema,
+    table: "client_mail_items",
+    column,
+    dataType,
+    isNullable,
+  })),
+  ...clientMailItemConstraints.map((constraintName) => ({
+    kind: "check_constraint" as const,
+    migration: "0022" as const,
+    schema: defaultSchema,
+    table: "client_mail_items",
+    constraintName,
+  })),
+  ...clientMailItemIndexes.map((indexName) => ({
+    kind: "index" as const,
+    migration: "0022" as const,
+    schema: defaultSchema,
+    table: "client_mail_items",
+    indexName,
+  })),
+  {
+    kind: "trigger",
+    migration: "0022",
+    schema: defaultSchema,
+    table: "client_mail_items",
+    triggerName: "client_mail_items_set_updated_at_trg",
+    functionName: "syrantis_set_updated_at",
   },
 ] as const;
 

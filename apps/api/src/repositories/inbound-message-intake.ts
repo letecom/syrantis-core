@@ -2,6 +2,7 @@ import { and, desc, eq, gt, sql } from "drizzle-orm";
 
 import {
   backgroundJobs,
+  clientMailItems,
   contacts,
   intakeClassifications,
   leads,
@@ -62,6 +63,8 @@ type IntakeClassificationRow = Pick<
   | "leadId"
 >;
 
+type ClientMailItemRow = Pick<typeof clientMailItems.$inferSelect, "id">;
+
 function normalizedNullable(value: string | null | undefined): string | null {
   return value ?? null;
 }
@@ -80,13 +83,133 @@ function normalizeEmail(value: string): string {
 
 function summarizeRawContent(data: InboundMessageIntakeRequest): string {
   const parts = [
-    `From: ${data.fromEmail}`,
-    data.subject ? `Subject: ${data.subject}` : null,
-    data.contactName ? `Contact: ${data.contactName}` : null,
-    `Body: ${data.bodyText}`,
-  ].filter(Boolean);
+    "Public inbound message captured for the Client Inbox Domain.",
+    `Source: ${data.source}`,
+    `Has subject: ${hasText(data.subject)}`,
+    `Has body: ${hasText(data.bodyText)}`,
+    `Has contact name: ${hasText(data.contactName)}`,
+  ];
 
   return parts.join("\n\n");
+}
+
+function normalizeMailExternalId(data: InboundMessageIntakeRequest): string | null {
+  return normalizedNullable(data.externalId) ?? normalizedNullable(data.messageId);
+}
+
+function normalizeMailSnippet(data: InboundMessageIntakeRequest): string | null {
+  return normalizedNullable(data.bodySnippet) ?? data.bodyText.slice(0, 280);
+}
+
+async function updateClientMailItemLinks(
+  tx: WorkspaceDbTransaction,
+  input: {
+    workspaceId: string;
+    mailItemId: string;
+    classificationId: string;
+    leadId: string | null;
+    contactId: string | null;
+  },
+): Promise<void> {
+  await tx
+    .update(clientMailItems)
+    .set({
+      classificationId: input.classificationId,
+      leadId: input.leadId,
+      contactId: input.contactId,
+    })
+    .where(
+      and(
+        eq(clientMailItems.workspaceId, input.workspaceId),
+        eq(clientMailItems.id, input.mailItemId),
+      ),
+    );
+}
+
+async function findClientMailItemByExternalId(
+  tx: WorkspaceDbTransaction,
+  input: { workspaceId: string; externalId: string },
+): Promise<ClientMailItemRow | null> {
+  const [row] = await tx
+    .select({ id: clientMailItems.id })
+    .from(clientMailItems)
+    .where(
+      and(
+        eq(clientMailItems.workspaceId, input.workspaceId),
+        eq(clientMailItems.externalId, input.externalId),
+      ),
+    )
+    .limit(1);
+
+  return row ?? null;
+}
+
+async function createOrReuseClientMailItem(
+  tx: WorkspaceDbTransaction,
+  input: {
+    workspaceId: string;
+    data: InboundMessageIntakeRequest;
+    classificationId: string;
+    leadId: string | null;
+    contactId: string | null;
+  },
+): Promise<ClientMailItemRow> {
+  const mailExternalId = normalizeMailExternalId(input.data);
+  const receivedAt = input.data.receivedAt ? new Date(input.data.receivedAt) : new Date();
+  const [inserted] = await tx
+    .insert(clientMailItems)
+    .values({
+      workspaceId: input.workspaceId,
+      classificationId: input.classificationId,
+      leadId: input.leadId,
+      contactId: input.contactId,
+      externalId: mailExternalId,
+      externalThreadId: normalizedNullable(input.data.threadId),
+      source: input.data.source,
+      direction: "inbound",
+      fromDisplay: normalizedNullable(input.data.contactName),
+      fromEmail: input.data.fromEmail,
+      toDisplay: normalizedNullable(input.data.toDisplay),
+      toEmail: normalizedNullable(input.data.toEmail),
+      subject: normalizedNullable(input.data.subject),
+      snippet: normalizeMailSnippet(input.data),
+      bodyText: input.data.bodyText,
+      receivedAt,
+      hasAttachments: false,
+      attachmentsJson: [],
+    })
+    .onConflictDoNothing({
+      target: [clientMailItems.workspaceId, clientMailItems.externalId],
+      where: sql`${clientMailItems.externalId} is not null`,
+    })
+    .returning({ id: clientMailItems.id });
+
+  if (inserted) {
+    return inserted;
+  }
+
+  if (!mailExternalId) {
+    throw new Error("Failed to create client mail item.");
+  }
+
+  const existing = await findClientMailItemByExternalId(tx, {
+    workspaceId: input.workspaceId,
+    externalId: mailExternalId,
+  });
+
+  if (!existing) {
+    throw new Error("Failed to load idempotent client mail item.");
+  }
+
+  await updateClientMailItemLinks(tx, {
+    workspaceId: input.workspaceId,
+    mailItemId: existing.id,
+    classificationId: input.classificationId,
+    leadId: input.leadId,
+    contactId: input.contactId,
+  });
+
+  return existing;
 }
 
 async function markApiKeyUsed(
@@ -349,6 +472,13 @@ export async function createInboundMessageIntake(
           workspaceId: input.workspaceId,
           leadId: existingClassification.leadId,
         });
+        await createOrReuseClientMailItem(tx, {
+          workspaceId: input.workspaceId,
+          data: input.data,
+          classificationId: existingClassification.id,
+          leadId: existingClassification.leadId,
+          contactId: lead.contactId,
+        });
 
         return {
           result: "idempotent_replay",
@@ -357,6 +487,14 @@ export async function createInboundMessageIntake(
           classification,
         };
       }
+
+      await createOrReuseClientMailItem(tx, {
+        workspaceId: input.workspaceId,
+        data: input.data,
+        classificationId: existingClassification.id,
+        leadId: null,
+        contactId: null,
+      });
 
       return {
         result: "idempotent_ignored",
@@ -392,6 +530,14 @@ export async function createInboundMessageIntake(
       const classification = mapClassificationRow(replayedClassification);
 
       if (!replayedClassification.leadId) {
+        await createOrReuseClientMailItem(tx, {
+          workspaceId: input.workspaceId,
+          data: input.data,
+          classificationId: replayedClassification.id,
+          leadId: null,
+          contactId: null,
+        });
+
         return {
           result: "idempotent_ignored",
           lead: null,
@@ -403,6 +549,13 @@ export async function createInboundMessageIntake(
       const job = await findLatestScoreLeadJobForLead(tx, {
         workspaceId: input.workspaceId,
         leadId: replayedClassification.leadId,
+      });
+      await createOrReuseClientMailItem(tx, {
+        workspaceId: input.workspaceId,
+        data: input.data,
+        classificationId: replayedClassification.id,
+        leadId: replayedClassification.leadId,
+        contactId: null,
       });
 
       return {
@@ -420,6 +573,14 @@ export async function createInboundMessageIntake(
     const classification = mapClassificationRow(insertedClassification);
 
     if (classificationResult.classification === "ignored") {
+      await createOrReuseClientMailItem(tx, {
+        workspaceId: input.workspaceId,
+        data: input.data,
+        classificationId: insertedClassification.id,
+        leadId: null,
+        contactId: null,
+      });
+
       await createActivityLog(tx, {
         workspaceId: input.workspaceId,
         actorUserId: null,
@@ -497,6 +658,14 @@ export async function createInboundMessageIntake(
       workspaceId: input.workspaceId,
       classificationId: insertedClassification.id,
       leadId: lead.id,
+    });
+
+    await createOrReuseClientMailItem(tx, {
+      workspaceId: input.workspaceId,
+      data: input.data,
+      classificationId: insertedClassification.id,
+      leadId: lead.id,
+      contactId: contact.id,
     });
 
     await createActivityLog(tx, {
