@@ -144,8 +144,8 @@ perform draft/export actions.
 - Ignored messages can be reviewed by a future Inbox without becoming leads or score jobs.
 - Leadable/review messages link mail items to classification, lead, contact, and later draft state
   where available.
-- `GET /api/client/inbox/messages` returns a safe summary-only list read model with subject values
-  omitted in v1.
+- `GET /api/client/inbox/messages` returns a safe summary-only list read model with subject and
+  snippet values omitted in v1.
 - `GET /api/client/inbox/messages/:mailItemId` is the dedicated detail context that may return the
   selected mail body and email addresses.
 - Inbox draft edit and Gmail export request/cancel wrappers are available through

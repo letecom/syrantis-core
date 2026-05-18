@@ -31,6 +31,10 @@ const leadId = "00000000-0000-4000-8000-000000023f04";
 const contactId = "00000000-0000-4000-8000-000000023f05";
 const draftId = "00000000-0000-4000-8000-000000023f06";
 const userId = testUser.id;
+const inboundSubjectMarker = "023AF_SUBJECT_LEAD_EXACT_MARKER";
+const inboundBodyMarker = "023AF_BODY_LEAD_EXACT_MARKER";
+const inboundFromEmail = "023af.from@example.test";
+const inboundToEmail = "023af.to@example.test";
 
 function validSessionHeaders(extra: Record<string, string> = {}) {
   return {
@@ -109,6 +113,19 @@ function assertNoForbiddenKeys(value: unknown, options: { allowDetailMailFields?
   visit(value, []);
 }
 
+function expectNoExactListLeaks(value: unknown) {
+  const serialized = JSON.stringify(value);
+
+  for (const marker of [
+    inboundSubjectMarker,
+    inboundBodyMarker,
+    inboundFromEmail,
+    inboundToEmail,
+  ]) {
+    expect(serialized).not.toContain(marker);
+  }
+}
+
 function queueRows(): ClientInboxRows {
   const receivedAt = new Date("2026-05-18T09:00:00.000Z");
   const draftCreatedAt = new Date("2026-05-18T09:30:00.000Z");
@@ -124,8 +141,8 @@ function queueRows(): ClientInboxRows {
         receivedAt,
         createdAt: receivedAt,
         fromDisplay: "Jean Client",
-        subject: "Demande de devis chaudiere",
-        snippet: "Bonjour, besoin d'un devis chaudiere.",
+        subject: inboundSubjectMarker,
+        snippet: `${inboundBodyMarker} mirrored body text that must not leave the list route`,
         classification: "leadable",
         category: "quote_request",
         action: "create_lead",
@@ -207,10 +224,10 @@ function detailRows(): ClientInboxRows<ClientInboxRows["mails"][number] & {
     ...rows,
     mails: rows.mails.map((mail) => ({
       ...mail,
-      fromEmail: "jean.client@example.test",
+      fromEmail: inboundFromEmail,
       toDisplay: "Bureau",
-      toEmail: "contact@syrantis.example",
-      bodyText: "Bonjour, besoin d'un devis chaudiere urgent.",
+      toEmail: inboundToEmail,
+      bodyText: inboundBodyMarker,
       attachmentsJson: [{ filename: "photo.jpg", mimeType: "image/jpeg", sizeBytes: 1234 }],
     })),
   };
@@ -275,7 +292,7 @@ function routeService(overrides: Partial<ClientInboxService> = {}): ClientInboxS
     senderDisplay: "Jean Client",
     companyDisplay: "Atelier Client",
     subject: null,
-    snippet: "Bonjour, besoin d'un devis chaudiere.",
+    snippet: null,
     score: 88,
     scoreBand: "hot",
     category: "quote_request",
@@ -367,7 +384,10 @@ describe("client inbox service", () => {
       category: "quote_request",
       contactStatus: "returning",
       draftStatus: "requested",
+      subject: null,
+      snippet: null,
     });
+    expectNoExactListLeaks(data);
     assertNoForbiddenKeys({ data });
   });
 
@@ -381,9 +401,10 @@ describe("client inbox service", () => {
     }
 
     expect(result.detail.mail).toMatchObject({
-      bodyText: "Bonjour, besoin d'un devis chaudiere urgent.",
-      fromEmail: "jean.client@example.test",
-      toEmail: "contact@syrantis.example",
+      subject: inboundSubjectMarker,
+      bodyText: inboundBodyMarker,
+      fromEmail: inboundFromEmail,
+      toEmail: inboundToEmail,
     });
     assertNoForbiddenKeys({ data: result.detail }, { allowDetailMailFields: true });
   });
@@ -469,9 +490,13 @@ describe("client inbox routes", () => {
     expect(ClientInboxMessagesResponseSchema.parse(listBody)).toEqual(listBody);
     expect(ClientInboxMessageDetailResponseSchema.parse(detailBody)).toEqual(detailBody);
     expect(listBody.data.items[0].subject).toBeNull();
+    expect(listBody.data.items[0].snippet).toBeNull();
+    expectNoExactListLeaks(listBody);
     assertNoForbiddenKeys(listBody);
     assertNoForbiddenKeys(detailBody, { allowDetailMailFields: true });
-    expect(detailBody.data.mail.bodyText).toBe("Bonjour, besoin d'un devis chaudiere urgent.");
+    expect(detailBody.data.mail.bodyText).toBe(inboundBodyMarker);
+    expect(detailBody.data.mail.fromEmail).toBe(inboundFromEmail);
+    expect(detailBody.data.mail.toEmail).toBe(inboundToEmail);
   });
 
   it("returns 400 for invalid UUID and 404 for unknown detail", async () => {

@@ -63,9 +63,9 @@ New session-only founder/admin routes are mounted under `/api/client/inbox`.
 `GET /messages` returns a safe list DTO for prioritized Inbox cards. It reads from
 `client_mail_items` and joins safe classification, lead, contact, organization, score, draft,
 export, and workspace policy context. It supports the approved filters and pagination and does not
-return subject values, full body, email addresses, raw metadata, workspace id, provider ids,
-prompt/output, lease tokens, or API key material. The nullable `subject` field is present in the
-contract but returns `null` in v1 list responses.
+return subject values, snippets, full body, email addresses, raw metadata, workspace id, provider
+ids, prompt/output, lease tokens, or API key material. The nullable `subject` and `snippet` fields
+are present in the contract but return `null` in v1 list responses.
 
 `GET /messages/:mailItemId` returns the dedicated detail DTO. This route may return the selected
 mail body and email addresses because it is the client Inbox reading context. It still omits raw

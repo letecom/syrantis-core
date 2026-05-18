@@ -221,8 +221,9 @@ UI:
 - Public inbound intake now writes a mail item for every validated message. Ignored mail creates a
   mail item and classification without becoming a lead or job.
 - `GET /api/client/inbox/messages` returns safe list summaries and intentionally omits full body,
-  subject values, email addresses, workspace id, raw metadata, provider ids, prompt/output, lease
-  token, and API key material. The nullable `subject` field returns `null` in v1.
+  subject values, snippets, email addresses, workspace id, raw metadata, provider ids,
+  prompt/output, lease token, and API key material. The nullable `subject` and `snippet` fields
+  return `null` in v1.
 - `GET /api/client/inbox/messages/:mailItemId` is the dedicated detail context where selected mail
   `bodyText`, `fromEmail`, and `toEmail` may be returned.
 - `PATCH /api/client/inbox/messages/:mailItemId/draft` edits the linked draft without returning

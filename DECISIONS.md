@@ -209,10 +209,10 @@ Admin queues and debug read models must not be reused directly as the live clien
 Decision: the live Client Inbox backend has a dedicated `client_mail_items` domain table and
 `/api/client/inbox` read/action routes instead of reusing founder/admin validation queues.
 
-Full inbound mail body and email addresses are allowed only in `client_mail_items` and the dedicated
-Inbox detail DTO. They remain forbidden in public intake responses, list DTOs, activity log
-metadata, background job payloads, admin queues, Google Sheets, prompts, provider payloads, and raw
-metadata.
+Full inbound mail body, body-derived snippets, and email addresses are allowed only in
+`client_mail_items` and the dedicated Inbox detail DTO. They remain forbidden in public intake
+responses, list DTOs, activity log metadata, background job payloads, admin queues, Google Sheets,
+prompts, provider payloads, and raw metadata.
 
 Inbox draft edit and Gmail export request/cancel actions resolve through the workspace-scoped mail
 item relation and reuse existing draft/export rules. This does not approve live UI, AI rewrite,

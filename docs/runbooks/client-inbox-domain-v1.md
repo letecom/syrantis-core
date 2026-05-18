@@ -114,8 +114,8 @@ Expected:
 - client-provided workspace or tenant identity returns `400`
 - valid session returns safe summary items
 - pagination is bounded
-- response excludes subject values, full body, email addresses, workspace id, raw metadata, provider ids,
-  prompt/output, lease token, and API key material
+- response excludes subject values, snippets, full body, email addresses, workspace id, raw
+  metadata, provider ids, prompt/output, lease token, and API key material
 
 ## 5. Client Inbox Detail
 
