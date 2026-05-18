@@ -190,3 +190,16 @@ preserve request audit fields when writing leases.
 
 This gate does not approve backend Gmail OAuth, Gmail send, approval creation, `email_sends`
 creation, provider calls, worker changes, or Apps Script changes.
+
+## 2026-05-16 - 023AE Client App and Inbox Domain Split
+
+Decision: the future client product app is separate from the founder/admin validation surfaces.
+
+- `admin.syrantis.fr` is for founder/operator/admin/debug/ops/workspaces/users/integrations/logs.
+- `app.syrantis.fr` starts with Dashboard, Inbox, and Config.
+- Inbox is the primary client surface and must not become a CRM clone, Gmail clone, chatbot, or ops
+  panel.
+- The live Inbox requires a dedicated Client Inbox Domain before full client-visible mail bodies or
+  draft/export mutations are implemented.
+
+Admin queues and debug read models must not be reused directly as the live client Inbox contract.

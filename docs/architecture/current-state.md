@@ -114,3 +114,20 @@ worker still blocks `prior_complaint` before provider calls, AI run creation, or
 
 The feature does not add provider calls from routes, Gmail/Google/Resend calls, send/export/approval
 actions, file uploads, raw JSON panels, or prompt/output exposure.
+
+## 023AE Client App Design System + Inbox Contract State
+
+023AE freezes the first client-facing product contract before the live Inbox is built:
+
+- `admin.syrantis.fr` remains founder/operator/admin/debug/ops.
+- `app.syrantis.fr` is the future client-facing app with Dashboard, Inbox, and Config at first.
+- Inbox is the primary client surface; Dashboard is summary and Config is setup/behavior.
+- `/app/client-inbox-preview` is a mock-only visual preview aligned to
+  `docs/implementation/UIInboxClient.png`.
+- `docs/design/` now records the client UI contract, visual reference, client design tokens, and
+  future Client Inbox backend contract.
+
+023AE adds no migration, API route, backend service, intake behavior, provider call, Gmail logic,
+client auth, deployment behavior, draft editing, or export mutation. The future live Inbox still
+requires a dedicated Client Inbox Domain before it can display full client-visible mail bodies or
+perform draft/export actions.

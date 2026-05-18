@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { getCurrentUser } from "./lib/api-client";
 import { ApiKeysPage } from "./pages/ApiKeysPage";
+import { ClientInboxPreviewPage } from "./pages/ClientInboxPreviewPage";
 import { ClientInstallPage } from "./pages/ClientInstallPage";
 import { ClientDashboardPage } from "./pages/ClientDashboardPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -39,6 +40,7 @@ export function App() {
     <Routes>
       <Route element={<RootRedirect />} path="/" />
       <Route element={<LoginPage />} path="/login" />
+      <Route element={<ClientInboxPreviewPage />} path="/app/client-inbox-preview" />
       <Route element={<ProtectedRoute />} path="/app">
         <Route index element={<DashboardPage />} />
         <Route element={<PushbackPage />} path="pushback" />
