@@ -490,7 +490,7 @@ function mapItem(input: {
     senderDisplay: senderDisplay(input.row),
     companyDisplay: truncate(input.row.companyName, 120),
     subject: null,
-    snippet: truncate(input.row.snippet, 280),
+    snippet: null,
     score: score?.score ?? null,
     scoreBand: resolvedScoreBand,
     category: category(input.row.category),

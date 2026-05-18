@@ -84,10 +84,11 @@ client-provided workspace or tenant identity, and return `404` for missing or cr
 items.
 
 The list route supports tab, score band, category, contact status, draft status, pagination, and
-sort query params. It returns summary DTOs only. The DTO keeps a nullable `subject` field for the
-frozen 023AE shape, but v1 returns `null` there so subject values stay in storage/detail only. It
-intentionally omits full body, sender email, recipient email, workspace id, provider ids, raw
-metadata, prompt/output, lease token, and API key material.
+sort query params. It returns summary DTOs only. The DTO keeps nullable `subject` and `snippet`
+fields for the frozen 023AE shape, but v1 returns `null` for both so subject and body-derived
+snippet values stay in storage/detail only. It intentionally omits full body, sender email,
+recipient email, workspace id, provider ids, raw metadata, prompt/output, lease token, and API key
+material.
 
 The detail route is the narrow place where client-visible `bodyText`, `fromEmail`, and `toEmail`
 may be returned. It still excludes workspace id, raw metadata, provider ids, prompt/output, lease
