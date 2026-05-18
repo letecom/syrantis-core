@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { getCurrentUser } from "./lib/api-client";
 import { ApiKeysPage } from "./pages/ApiKeysPage";
+import { ClientInboxLabPage } from "./pages/ClientInboxLabPage";
 import { ClientInboxPreviewPage } from "./pages/ClientInboxPreviewPage";
 import { ClientInstallPage } from "./pages/ClientInstallPage";
 import { ClientDashboardPage } from "./pages/ClientDashboardPage";
@@ -45,6 +46,7 @@ export function App() {
         <Route index element={<DashboardPage />} />
         <Route element={<PushbackPage />} path="pushback" />
         <Route element={<ClientDashboardPage />} path="client-dashboard" />
+        <Route element={<ClientInboxLabPage />} path="client-inbox-lab" />
         <Route element={<ClientInstallPage />} path="client-install" />
         <Route element={<DraftQueuePage />} path="draft-queue" />
         <Route element={<MailQueuePage />} path="mail-queue" />

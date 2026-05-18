@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  cancelClientInboxGmailExport,
   createWorkspaceApiKey,
   cancelDraftGmailExportRequest,
+  getClientInboxMessage,
   getGoogleSheetsSetupStatus,
   getCurrentUser,
   getClientResponsePolicy,
@@ -15,14 +17,17 @@ import {
   getRecentOpsChecks,
   getDraftPushbackStatus,
   getEmailSendPushbackStatus,
+  listClientInboxMessages,
   listWorkspaceApiKeys,
   login,
   replayEmailSendPushback,
+  requestClientInboxGmailExport,
   requestDraftGmailExport,
   revokeWorkspaceApiKey,
   runOpsCheck,
   testGoogleSheetsSetup,
   putClientResponsePolicy,
+  updateClientInboxDraft,
 } from "../src/lib/api-client";
 
 const userResponse = {
@@ -571,6 +576,140 @@ const clientResponsePolicyResponse = {
   },
 };
 
+const clientInboxMailItemId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
+const clientInboxDraftId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const clientInboxLeadId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+const clientInboxMessagesResponse = {
+  success: true,
+  data: {
+    generatedAt: "2026-05-18T10:00:00.000Z",
+    pagination: {
+      limit: 10,
+      offset: 0,
+      total: 1,
+    },
+    items: [
+      {
+        mailItemId: clientInboxMailItemId,
+        classificationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        leadId: clientInboxLeadId,
+        draftId: clientInboxDraftId,
+        receivedAt: "2026-05-18T09:30:00.000Z",
+        senderDisplay: null,
+        companyDisplay: null,
+        subject: null,
+        snippet: null,
+        score: 92,
+        scoreBand: "hot",
+        category: "quote_request",
+        intent: "quote_request",
+        urgency: "high",
+        contactStatus: "new_contact",
+        previousThreadCount: 0,
+        draftStatus: "ready",
+        gmailExportStatus: "not_exported",
+        pipelineState: "draft_ready",
+        attentionFlags: ["high_score", "urgent_action"],
+        needsReview: true,
+        bodyText: "forbidden-list-body",
+        fromEmail: "forbidden-list-from@example.test",
+        toEmail: "forbidden-list-to@example.test",
+        workspaceId: "forbidden-client-inbox-workspace",
+      },
+    ],
+  },
+};
+
+const clientInboxMessageDetailResponse = {
+  success: true,
+  data: {
+    mail: {
+      mailItemId: clientInboxMailItemId,
+      subject: "Synthetic quote request",
+      fromDisplay: "Clean Pilot Sender",
+      fromEmail: "sender@example.test",
+      toDisplay: "Syrantis Pilot",
+      toEmail: "pilot@example.test",
+      receivedAt: "2026-05-18T09:30:00.000Z",
+      bodyText: "Synthetic clean Gmail pilot body for admin validation.",
+      snippet: "Synthetic clean Gmail pilot body",
+      attachments: [],
+    },
+    analysis: {
+      category: "quote_request",
+      action: "create_lead",
+      reasonCode: "quote_request",
+      intent: "quote_request",
+      urgency: "high",
+      score: 92,
+      scoreBand: "hot",
+      confidence: 88,
+      recommendedAction: "Prepare a quote reply.",
+      attentionFlags: ["high_score", "urgent_action"],
+    },
+    contactContext: {
+      contactKnown: false,
+      contactStatus: "new_contact",
+      previousLeadCount: 0,
+      previousThreadCount: 0,
+      lastInboundAt: "2026-05-18T09:30:00.000Z",
+      lastOutboundAt: null,
+      lastOutboundStatus: null,
+    },
+    companyPolicyContext: {
+      companyName: null,
+      sector: "Plomberie",
+      language: "fr",
+      tone: "professional",
+      keyRulesMatched: ["confirm availability"],
+      missingInfo: ["preferred date"],
+      forbiddenClaims: ["guaranteed price"],
+    },
+    draft: {
+      draftId: clientInboxDraftId,
+      subject: "Draft reply",
+      bodyText: "Generated draft body.",
+      status: "draft",
+      generatedAt: "2026-05-18T09:45:00.000Z",
+      editedAt: null,
+      source: "ai",
+      policyMatchScore: 84,
+      canEdit: true,
+      canRewrite: false,
+      canExportToGmail: true,
+    },
+    gmailExport: {
+      status: "not_exported",
+      requestedAt: null,
+      exportedAt: null,
+      blockingReasons: [],
+    },
+    actions: {
+      canEditDraft: true,
+      canRequestGmailExport: true,
+      canCancelGmailExport: true,
+      canRewriteLater: false,
+      canSendDirectLater: false,
+    },
+    workspaceId: "forbidden-detail-workspace",
+    rawPayload: "forbidden-raw-payload",
+  },
+};
+
+const clientInboxDraftEditResponse = {
+  success: true,
+  data: {
+    mailItemId: clientInboxMailItemId,
+    draftId: clientInboxDraftId,
+    status: "draft",
+    updatedAt: "2026-05-18T10:05:00.000Z",
+    canExportToGmail: true,
+    bodyText: "forbidden-edited-body",
+    workspaceId: "forbidden-edit-workspace",
+  },
+};
+
 function mockResponse(body: unknown, status = 200) {
   return Promise.resolve(
     new Response(JSON.stringify(body), {
@@ -789,6 +928,110 @@ describe("api client", () => {
     expect(serialized).not.toContain("forbidden-mail-detail-workspace");
     expect(serialized).not.toContain("forbidden-from@example.test");
     expect(serialized).not.toContain("forbidden-full-body");
+  });
+
+  it("calls the client Inbox list endpoint and keeps v1 list fields safe", async () => {
+    const request = vi.fn(() => mockResponse(clientInboxMessagesResponse));
+    vi.stubGlobal("fetch", request);
+
+    const result = await listClientInboxMessages({
+      tab: "ignored",
+      sort: "urgency",
+      limit: 10,
+    });
+
+    expect(result.items[0]).toMatchObject({
+      mailItemId: clientInboxMailItemId,
+      subject: null,
+      snippet: null,
+      scoreBand: "hot",
+      pipelineState: "draft_ready",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/client/inbox/messages?tab=ignored&sort=urgency&limit=10",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(JSON.stringify(result)).not.toContain("forbidden-list-body");
+    expect(JSON.stringify(result)).not.toContain("forbidden-list-from@example.test");
+    expect(JSON.stringify(result)).not.toContain("forbidden-client-inbox-workspace");
+  });
+
+  it("calls the client Inbox detail endpoint and keeps the approved detail body", async () => {
+    const request = vi.fn(() => mockResponse(clientInboxMessageDetailResponse));
+    vi.stubGlobal("fetch", request);
+
+    const result = await getClientInboxMessage(clientInboxMailItemId);
+
+    expect(result.mail.bodyText).toBe("Synthetic clean Gmail pilot body for admin validation.");
+    expect(result.mail.fromEmail).toBe("sender@example.test");
+    expect(result.mail.toEmail).toBe("pilot@example.test");
+    expect(request).toHaveBeenCalledWith(
+      `/api/client/inbox/messages/${clientInboxMailItemId}`,
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(JSON.stringify(result)).not.toContain("forbidden-detail-workspace");
+    expect(JSON.stringify(result)).not.toContain("forbidden-raw-payload");
+  });
+
+  it("updates a client Inbox draft through the mail item wrapper", async () => {
+    const request = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
+      mockResponse(clientInboxDraftEditResponse),
+    );
+    vi.stubGlobal("fetch", request);
+
+    await expect(
+      updateClientInboxDraft(clientInboxMailItemId, {
+        subject: "Updated synthetic subject",
+        bodyText: "Updated synthetic body",
+      }),
+    ).resolves.toEqual({
+      mailItemId: clientInboxMailItemId,
+      draftId: clientInboxDraftId,
+      status: "draft",
+      updatedAt: "2026-05-18T10:05:00.000Z",
+      canExportToGmail: true,
+    });
+    expect(request).toHaveBeenCalledWith(
+      `/api/client/inbox/messages/${clientInboxMailItemId}/draft`,
+      expect.objectContaining({
+        credentials: "include",
+        method: "PATCH",
+      }),
+    );
+    const init = request.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(JSON.stringify(init?.body)).toContain("Updated synthetic subject");
+    expect(JSON.stringify(init)).not.toContain("workspaceId");
+    expect(JSON.stringify(init)).not.toContain("Authorization");
+  });
+
+  it("requests and cancels Gmail export through client Inbox wrappers", async () => {
+    const request = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>((url) => {
+      if (url.endsWith("/gmail-export-cancel")) {
+        return mockResponse(gmailExportCancelResponse);
+      }
+
+      return mockResponse(gmailExportRequestResponse);
+    });
+    vi.stubGlobal("fetch", request);
+
+    await expect(requestClientInboxGmailExport(clientInboxMailItemId)).resolves.toMatchObject({
+      requestStatus: "requested",
+      canExport: true,
+    });
+    await expect(cancelClientInboxGmailExport(clientInboxMailItemId)).resolves.toMatchObject({
+      requestStatus: "cancelled",
+    });
+
+    expect(request).toHaveBeenCalledWith(
+      `/api/client/inbox/messages/${clientInboxMailItemId}/gmail-export-request`,
+      expect.objectContaining({ credentials: "include", method: "POST" }),
+    );
+    expect(request).toHaveBeenCalledWith(
+      `/api/client/inbox/messages/${clientInboxMailItemId}/gmail-export-cancel`,
+      expect.objectContaining({ credentials: "include", method: "POST" }),
+    );
+    expect(request.mock.calls[0]?.[1]).not.toHaveProperty("body");
+    expect(request.mock.calls[1]?.[1]).not.toHaveProperty("body");
   });
 
   it("loads client response policy through the session backend route", async () => {

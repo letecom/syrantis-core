@@ -157,3 +157,25 @@ queues, Google Sheets, raw metadata, prompts, provider payloads, and list DTOs.
 
 023AF adds no live UI, client role/RBAC, AI rewrite, direct send, provider call, Gmail backend call,
 Resend behavior, Google Sheets change, Caddy/systemd/env change, or deployment behavior.
+
+## 023AG Clean Gmail Pilot Admin Inbox Lab State
+
+023AG adds an internal founder/admin runtime harness for validating clean Gmail pilot data before
+the final client Inbox UI is built:
+
+- `/app/client-inbox-lab` lives inside the existing protected admin app.
+- The page is labelled `Internal validation only · Not final client UI`.
+- It consumes only the existing 023AF Client Inbox list/detail/draft/edit/export wrapper routes.
+- It supports list `tab`, `sort`, and `limit` controls for clean pilot validation.
+- It makes the v1 list disclosure boundary explicit: `subject` and `snippet` remain `null` in list
+  DTOs.
+- It uses the approved detail route to validate selected-message `bodyText`, `fromEmail`, and
+  `toEmail` presence.
+- It computes data-completeness gaps before final UI work, including list preview policy,
+  sender/company display, attachments, and thread context.
+- It smoke-tests Inbox draft edit and Gmail export request/cancel wrappers without direct provider
+  calls.
+
+023AG does not change `ClientInboxPreviewPage`, import client design tokens, create
+`app.syrantis.fr`, add client RBAC, add backend routes, alter intake/worker/provider behavior,
+create migrations, touch Google Sheets behavior, or change Caddy/systemd/env/deployment state.

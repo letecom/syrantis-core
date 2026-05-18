@@ -61,6 +61,8 @@ Validated current loop:
 12. 023AE defines the future client app design contract and mock Inbox preview.
 13. 023AF adds the dedicated backend Client Inbox Domain for future live Inbox list/detail,
     draft-edit, and Gmail export request/cancel actions.
+14. 023AG adds an admin-only Client Inbox Lab to validate clean Gmail pilot runtime data before
+    final client UI work.
 
 ## Current Client/Admin Surfaces
 
@@ -69,6 +71,8 @@ must not be treated as a broad CRM, Gmail clone, or autonomous agent console.
 
 - `/app/client-dashboard`: safe cockpit summary for pipeline, Gmail intake/export, Sheets, system,
   and action state.
+- `/app/client-inbox-lab`: internal validation lab for 023AF Client Inbox Domain list/detail,
+  data-completeness gaps, draft edit, and Gmail export wrappers. It is not final client UI.
 - `/app/mail-queue`: read-only classified inbound mail review queue from `intake_classifications`.
 - `/app/draft-queue`: generated draft review queue with full generated draft detail and safe Gmail
   export request/cancel buttons.
@@ -234,6 +238,29 @@ UI:
 Full inbound mail body remains forbidden outside `client_mail_items` and the dedicated detail DTO.
 023AF adds no client RBAC, AI rewrite, direct send, provider call, Gmail backend call, Resend,
 Google Sheets, Apps Script, deployment, Caddy, systemd, or env behavior.
+
+## Clean Gmail Client Inbox Pilot / 023AG
+
+023AG adds an admin-only runtime validation harness at `/app/client-inbox-lab` before the final
+client Inbox UI is built.
+
+The lab:
+
+- runs inside the existing protected admin app and is labelled with the internal-validation banner
+- uses the 023AF Client Inbox list/detail/draft/export wrapper routes through the central web API
+  client
+- lets a founder/admin validate clean Gmail pilot data completeness from live `client_mail_items`
+- shows the approved detail-route body/email fields for selected-message validation
+- computes final-UI gaps such as missing list subject/snippet preview, sender/company display,
+  attachments, and thread context
+- smoke-tests Inbox draft edit and Gmail export request/cancel wrappers
+
+The lab intentionally does not apply the 023AE premium client UI, does not change
+`ClientInboxPreviewPage`, does not create `app.syrantis.fr`, and does not add backend behavior. List
+responses still return `subject:null` and `snippet:null`; any final client list preview policy must
+be separately approved.
+
+Use `docs/runbooks/clean-gmail-client-inbox-pilot.md` for the real clean Gmail pilot procedure.
 
 ## Draft Queue / 023AA-023AB
 
@@ -1745,6 +1772,9 @@ Not implemented yet.
 | 023AB    | Draft Queue Gmail Export Actions                      | done   |
 | 023AC    | Client Mail Review Queue                              | done   |
 | 023AD    | Client Response Policy Pack                           | done   |
+| 023AE    | Client App Design System + Inbox Contract             | done   |
+| 023AF    | Client Inbox Domain v1                                | done   |
+| 023AG    | Clean Gmail Pilot + Admin Inbox Lab                   | done   |
 
 Near-term candidates:
 
@@ -2561,6 +2591,7 @@ Not implemented:
 - CRM proof push-back runtime behavior (other than Sheets)
 - CRM connector code
 - final client Inbox / Config / Dashboard
+- final client Inbox list preview policy for subject/snippet
 - final client onboarding UI
 - webhook event store
 
@@ -2577,6 +2608,7 @@ Later connector candidates:
 - Ops Health is bounded diagnostics only; it does not restart services, run shell commands, run
   arbitrary SQL, read logs, or run migrations
 - Ops Panel includes safe worker queue summary and worker failed summary aggregates only
+- `/app/client-inbox-lab` is internal validation only and not the final client Inbox UI
 - current admin UI is founder/operator validation, not final client UX
 - current client-facing surfaces are not yet the final `app.syrantis.fr` Dashboard / Inbox / Config
 - no OAuth Google integration

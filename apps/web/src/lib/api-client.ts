@@ -2,6 +2,10 @@ import { z } from "zod";
 
 import {
   ClientCockpitSummaryResponseSchema,
+  ClientInboxDraftEditInputSchema,
+  ClientInboxDraftEditResponseSchema,
+  ClientInboxMessageDetailResponseSchema,
+  ClientInboxMessagesResponseSchema,
   ClientResponsePolicyGetSuccessSchema,
   ClientResponsePolicyInputSchema,
   ClientResponsePolicyPutSuccessSchema,
@@ -9,6 +13,8 @@ import {
   DraftQueueResponseSchema,
   MailQueueDetailResponseSchema,
   MailQueueResponseSchema,
+  type ClientInboxDraftEditInput,
+  type ClientInboxQuery,
 } from "@syrantis/shared";
 
 const { stringify: encodeJsonBody } = JSON;
@@ -340,6 +346,13 @@ export type GmailExportStatusResponse = z.infer<typeof gmailExportStatusSuccessS
 export type GmailExportRequestResponse = z.infer<typeof gmailExportRequestResponseSchema>["data"];
 export type GmailExportCancelResponse = z.infer<typeof gmailExportCancelResponseSchema>["data"];
 export type ClientCockpitSummary = z.infer<typeof ClientCockpitSummaryResponseSchema>["data"];
+export type ClientInboxMessagesData = z.infer<typeof ClientInboxMessagesResponseSchema>["data"];
+export type ClientInboxMessageDetail = z.infer<
+  typeof ClientInboxMessageDetailResponseSchema
+>["data"];
+export type ClientInboxDraftEditResponse = z.infer<
+  typeof ClientInboxDraftEditResponseSchema
+>["data"];
 export type DraftQueueData = z.infer<typeof DraftQueueResponseSchema>["data"];
 export type DraftQueueItem = DraftQueueData["items"][number];
 export type DraftQueueDetail = z.infer<typeof DraftQueueDetailResponseSchema>["data"];
@@ -513,6 +526,107 @@ export async function getRecentOpsChecks(
 export async function getClientCockpitSummary(): Promise<ClientCockpitSummary> {
   const payload = await requestJson("/api/client/cockpit-summary");
   return ClientCockpitSummaryResponseSchema.parse(payload).data;
+}
+
+export async function listClientInboxMessages(
+  params: Partial<
+    Pick<
+      ClientInboxQuery,
+      | "tab"
+      | "sort"
+      | "limit"
+      | "offset"
+      | "scoreBand"
+      | "category"
+      | "contactStatus"
+      | "draftStatus"
+    >
+  > = {},
+): Promise<ClientInboxMessagesData> {
+  const search = new URLSearchParams();
+
+  if (params.tab) {
+    search.set("tab", params.tab);
+  }
+
+  if (params.sort) {
+    search.set("sort", params.sort);
+  }
+
+  if (params.limit !== undefined) {
+    search.set("limit", String(params.limit));
+  }
+
+  if (params.offset !== undefined) {
+    search.set("offset", String(params.offset));
+  }
+
+  if (params.scoreBand) {
+    search.set("scoreBand", params.scoreBand);
+  }
+
+  if (params.category) {
+    search.set("category", params.category);
+  }
+
+  if (params.contactStatus) {
+    search.set("contactStatus", params.contactStatus);
+  }
+
+  if (params.draftStatus) {
+    search.set("draftStatus", params.draftStatus);
+  }
+
+  const query = search.toString();
+  const payload = await requestJson(`/api/client/inbox/messages${query ? `?${query}` : ""}`);
+  return ClientInboxMessagesResponseSchema.parse(payload).data;
+}
+
+export async function getClientInboxMessage(mailItemId: string): Promise<ClientInboxMessageDetail> {
+  const payload = await requestJson(`/api/client/inbox/messages/${encodeURIComponent(mailItemId)}`);
+  return ClientInboxMessageDetailResponseSchema.parse(payload).data;
+}
+
+export async function updateClientInboxDraft(
+  mailItemId: string,
+  input: ClientInboxDraftEditInput,
+): Promise<ClientInboxDraftEditResponse> {
+  const parsed = ClientInboxDraftEditInputSchema.parse(input);
+  const payload = await requestJson(
+    `/api/client/inbox/messages/${encodeURIComponent(mailItemId)}/draft`,
+    {
+      method: "PATCH",
+      body: encodeJsonBody(parsed),
+    },
+  );
+
+  return ClientInboxDraftEditResponseSchema.parse(payload).data;
+}
+
+export async function requestClientInboxGmailExport(
+  mailItemId: string,
+): Promise<GmailExportRequestResponse> {
+  const payload = await requestJson(
+    `/api/client/inbox/messages/${encodeURIComponent(mailItemId)}/gmail-export-request`,
+    {
+      method: "POST",
+    },
+  );
+
+  return gmailExportRequestResponseSchema.parse(payload).data;
+}
+
+export async function cancelClientInboxGmailExport(
+  mailItemId: string,
+): Promise<GmailExportCancelResponse> {
+  const payload = await requestJson(
+    `/api/client/inbox/messages/${encodeURIComponent(mailItemId)}/gmail-export-cancel`,
+    {
+      method: "POST",
+    },
+  );
+
+  return gmailExportCancelResponseSchema.parse(payload).data;
 }
 
 export async function getDraftQueue(
