@@ -1100,6 +1100,32 @@ describe("admin app", () => {
     expect(screen.getByRole("link", { name: "Ops" })).toBeInTheDocument();
   });
 
+  it("renders the mock Client Inbox preview without admin or debug controls", () => {
+    renderApp("/app/client-inbox-preview");
+
+    expect(screen.getByRole("heading", { name: "Boîte de réception" })).toBeInTheDocument();
+    expect(screen.getByText("Analyse IA Syrantis")).toBeInTheDocument();
+    expect(screen.getByText("Brouillon IA")).toBeInTheDocument();
+    expect(screen.getAllByText("Lumière Services").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Demande de devis/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Valider" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Exporter vers Gmail" })).toBeInTheDocument();
+
+    const clientNav = screen.getByLabelText("Navigation client");
+    expect(within(clientNav).getByText("Tableau de bord")).toBeInTheDocument();
+    expect(within(clientNav).getByText("Boîte de réception")).toBeInTheDocument();
+    expect(within(clientNav).getByText("Configuration")).toBeInTheDocument();
+
+    for (const forbidden of ["Ops", "API Keys", "Google Sheets", "Pushback"]) {
+      expect(within(clientNav).queryByText(forbidden)).not.toBeInTheDocument();
+    }
+
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByText(/bulk/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw json/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/debug/i)).not.toBeInTheDocument();
+  });
+
   it("renders the draft queue page with summary cards and cards", async () => {
     const request = vi.fn((url: string) => {
       if (url === draftQueueUrl) {
@@ -2153,7 +2179,9 @@ describe("admin app", () => {
 
     await waitFor(() => {
       expect(
-        request.mock.calls.some(([url, init]) => url === responsePolicyUrl && init?.method === "PUT"),
+        request.mock.calls.some(
+          ([url, init]) => url === responsePolicyUrl && init?.method === "PUT",
+        ),
       ).toBe(true);
     });
     const putCall = request.mock.calls.find(
@@ -2808,6 +2836,7 @@ describe("admin app", () => {
       "../src/components/ProtectedRoute.tsx",
       "../src/pages/ApiKeysPage.tsx",
       "../src/pages/ClientDashboardPage.tsx",
+      "../src/pages/ClientInboxPreviewPage.tsx",
       "../src/pages/ClientInstallPage.tsx",
       "../src/pages/DashboardPage.tsx",
       "../src/pages/GmailExportOpsPage.tsx",

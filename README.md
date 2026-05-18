@@ -58,6 +58,8 @@ Validated current loop:
 9. 023AA/023AB Draft Queue shows generated draft review and safe Gmail export actions.
 10. 023S/023T/023U Gmail draft bridge exports only requested drafts through client-owned Apps Script.
 11. The human edits and sends inside Gmail.
+12. 023AE defines the future client app design contract and mock Inbox preview; live Inbox behavior
+    still requires a dedicated Client Inbox Domain.
 
 ## Current Client/Admin Surfaces
 
@@ -75,6 +77,8 @@ must not be treated as a broad CRM, Gmail clone, or autonomous agent console.
 - `/app/google-sheets`: Google Sheets setup status and backend-only setup test.
 - `/app/api-keys`: workspace API key create/list/detail/revoke with copy-once plaintext display.
 - `/app/ops`: bounded ops health checks and worker failed-summary review.
+- `/app/client-inbox-preview`: mock-only 023AE client Inbox visual preview for the future
+  `app.syrantis.fr` product contract. It has no backend behavior and is not the live client Inbox.
 
 ## Current Backend Capabilities
 
@@ -189,6 +193,21 @@ Gmail, Google Sheets, providers, workers, or send behavior.
 - It adds no migration, no provider calls, no mutation route, no Gmail clone UI, and no raw inbound
   body, raw metadata, contact email/name, prompt/output, lease token, API key, or workspace ID
   exposure.
+
+## Client App Design Contract / 023AE
+
+023AE adds the design freeze for the future client-facing app:
+
+- `docs/design/client-app-ui-contract.md`
+- `docs/design/client-inbox-ui-reference.md`
+- `docs/design/client-design-tokens.md`
+- `docs/design/client-inbox-backend-contract.md`
+- `/app/client-inbox-preview`
+
+The preview is static mock UI only. The future live Inbox still requires a dedicated Client Inbox
+Domain backend before full client-visible mail bodies, draft editing, rewrite, or Gmail export
+actions can be implemented. 023AE adds no migration, no API route, no intake change, and no backend
+behavior change.
 
 ## Draft Queue / 023AA-023AB
 
