@@ -131,3 +131,29 @@ actions, file uploads, raw JSON panels, or prompt/output exposure.
 client auth, deployment behavior, draft editing, or export mutation. The future live Inbox still
 requires a dedicated Client Inbox Domain before it can display full client-visible mail bodies or
 perform draft/export actions.
+
+## 023AF Client Inbox Domain v1 State
+
+023AF creates the first dedicated backend domain for the future live client Inbox:
+
+- `client_mail_items` stores workspace-scoped client-visible mail items with RLS, FORCE RLS, tenant
+  isolation, updated-at trigger, idempotent external id index, and links to classifications, leads,
+  contacts, and drafts.
+- Public inbound intake now writes one mail item per validated message under existing external id
+  semantics.
+- Ignored messages can be reviewed by a future Inbox without becoming leads or score jobs.
+- Leadable/review messages link mail items to classification, lead, contact, and later draft state
+  where available.
+- `GET /api/client/inbox/messages` returns a safe summary-only list read model with subject values
+  omitted in v1.
+- `GET /api/client/inbox/messages/:mailItemId` is the dedicated detail context that may return the
+  selected mail body and email addresses.
+- Inbox draft edit and Gmail export request/cancel wrappers are available through
+  `/api/client/inbox/messages/:mailItemId/*` and reuse existing draft/export rules.
+
+Full inbound mail body is permitted only in `client_mail_items` and the dedicated Inbox detail DTO.
+It remains forbidden in activity logs, background job payloads, public intake responses, admin
+queues, Google Sheets, raw metadata, prompts, provider payloads, and list DTOs.
+
+023AF adds no live UI, client role/RBAC, AI rewrite, direct send, provider call, Gmail backend call,
+Resend behavior, Google Sheets change, Caddy/systemd/env change, or deployment behavior.

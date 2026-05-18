@@ -11,6 +11,8 @@ const OptionalNullableTrimmedStringSchema = (max: number) =>
 export const InboundMessageIntakeRequestSchema = z
   .object({
     fromEmail: z.string().trim().email().max(255),
+    toEmail: z.string().trim().email().max(255).nullable().optional(),
+    toDisplay: OptionalNullableTrimmedStringSchema(200),
     bodyText: z.string().trim().min(1).max(10000).optional(),
     bodySnippet: OptionalNullableTrimmedStringSchema(10000),
     source: z.string().trim().min(1).max(100).default("api"),

@@ -676,7 +676,12 @@ describe("generate_ai_draft worker handler", () => {
     expect(successTx.insertedValues).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ type: "send_email" })]),
     );
-    expect(successTx.updates).toHaveLength(1);
+    expect(successTx.updates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: "success" }),
+        expect.objectContaining({ draftId }),
+      ]),
+    );
   });
 
   it("uses AI_DRAFT_MODEL for draft generation and records Gemini model and pricing", async () => {
@@ -1257,8 +1262,8 @@ describe("023R migration guard", () => {
       readFileSync("../../packages/db/migrations/meta/_journal.json", "utf8"),
     ) as { entries: unknown[] };
 
-    expect(migrationFiles).toHaveLength(22);
-    expect(journal.entries).toHaveLength(22);
+    expect(migrationFiles).toHaveLength(23);
+    expect(journal.entries).toHaveLength(23);
     expect(migrationFiles.join("\n")).not.toContain("023R");
   });
 });

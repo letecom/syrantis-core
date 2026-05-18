@@ -1,6 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
-import { aiRuns, drafts } from "@syrantis/db";
+import { aiRuns, clientMailItems, drafts } from "@syrantis/db";
 import type { GenerateAiDraftJobPayload } from "@syrantis/shared";
 
 import { withWorkspaceDb } from "../lib/db.js";
@@ -275,6 +275,17 @@ async function persistSuccessfulDraftGenerationRun(input: {
         errorMessage: null,
       })
       .where(and(eq(aiRuns.id, input.aiRunId), eq(aiRuns.workspaceId, input.workspaceId)));
+
+    await tx
+      .update(clientMailItems)
+      .set({ draftId: draft.id })
+      .where(
+        and(
+          eq(clientMailItems.workspaceId, input.workspaceId),
+          eq(clientMailItems.leadId, input.leadId),
+          isNull(clientMailItems.draftId),
+        ),
+      );
 
     await createActivityLog(tx, {
       workspaceId: input.workspaceId,

@@ -6,6 +6,7 @@ export * from "./approvals.js";
 export * from "./auth.js";
 export * from "./background-jobs.js";
 export * from "./client-cockpit.js";
+export * from "./client-inbox.js";
 export * from "./client-response-policy.js";
 export * from "./contact-context.js";
 export * from "./contacts.js";
