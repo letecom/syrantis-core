@@ -117,6 +117,14 @@ const mailQueueCategoryUrl =
 const mailQueueClassificationId = "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd";
 const mailQueueDetailUrl = `/api/client/mail-queue/${mailQueueClassificationId}`;
 const responsePolicyUrl = "/api/client/response-policy";
+const clientInboxMailItemId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
+const clientInboxDraftId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const clientInboxLeadId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const clientInboxMessagesUrl = "/api/client/inbox/messages?tab=all&sort=newest&limit=20";
+const clientInboxDetailUrl = `/api/client/inbox/messages/${clientInboxMailItemId}`;
+const clientInboxDraftUrl = `/api/client/inbox/messages/${clientInboxMailItemId}/draft`;
+const clientInboxExportRequestUrl = `/api/client/inbox/messages/${clientInboxMailItemId}/gmail-export-request`;
+const clientInboxExportCancelUrl = `/api/client/inbox/messages/${clientInboxMailItemId}/gmail-export-cancel`;
 
 const replayResponse = {
   success: true,
@@ -632,6 +640,134 @@ const mailQueueDetail = {
   },
 };
 
+const clientInboxMessages = {
+  success: true,
+  data: {
+    generatedAt: "2026-05-18T10:00:00.000Z",
+    pagination: {
+      limit: 20,
+      offset: 0,
+      total: 1,
+    },
+    items: [
+      {
+        mailItemId: clientInboxMailItemId,
+        classificationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        leadId: clientInboxLeadId,
+        draftId: clientInboxDraftId,
+        receivedAt: "2026-05-18T09:30:00.000Z",
+        senderDisplay: null,
+        companyDisplay: null,
+        subject: null,
+        snippet: null,
+        score: 92,
+        scoreBand: "hot",
+        category: "quote_request",
+        intent: "quote_request",
+        urgency: "high",
+        contactStatus: "new_contact",
+        previousThreadCount: 0,
+        draftStatus: "ready",
+        gmailExportStatus: "not_exported",
+        pipelineState: "draft_ready",
+        attentionFlags: ["high_score", "urgent_action"],
+        needsReview: true,
+        bodyText: "forbidden-client-inbox-list-body",
+        fromEmail: "forbidden-client-inbox-list-from@example.test",
+        toEmail: "forbidden-client-inbox-list-to@example.test",
+        metadata_json: { hidden: true },
+      },
+    ],
+  },
+};
+
+const clientInboxDetail = {
+  success: true,
+  data: {
+    mail: {
+      mailItemId: clientInboxMailItemId,
+      subject: "Synthetic quote request",
+      fromDisplay: "Clean Pilot Sender",
+      fromEmail: "sender@example.test",
+      toDisplay: "Syrantis Pilot",
+      toEmail: "pilot@example.test",
+      receivedAt: "2026-05-18T09:30:00.000Z",
+      bodyText: "Synthetic clean Gmail pilot body for admin validation.",
+      snippet: "Synthetic clean Gmail pilot body",
+      attachments: [],
+    },
+    analysis: {
+      category: "quote_request",
+      action: "create_lead",
+      reasonCode: "quote_request",
+      intent: "quote_request",
+      urgency: "high",
+      score: 92,
+      scoreBand: "hot",
+      confidence: 88,
+      recommendedAction: "Prepare a quote reply.",
+      attentionFlags: ["high_score", "urgent_action"],
+    },
+    contactContext: {
+      contactKnown: false,
+      contactStatus: "new_contact",
+      previousLeadCount: 0,
+      previousThreadCount: 0,
+      lastInboundAt: "2026-05-18T09:30:00.000Z",
+      lastOutboundAt: null,
+      lastOutboundStatus: null,
+    },
+    companyPolicyContext: {
+      companyName: null,
+      sector: "Plomberie",
+      language: "fr",
+      tone: "professional",
+      keyRulesMatched: ["confirm availability"],
+      missingInfo: ["preferred date"],
+      forbiddenClaims: ["guaranteed price"],
+    },
+    draft: {
+      draftId: clientInboxDraftId,
+      subject: "Draft reply",
+      bodyText: "Generated draft body.",
+      status: "draft",
+      generatedAt: "2026-05-18T09:45:00.000Z",
+      editedAt: null,
+      source: "ai",
+      policyMatchScore: 84,
+      canEdit: true,
+      canRewrite: false,
+      canExportToGmail: true,
+    },
+    gmailExport: {
+      status: "not_exported",
+      requestedAt: null,
+      exportedAt: null,
+      blockingReasons: [],
+    },
+    actions: {
+      canEditDraft: true,
+      canRequestGmailExport: true,
+      canCancelGmailExport: true,
+      canRewriteLater: false,
+      canSendDirectLater: false,
+    },
+    rawPayload: "forbidden-client-inbox-raw-payload",
+  },
+};
+
+const clientInboxDraftEdit = {
+  success: true,
+  data: {
+    mailItemId: clientInboxMailItemId,
+    draftId: clientInboxDraftId,
+    status: "draft",
+    updatedAt: "2026-05-18T10:05:00.000Z",
+    canExportToGmail: true,
+    bodyText: "forbidden-client-inbox-edited-body",
+  },
+};
+
 const googleSheetsStatus = {
   success: true,
   data: {
@@ -1091,6 +1227,7 @@ describe("admin app", () => {
     expect(screen.getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Pushback" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Client Dashboard" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Client Inbox Lab" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Client Install" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Draft Queue" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Mail Queue" })).toBeInTheDocument();
@@ -1098,6 +1235,109 @@ describe("admin app", () => {
     expect(screen.getByRole("link", { name: "API Keys" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Google Sheets" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ops" })).toBeInTheDocument();
+  });
+
+  it("renders the Client Inbox Lab inside the protected admin app", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === clientInboxMessagesUrl) {
+        return mockJson(clientInboxMessages);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/client-inbox-lab");
+
+    expect(await screen.findByRole("heading", { name: "Client Inbox Lab" })).toBeInTheDocument();
+    expect(screen.getByText("Syrantis Admin")).toBeInTheDocument();
+    expect(screen.getByText("Internal validation only · Not final client UI")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "List v1 intentionally omits subject and snippet. Final client UI may require a separately approved safe preview policy.",
+      ),
+    ).toBeInTheDocument();
+    expect(await screen.findByText(clientInboxMailItemId)).toBeInTheDocument();
+    expect(screen.getByText("Subject value")).toBeInTheDocument();
+    expect(screen.getByText("Snippet value")).toBeInTheDocument();
+    expect(screen.getAllByText("null").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByLabelText("Navigation client")).not.toBeInTheDocument();
+    expect(screen.queryByText("Boîte de réception")).not.toBeInTheDocument();
+    expect(screen.queryByText("Tableau de bord")).not.toBeInTheDocument();
+    expect(screen.queryByText("Configuration")).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw json/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/api key/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/secret/i)).not.toBeInTheDocument();
+
+    const listPanel = screen.getByLabelText("Filter and list");
+    expect(
+      within(listPanel).queryByText("forbidden-client-inbox-list-body"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(listPanel).queryByText("Synthetic clean Gmail pilot body for admin validation."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("loads Client Inbox Lab detail and runs draft/export smoke actions safely", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string, init?: RequestInit) => {
+      if (url === clientInboxMessagesUrl) {
+        return mockJson(clientInboxMessages);
+      }
+
+      if (url === clientInboxDetailUrl) {
+        return mockJson(clientInboxDetail);
+      }
+
+      if (url === clientInboxDraftUrl && init?.method === "PATCH") {
+        return mockJson(clientInboxDraftEdit);
+      }
+
+      if (url === clientInboxExportRequestUrl && init?.method === "POST") {
+        return mockJson(gmailExportRequestResponse);
+      }
+
+      if (url === clientInboxExportCancelUrl && init?.method === "POST") {
+        return mockJson(gmailExportCancelResponse);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/client-inbox-lab");
+    const rowButton = (await screen.findByText(clientInboxMailItemId)).closest("button");
+    expect(rowButton).not.toBeNull();
+    await user.click(rowButton!);
+
+    expect(
+      await screen.findByText("Synthetic clean Gmail pilot body for admin validation."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("sender@example.test")).toBeInTheDocument();
+    expect(screen.getByText("pilot@example.test")).toBeInTheDocument();
+    expect(screen.getByText(/listSubjectPreview/)).toBeInTheDocument();
+    expect(screen.getByText(/listSnippetPreview/)).toBeInTheDocument();
+    expect(screen.queryByText("forbidden-client-inbox-raw-payload")).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Draft subject"), "Smoke subject");
+    await user.type(screen.getByLabelText("Draft body"), "Smoke body");
+    await user.click(screen.getByRole("button", { name: "Save draft edit" }));
+    expect(await screen.findByText(/Draft draft updated/)).toBeInTheDocument();
+
+    const patchCall = request.mock.calls.find(
+      ([url, init]) => url === clientInboxDraftUrl && init?.method === "PATCH",
+    );
+    expect(JSON.stringify(patchCall?.[1]?.body)).toContain("Smoke subject");
+    expect(JSON.stringify(patchCall?.[1]?.body)).toContain("Smoke body");
+    expect(JSON.stringify(patchCall?.[1])).not.toContain("Authorization");
+
+    await user.click(screen.getByRole("button", { name: "Request export" }));
+    expect(await screen.findByText(/Export request requested/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel export" }));
+    expect(await screen.findByText(/Export request cancelled/)).toBeInTheDocument();
+    expect(gmailExportPostCalls(request, clientInboxExportRequestUrl)).toHaveLength(1);
+    expect(gmailExportPostCalls(request, clientInboxExportCancelUrl)).toHaveLength(1);
+    expect(screen.queryByText("forbidden-client-inbox-edited-body")).not.toBeInTheDocument();
   });
 
   it("renders the mock Client Inbox preview without admin or debug controls", () => {
@@ -2836,6 +3076,7 @@ describe("admin app", () => {
       "../src/components/ProtectedRoute.tsx",
       "../src/pages/ApiKeysPage.tsx",
       "../src/pages/ClientDashboardPage.tsx",
+      "../src/pages/ClientInboxLabPage.tsx",
       "../src/pages/ClientInboxPreviewPage.tsx",
       "../src/pages/ClientInstallPage.tsx",
       "../src/pages/DashboardPage.tsx",
