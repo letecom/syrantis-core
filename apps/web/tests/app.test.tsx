@@ -1350,12 +1350,12 @@ describe("admin app", () => {
     renderApp("/app/client-inbox-preview");
 
     expect(screen.getByRole("heading", { name: "Boîte de réception" })).toBeInTheDocument();
-    expect(screen.getByText("Analyse IA Syrantis")).toBeInTheDocument();
+    expect(screen.getByText("Analyse Syrantis")).toBeInTheDocument();
     expect(screen.getByText("Brouillon IA")).toBeInTheDocument();
     expect(screen.getAllByText("Lumière Services").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Demande de devis/).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Valider" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Exporter vers Gmail" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Modifier" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Préparer dans Gmail" })).toBeInTheDocument();
 
     const clientNav = screen.getByLabelText("Navigation client");
     expect(within(clientNav).getByText("Tableau de bord")).toBeInTheDocument();

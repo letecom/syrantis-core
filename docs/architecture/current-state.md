@@ -203,3 +203,27 @@ body fields:
 call, Gmail/App Script/googleapis behavior, Resend behavior, Google Sheets behavior,
 Caddy/env/systemd change, final client UI, `app.syrantis.fr`, client RBAC, AI rewrite, direct send,
 or Scout behavior.
+
+## 023AI-A Client Inbox Shared Components Preview State
+
+023AI is one issue split across two PRs:
+
+- PR A extracts shared client Inbox components and refactors `/app/client-inbox-preview`.
+- PR B will add the live `/app/client/inbox` route, API adapter, and live API integration.
+
+023AI-A adds `apps/web/src/features/client-inbox/` as the client Inbox UI feature boundary. The
+feature contains UI ViewModel types, mock preview data, formatters, reusable layout/list/detail/
+analysis/contact/rules/draft/export components, badges, and empty/loading/error states.
+
+The preview remains the 023AE design harness and keeps using isolated client design tokens. It is
+not mounted in the admin shell and does not depend on admin navigation. The Admin Client Inbox Lab
+remains a separate runtime validation surface and is not reused by the client UI components.
+
+Shared list components render only `subjectPreview` and `snippetPreview` style copy and do not
+receive full body or email fields. The selected detail component may render full body and email
+fields because it represents detail context. Components consume UI ViewModels only; the future PR B
+adapter is responsible for converting live API DTOs into those ViewModels.
+
+023AI-A adds no backend route, service, repository, migration, provider behavior, Google Sheets,
+Resend, OpenRouter, Caddy/env/systemd/deployment change, `app.syrantis.fr` foundation, client RBAC,
+live API adapter, live route, AI rewrite, direct send, or Gmail clone behavior.

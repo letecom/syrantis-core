@@ -234,3 +234,21 @@ payloads, Google Sheets pushback, admin generic queues, provider payloads, promp
 raw metadata. This does not approve final client UI, client RBAC, provider calls, Gmail OAuth,
 Resend changes, Google Sheets behavior changes, direct send, AI rewrite, deployment, env, Caddy, or
 systemd changes.
+
+## 2026-05-19 - 023AI Client Inbox UI Uses ViewModels
+
+Decision: the final client Inbox UI must be shared between the mock preview harness and the future
+live route through feature components that consume UI ViewModels, not backend DTOs.
+
+`/app/client-inbox-preview` remains the design harness. The Admin Client Inbox Lab remains a
+separate admin validation surface and must not be reused as the client UI. PR A extracts shared
+components only; PR B will add the live route and adapter from Client Inbox API DTOs into UI
+ViewModels.
+
+List UI ViewModels may contain bounded `subjectPreview` and `snippetPreview` copy but must not
+contain or render body text, sender email, recipient email, raw payloads, workspace identifiers, or
+provider identifiers. Detail UI ViewModels may render body and email fields in selected-message
+context.
+
+This does not approve a live client route, client RBAC, `app.syrantis.fr` foundation, backend route,
+migration, provider behavior, direct send, deployment, env, Caddy, systemd, or Google Sheets change.
