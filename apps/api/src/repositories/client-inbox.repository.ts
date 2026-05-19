@@ -27,6 +27,7 @@ export type ClientInboxMailRow = {
   fromDisplay: string | null;
   subject: string | null;
   snippet: string | null;
+  bodyText: string | null;
   classification: string | null;
   category: string | null;
   action: string | null;
@@ -413,6 +414,7 @@ function baseMailSelect() {
     fromDisplay: clientMailItems.fromDisplay,
     subject: clientMailItems.subject,
     snippet: clientMailItems.snippet,
+    bodyText: clientMailItems.bodyText,
     classification: intakeClassifications.classification,
     category: intakeClassifications.category,
     action: intakeClassifications.action,

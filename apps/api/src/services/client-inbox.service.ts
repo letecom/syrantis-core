@@ -32,6 +32,35 @@ import {
 } from "./gmail-export-request.js";
 
 const HIGH_SCORE_MINIMUM = 75;
+const SUBJECT_PREVIEW_MAX_LENGTH = 140;
+const SNIPPET_PREVIEW_MAX_LENGTH = 220;
+const forbiddenPreviewKeyPattern = [
+  "workspace(?:Id|[_\\s-]?id)",
+  "tenant(?:Id|[_\\s-]?id)",
+  "provider(?:MessageId|[_\\s-]?(?:message|thread)?[_\\s-]?id)",
+  "provider_message_id",
+  "external(?:Id|ThreadId|[_\\s-]?(?:thread[_\\s-]?)?id)",
+  "message(?:Id|[_\\s-]?id)",
+  "thread(?:Id|[_\\s-]?id)",
+  "lease(?:Token|[_\\s-]?token)",
+  "api(?:Key|[_\\s-]?key)",
+  "plaintext(?:ApiKey|[_\\s-]?api[_\\s-]?key)",
+  "key(?:Hash|[_\\s-]?hash)",
+  "raw(?:Metadata|Payload|[_\\s-]?(?:metadata|payload))",
+  "metadata(?:Json|[_\\s-]?json)",
+  "payload(?:Json|[_\\s-]?json)",
+  "normalized(?:Json|[_\\s-]?json)",
+  "prompt",
+  "output",
+].join("|");
+const forbiddenPreviewPairPattern = new RegExp(
+  `\\b(?:${forbiddenPreviewKeyPattern})\\b\\s*[:=]\\s*(?:"[^"]*"|'[^']*'|[^\\s,;]+)`,
+  "gi",
+);
+const previewSecretPattern = new RegExp(
+  "\\b(?:syr_(?:live|test)_[A-Za-z0-9_=-]+|sk-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{16,}|xox[baprs]-[0-9A-Za-z-]+|Bearer\\s+[A-Za-z0-9._~+/=-]{8,})\\b",
+  "gi",
+);
 
 export type ClientInboxListResult = {
   generatedAt: string;
@@ -99,6 +128,79 @@ function truncate(value: string | null | undefined, maxLength: number): string |
   }
 
   return trimmed.length > maxLength ? trimmed.slice(0, maxLength).trimEnd() : trimmed;
+}
+
+function normalizePreviewText(value: string | null | undefined): string | null {
+  const normalized = value
+    ? Array.from(value)
+        .map((character) => {
+          const code = character.charCodeAt(0);
+          return code <= 31 || code === 127 ? " " : character;
+        })
+        .join("")
+        .replace(/\s+/g, " ")
+        .trim()
+    : "";
+  return normalized ? normalized : null;
+}
+
+function redactPreviewMaterial(value: string): string {
+  return value
+    .replace(forbiddenPreviewPairPattern, "[redacted]")
+    .replace(previewSecretPattern, "[redacted]");
+}
+
+function sanitizePreview(
+  value: string | null | undefined,
+  maxLength: number,
+  options: { omitAtLeastOneCharacter?: boolean } = {},
+): string | null {
+  const normalized = normalizePreviewText(value);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const redacted = normalizePreviewText(redactPreviewMaterial(normalized));
+
+  if (!redacted) {
+    return null;
+  }
+
+  const limit = options.omitAtLeastOneCharacter
+    ? Math.min(maxLength, redacted.length - 1)
+    : maxLength;
+
+  if (limit <= 0) {
+    return null;
+  }
+
+  return redacted.length > limit ? redacted.slice(0, limit).trimEnd() : redacted;
+}
+
+function equivalentPreviewText(left: string | null, right: string | null): boolean {
+  return Boolean(left && right && left.toLowerCase() === right.toLowerCase());
+}
+
+function subjectPreview(row: ClientInboxMailRow): string | null {
+  return sanitizePreview(row.subject, SUBJECT_PREVIEW_MAX_LENGTH);
+}
+
+function snippetPreview(row: ClientInboxMailRow, resolvedSubjectPreview: string | null): string | null {
+  const sanitizedSnippet = sanitizePreview(row.snippet, SNIPPET_PREVIEW_MAX_LENGTH);
+  const sanitizedBody = sanitizePreview(row.bodyText, Number.MAX_SAFE_INTEGER);
+
+  if (
+    sanitizedSnippet &&
+    !equivalentPreviewText(sanitizedSnippet, resolvedSubjectPreview) &&
+    !equivalentPreviewText(sanitizedSnippet, sanitizedBody)
+  ) {
+    return sanitizedSnippet;
+  }
+
+  return sanitizePreview(row.bodyText, SNIPPET_PREVIEW_MAX_LENGTH, {
+    omitAtLeastOneCharacter: true,
+  });
 }
 
 function hasText(value: string | null | undefined): boolean {
@@ -464,6 +566,7 @@ function mapItem(input: {
   const gmailExport = deriveGmailExport(draft, input.now);
   const resolvedDraftStatus = draftStatus({ draft, gmailExport });
   const resolvedContactStatus = contactStatus({ row: input.row, rows: input.rows });
+  const resolvedSubjectPreview = subjectPreview(input.row);
   const resolvedPipelineState = pipelineState({
     row: input.row,
     score,
@@ -491,6 +594,8 @@ function mapItem(input: {
     companyDisplay: truncate(input.row.companyName, 120),
     subject: null,
     snippet: null,
+    subjectPreview: resolvedSubjectPreview,
+    snippetPreview: snippetPreview(input.row, resolvedSubjectPreview),
     score: score?.score ?? null,
     scoreBand: resolvedScoreBand,
     category: category(input.row.category),

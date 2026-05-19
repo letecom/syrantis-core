@@ -218,3 +218,19 @@ Inbox draft edit and Gmail export request/cancel actions resolve through the wor
 item relation and reuse existing draft/export rules. This does not approve live UI, AI rewrite,
 direct send, backend Gmail OAuth, provider calls, Resend changes, Google Sheets changes, deployment,
 or client RBAC.
+
+## 2026-05-19 - 023AH Client Inbox List Previews Are Route-Scoped
+
+Decision: bounded `subjectPreview` and `snippetPreview` values are approved only on the dedicated
+Client Inbox list route, `GET /api/client/inbox/messages`.
+
+The list route keeps legacy `subject:null` and `snippet:null`. Full inbound body and email address
+fields remain detail-only. Preview generation must trim, collapse whitespace, redact internal or
+secret-like material, cap subjects at 140 characters, cap snippets at 220 characters, and avoid
+returning the full body when deriving from `body_text`.
+
+Preview values remain forbidden in public intake responses, activity log metadata, background job
+payloads, Google Sheets pushback, admin generic queues, provider payloads, prompt/output logs, and
+raw metadata. This does not approve final client UI, client RBAC, provider calls, Gmail OAuth,
+Resend changes, Google Sheets behavior changes, direct send, AI rewrite, deployment, env, Caddy, or
+systemd changes.

@@ -144,16 +144,18 @@ perform draft/export actions.
 - Ignored messages can be reviewed by a future Inbox without becoming leads or score jobs.
 - Leadable/review messages link mail items to classification, lead, contact, and later draft state
   where available.
-- `GET /api/client/inbox/messages` returns a safe summary-only list read model with subject and
-  snippet values omitted in v1.
+- `GET /api/client/inbox/messages` returns a safe summary-only list read model with bounded
+  sanitized `subjectPreview` and `snippetPreview`; legacy `subject` and `snippet` values remain
+  `null` in v1.
 - `GET /api/client/inbox/messages/:mailItemId` is the dedicated detail context that may return the
   selected mail body and email addresses.
 - Inbox draft edit and Gmail export request/cancel wrappers are available through
   `/api/client/inbox/messages/:mailItemId/*` and reuse existing draft/export rules.
 
 Full inbound mail body is permitted only in `client_mail_items` and the dedicated Inbox detail DTO.
-It remains forbidden in activity logs, background job payloads, public intake responses, admin
-queues, Google Sheets, raw metadata, prompts, provider payloads, and list DTOs.
+023AH list previews are approved only for the dedicated Client Inbox list route. Full body and
+preview values remain forbidden in activity logs, background job payloads, public intake responses,
+admin generic queues, Google Sheets, raw metadata, prompt/output logs, and provider payloads.
 
 023AF adds no live UI, client role/RBAC, AI rewrite, direct send, provider call, Gmail backend call,
 Resend behavior, Google Sheets change, Caddy/systemd/env change, or deployment behavior.
@@ -168,14 +170,36 @@ the final client Inbox UI is built:
 - It consumes only the existing 023AF Client Inbox list/detail/draft/edit/export wrapper routes.
 - It supports list `tab`, `sort`, and `limit` controls for clean pilot validation.
 - It makes the v1 list disclosure boundary explicit: `subject` and `snippet` remain `null` in list
-  DTOs.
+  DTOs while `subjectPreview` and `snippetPreview` expose bounded sanitized list-only previews.
 - It uses the approved detail route to validate selected-message `bodyText`, `fromEmail`, and
   `toEmail` presence.
-- It computes data-completeness gaps before final UI work, including list preview policy,
-  sender/company display, attachments, and thread context.
+- It computes data-completeness gaps before final UI work; list preview gaps disappear when the
+  preview fields are present, while sender/company display, attachments, and thread context remain
+  tracked.
 - It smoke-tests Inbox draft edit and Gmail export request/cancel wrappers without direct provider
   calls.
 
 023AG does not change `ClientInboxPreviewPage`, import client design tokens, create
 `app.syrantis.fr`, add client RBAC, add backend routes, alter intake/worker/provider behavior,
 create migrations, touch Google Sheets behavior, or change Caddy/systemd/env/deployment state.
+
+## 023AH Client Inbox Safe Preview Policy State
+
+023AH unlocks the future live Inbox left-list preview target without returning full list subject or
+body fields:
+
+- Shared Client Inbox list items include `subjectPreview` and `snippetPreview`.
+- `subjectPreview` is derived from `client_mail_items.subject`, whitespace-collapsed, redacted, and
+  capped at 140 characters.
+- `snippetPreview` prefers a safe stored snippet and otherwise derives a bounded body preview,
+  whitespace-collapsed, redacted, capped at 220 characters, and not equal to the full body.
+- The list route still returns `subject:null` and `snippet:null` for v1 compatibility.
+- The detail route remains the only response context that may return selected full `subject`,
+  `bodyText`, `fromEmail`, and `toEmail`.
+- Previews are forbidden in public intake responses, activity logs, background jobs, Google Sheets,
+  admin generic queues, provider payloads, prompt/output logs, and raw metadata.
+
+023AH adds no migration, backend route, intake behavior change, worker behavior change, provider
+call, Gmail/App Script/googleapis behavior, Resend behavior, Google Sheets behavior,
+Caddy/env/systemd change, final client UI, `app.syrantis.fr`, client RBAC, AI rewrite, direct send,
+or Scout behavior.
