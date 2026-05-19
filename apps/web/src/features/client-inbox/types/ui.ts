@@ -17,18 +17,13 @@ export type ClientInboxBadgeTone =
 
 export type ClientInboxAvatarTone = "amber" | "blue" | "gray" | "mint" | "red" | "violet";
 
-export type ClientInboxContextIcon =
-  | "clock"
-  | "draft"
-  | "history"
-  | "paperclip"
-  | "shield"
-  | "tag";
+export type ClientInboxContextIcon = "clock" | "draft" | "history" | "paperclip" | "shield" | "tag";
 
 export type ClientInboxFilter = {
   label: string;
   count: number;
   active: boolean;
+  onSelect?: () => void;
 };
 
 export type ClientInboxListItem = {
@@ -48,6 +43,7 @@ export type ClientInboxListItem = {
   exportStatus: ClientInboxExportStatus;
   attentionTexts: string[];
   selected: boolean;
+  onSelect?: () => void;
 };
 
 export type ClientInboxQuickContextItem = {
@@ -90,10 +86,34 @@ export type ClientInboxDraft = {
   policyMatchText: string;
 };
 
+export type ClientInboxDraftEditControls = {
+  subject: string;
+  bodyText: string;
+  onSubjectChange: (value: string) => void;
+  onBodyTextChange: (value: string) => void;
+  onSave: () => void;
+  isSaving: boolean;
+  disabled?: boolean;
+};
+
+export type ClientInboxGmailExportControls = {
+  onRequest: () => void;
+  onCancel: () => void;
+  isRequesting: boolean;
+  isCancelling: boolean;
+};
+
 export type ClientInboxActions = {
   draftActionText: string;
   gmailActionText: string;
   menuActionText: string;
+  canEditDraft?: boolean;
+  canRequestGmailExport?: boolean;
+  canCancelGmailExport?: boolean;
+  draftEdit?: ClientInboxDraftEditControls;
+  gmailExport?: ClientInboxGmailExportControls;
+  feedbackText?: string | null;
+  feedbackTone?: "success" | "error" | "neutral";
 };
 
 export type ClientInboxDetail = {

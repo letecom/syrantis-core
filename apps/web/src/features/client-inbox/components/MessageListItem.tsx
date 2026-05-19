@@ -14,9 +14,9 @@ type MessageListItemProps = {
 
 export function MessageListItem({ message }: MessageListItemProps) {
   const initialsClassName = ["client-initials", message.avatarTone].filter(Boolean).join(" ");
-
-  return (
-    <article className={["client-message-item", message.selected ? "is-selected" : ""].join(" ")}>
+  const className = ["client-message-item", message.selected ? "is-selected" : ""].join(" ");
+  const content = (
+    <>
       <span className={initialsClassName}>{message.initials}</span>
       <div className="client-message-content">
         <div className="client-message-meta">
@@ -47,6 +47,21 @@ export function MessageListItem({ message }: MessageListItemProps) {
         <span className="client-message-time">{message.receivedText}</span>
         <ScoreBadge score={message.score} scoreBand={message.scoreBand} />
       </div>
-    </article>
+    </>
   );
+
+  if (message.onSelect) {
+    return (
+      <button
+        aria-current={message.selected ? "true" : undefined}
+        className={className}
+        onClick={message.onSelect}
+        type="button"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return <article className={className}>{content}</article>;
 }

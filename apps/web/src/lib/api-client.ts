@@ -542,6 +542,7 @@ export async function listClientInboxMessages(
       | "draftStatus"
     >
   > = {},
+  options: { signal?: AbortSignal } = {},
 ): Promise<ClientInboxMessagesData> {
   const search = new URLSearchParams();
 
@@ -578,12 +579,21 @@ export async function listClientInboxMessages(
   }
 
   const query = search.toString();
-  const payload = await requestJson(`/api/client/inbox/messages${query ? `?${query}` : ""}`);
+  const payload = await requestJson(
+    `/api/client/inbox/messages${query ? `?${query}` : ""}`,
+    options.signal ? { signal: options.signal } : {},
+  );
   return ClientInboxMessagesResponseSchema.parse(payload).data;
 }
 
-export async function getClientInboxMessage(mailItemId: string): Promise<ClientInboxMessageDetail> {
-  const payload = await requestJson(`/api/client/inbox/messages/${encodeURIComponent(mailItemId)}`);
+export async function getClientInboxMessage(
+  mailItemId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<ClientInboxMessageDetail> {
+  const payload = await requestJson(
+    `/api/client/inbox/messages/${encodeURIComponent(mailItemId)}`,
+    options.signal ? { signal: options.signal } : {},
+  );
   return ClientInboxMessageDetailResponseSchema.parse(payload).data;
 }
 

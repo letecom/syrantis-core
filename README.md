@@ -66,6 +66,8 @@ Validated current loop:
 15. 023AH adds bounded Client Inbox list previews while keeping full mail body detail-only.
 16. 023AI-A extracts shared client Inbox UI components and refactors the mock preview harness
     without adding the live route or API integration.
+17. 023AI-B adds `/app/client/inbox` as a live internal client Inbox route using the shared
+    components and existing 023AF/023AH backend routes only.
 
 ## Current Client/Admin Surfaces
 
@@ -77,6 +79,9 @@ must not be treated as a broad CRM, Gmail clone, or autonomous agent console.
 - `/app/client-inbox-lab`: internal validation lab for 023AF Client Inbox Domain list/detail,
   safe list preview readiness, data-completeness gaps, draft edit, and Gmail export wrappers. It is
   not final client UI.
+- `/app/client/inbox`: live internal client Inbox route that reuses shared 023AI components and
+  existing 023AF/023AH routes. It is not `app.syrantis.fr` and does not add client RBAC/domain
+  split.
 - `/app/mail-queue`: read-only classified inbound mail review queue from `intake_classifications`.
 - `/app/draft-queue`: generated draft review queue with full generated draft detail and safe Gmail
   export request/cancel buttons.
@@ -226,7 +231,7 @@ behavior change.
 
 - PR A extracts shared client Inbox UI components and keeps `/app/client-inbox-preview` as the
   mock-only design harness.
-- PR B will add the live `/app/client/inbox` route, UI-to-API adapter, and live API integration.
+- PR B adds the live `/app/client/inbox` route, UI-to-API adapter, and live API integration.
 
 023AI-A adds `apps/web/src/features/client-inbox/` with UI ViewModel types, mock preview data,
 formatters, shared layout/list/detail/right-panel components, badges, and empty/loading/error
@@ -235,8 +240,9 @@ states. Components consume UI ViewModels only and do not know backend DTOs. List
 detail component may render body and email fields.
 
 The Admin Client Inbox Lab remains a separate founder/admin validation surface and is not reused.
-023AI-A adds no backend route, migration, provider behavior, env/deployment change,
-`app.syrantis.fr` foundation, client RBAC, live API adapter, or live Inbox route.
+023AI-B keeps the preview as the mock design harness and uses existing 023AF/023AH backend routes
+only. It adds no backend route, migration, provider behavior, env/deployment change,
+`app.syrantis.fr` foundation, client RBAC/domain split, direct send, or AI rewrite.
 
 ## Client Inbox Domain / 023AF
 
@@ -2641,6 +2647,8 @@ Later connector candidates:
 - `/app/client-inbox-lab` is internal validation only and not the final client Inbox UI
 - `/app/client-inbox-preview` is a shared-component design harness only and not the live client
   Inbox route
+- `/app/client/inbox` is a live internal validation route in the current web app, not
+  `app.syrantis.fr`
 - current admin UI is founder/operator validation, not final client UX
 - current client-facing surfaces are not yet the final `app.syrantis.fr` Dashboard / Inbox / Config
 - no OAuth Google integration

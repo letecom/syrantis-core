@@ -5,9 +5,15 @@ type ClientInboxSidebarProps = {
   accountName: string;
   inboxCount: number;
   user: ClientInboxUser;
+  showSecondaryNav?: boolean;
 };
 
-export function ClientInboxSidebar({ accountName, inboxCount, user }: ClientInboxSidebarProps) {
+export function ClientInboxSidebar({
+  accountName,
+  inboxCount,
+  showSecondaryNav = true,
+  user,
+}: ClientInboxSidebarProps) {
   return (
     <aside className="client-sidebar" aria-label="Application client">
       <div className="client-brand">
@@ -18,19 +24,23 @@ export function ClientInboxSidebar({ accountName, inboxCount, user }: ClientInbo
       </div>
 
       <nav className="client-sidebar-nav" aria-label="Navigation client">
-        <button className="client-nav-item" type="button">
-          <ClientInboxIcon className="muted" name="dashboard" />
-          <span>Tableau de bord</span>
-        </button>
+        {showSecondaryNav ? (
+          <button className="client-nav-item" type="button">
+            <ClientInboxIcon className="muted" name="dashboard" />
+            <span>Tableau de bord</span>
+          </button>
+        ) : null}
         <button className="client-nav-item is-active" type="button">
           <ClientInboxIcon name="mail" />
           <span>Boîte de réception</span>
           <span className="client-nav-count">{inboxCount}</span>
         </button>
-        <button className="client-nav-item" type="button">
-          <ClientInboxIcon className="muted" name="config" />
-          <span>Configuration</span>
-        </button>
+        {showSecondaryNav ? (
+          <button className="client-nav-item" type="button">
+            <ClientInboxIcon className="muted" name="config" />
+            <span>Configuration</span>
+          </button>
+        ) : null}
       </nav>
 
       <div className="client-sidebar-footer">

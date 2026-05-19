@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { getCurrentUser } from "./lib/api-client";
 import { ApiKeysPage } from "./pages/ApiKeysPage";
 import { ClientInboxLabPage } from "./pages/ClientInboxLabPage";
 import { ClientInboxPreviewPage } from "./pages/ClientInboxPreviewPage";
+import { ClientInboxLivePage } from "./features/client-inbox";
 import { ClientInstallPage } from "./pages/ClientInstallPage";
 import { ClientDashboardPage } from "./pages/ClientDashboardPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -36,12 +37,36 @@ function RootRedirect() {
   return <Navigate replace to={sessionQuery.data ? "/app" : "/login"} />;
 }
 
+function ClientAppRouteGuard() {
+  const sessionQuery = useQuery({
+    queryKey: ["session"],
+    queryFn: getCurrentUser,
+  });
+
+  if (sessionQuery.isLoading) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-slate-50 px-5 text-sm text-slate-600">
+        Restoring session...
+      </div>
+    );
+  }
+
+  if (sessionQuery.isError || !sessionQuery.data) {
+    return <Navigate replace to="/login" />;
+  }
+
+  return <Outlet context={sessionQuery.data} />;
+}
+
 export function App() {
   return (
     <Routes>
       <Route element={<RootRedirect />} path="/" />
       <Route element={<LoginPage />} path="/login" />
       <Route element={<ClientInboxPreviewPage />} path="/app/client-inbox-preview" />
+      <Route element={<ClientAppRouteGuard />} path="/app/client">
+        <Route element={<ClientInboxLivePage />} path="inbox" />
+      </Route>
       <Route element={<ProtectedRoute />} path="/app">
         <Route index element={<DashboardPage />} />
         <Route element={<PushbackPage />} path="pushback" />

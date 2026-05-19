@@ -209,7 +209,7 @@ or Scout behavior.
 023AI is one issue split across two PRs:
 
 - PR A extracts shared client Inbox components and refactors `/app/client-inbox-preview`.
-- PR B will add the live `/app/client/inbox` route, API adapter, and live API integration.
+- PR B adds the live `/app/client/inbox` route, API adapter, and live API integration.
 
 023AI-A adds `apps/web/src/features/client-inbox/` as the client Inbox UI feature boundary. The
 feature contains UI ViewModel types, mock preview data, formatters, reusable layout/list/detail/
@@ -227,3 +227,34 @@ adapter is responsible for converting live API DTOs into those ViewModels.
 023AI-A adds no backend route, service, repository, migration, provider behavior, Google Sheets,
 Resend, OpenRouter, Caddy/env/systemd/deployment change, `app.syrantis.fr` foundation, client RBAC,
 live API adapter, live route, AI rewrite, direct send, or Gmail clone behavior.
+
+## 023AI-B Client Inbox Live Route State
+
+023AI-B adds `/app/client/inbox` as the live internal client Inbox route inside the current web
+app. The route is protected by the existing session route but is not mounted inside the admin shell,
+so it does not render admin navigation. It is not `app.syrantis.fr` and does not introduce client
+RBAC or a domain split.
+
+The live route reuses the shared 023AI-A client Inbox components and maps 023AF/023AH API DTOs into
+UI ViewModels through `apps/web/src/features/client-inbox/` adapter and mapper code. The preview
+route remains a mock design harness, and the Admin Client Inbox Lab remains a separate founder/admin
+validation surface.
+
+Live behavior is limited to existing backend routes:
+
+- `GET /api/client/inbox/messages?tab=all&limit=20&sort=newest` and the same route with the minimal
+  supported tabs for list refresh.
+- `GET /api/client/inbox/messages/:mailItemId` for selected-message detail.
+- `PATCH /api/client/inbox/messages/:mailItemId/draft` for draft edits when allowed.
+- `POST /api/client/inbox/messages/:mailItemId/gmail-export-request` after explicit confirmation.
+- `POST /api/client/inbox/messages/:mailItemId/gmail-export-cancel` when cancellation is allowed.
+
+The list UI renders only `subjectPreview` and `snippetPreview` copy. Full `subject`, `bodyText`,
+`fromEmail`, and `toEmail` are rendered only in selected detail context. Draft bodies are edited
+only in React state and are not stored in browser storage. Gmail export request text makes Gmail the
+manual final-send surface; there is still no direct send, reply, forward, archive, delete, spam, AI
+rewrite, provider SDK, or raw JSON/debug panel.
+
+023AI-B adds no backend/API source change, migration, provider/OpenRouter/GmailApp/googleapis/Resend
+behavior, Google Sheets behavior, Caddy/env/systemd change, deployment behavior, `app.syrantis.fr`,
+client RBAC/domain split, dashboard/config UI, Scout behavior, or operational deploy mechanism.

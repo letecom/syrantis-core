@@ -11,8 +11,10 @@ export function InboxFilterPills({ filters }: InboxFilterPillsProps) {
       <div className="client-filter-pills" aria-label="Filtres de la boîte de réception">
         {filters.map((filter) => (
           <button
+            aria-pressed={filter.active}
             className={["client-filter-pill", filter.active ? "is-active" : ""].join(" ")}
             key={filter.label}
+            onClick={filter.onSelect}
             type="button"
           >
             <span className="client-pill-dot" />
