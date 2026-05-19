@@ -64,6 +64,8 @@ Validated current loop:
 14. 023AG adds an admin-only Client Inbox Lab to validate clean Gmail pilot runtime data before
     final client UI work.
 15. 023AH adds bounded Client Inbox list previews while keeping full mail body detail-only.
+16. 023AI-A extracts shared client Inbox UI components and refactors the mock preview harness
+    without adding the live route or API integration.
 
 ## Current Client/Admin Surfaces
 
@@ -85,7 +87,8 @@ must not be treated as a broad CRM, Gmail clone, or autonomous agent console.
 - `/app/api-keys`: workspace API key create/list/detail/revoke with copy-once plaintext display.
 - `/app/ops`: bounded ops health checks and worker failed-summary review.
 - `/app/client-inbox-preview`: mock-only 023AE client Inbox visual preview for the future
-  `app.syrantis.fr` product contract. It has no backend behavior and is not the live client Inbox.
+  `app.syrantis.fr` product contract. 023AI-A refactors it to use shared client Inbox feature
+  components and mock UI ViewModels. It has no backend behavior and is not the live client Inbox.
 
 ## Current Backend Capabilities
 
@@ -216,6 +219,24 @@ The preview is static mock UI only. The future live Inbox still requires a dedic
 Domain backend before full client-visible mail bodies, draft editing, rewrite, or Gmail export
 actions can be implemented. 023AE adds no migration, no API route, no intake change, and no backend
 behavior change.
+
+## Client Inbox Shared UI / 023AI-A
+
+023AI is one issue split into two PRs:
+
+- PR A extracts shared client Inbox UI components and keeps `/app/client-inbox-preview` as the
+  mock-only design harness.
+- PR B will add the live `/app/client/inbox` route, UI-to-API adapter, and live API integration.
+
+023AI-A adds `apps/web/src/features/client-inbox/` with UI ViewModel types, mock preview data,
+formatters, shared layout/list/detail/right-panel components, badges, and empty/loading/error
+states. Components consume UI ViewModels only and do not know backend DTOs. List components render
+`subjectPreview` and `snippetPreview` and do not receive full body or email fields; the selected
+detail component may render body and email fields.
+
+The Admin Client Inbox Lab remains a separate founder/admin validation surface and is not reused.
+023AI-A adds no backend route, migration, provider behavior, env/deployment change,
+`app.syrantis.fr` foundation, client RBAC, live API adapter, or live Inbox route.
 
 ## Client Inbox Domain / 023AF
 
@@ -1782,6 +1803,8 @@ Not implemented yet.
 | 023AE    | Client App Design System + Inbox Contract             | done   |
 | 023AF    | Client Inbox Domain v1                                | done   |
 | 023AG    | Clean Gmail Pilot + Admin Inbox Lab                   | done   |
+| 023AH    | Client Inbox Safe Preview Policy                      | done   |
+| 023AI-A  | Client Inbox Shared Components + Preview Refactor     | done   |
 
 Near-term candidates:
 
@@ -2616,6 +2639,8 @@ Later connector candidates:
   arbitrary SQL, read logs, or run migrations
 - Ops Panel includes safe worker queue summary and worker failed summary aggregates only
 - `/app/client-inbox-lab` is internal validation only and not the final client Inbox UI
+- `/app/client-inbox-preview` is a shared-component design harness only and not the live client
+  Inbox route
 - current admin UI is founder/operator validation, not final client UX
 - current client-facing surfaces are not yet the final `app.syrantis.fr` Dashboard / Inbox / Config
 - no OAuth Google integration

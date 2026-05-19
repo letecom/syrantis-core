@@ -970,6 +970,17 @@
   color: #344054;
 }
 
+.client-primary-action:disabled,
+.client-export-action:disabled,
+.client-menu-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.client-action-status {
+  grid-column: 1 / -1;
+}
+
 .client-gmail-mark {
   display: inline-grid;
   width: 21px;
@@ -1011,6 +1022,29 @@
 
 .client-icon.muted {
   color: #667085;
+}
+
+.client-state-panel {
+  display: grid;
+  gap: 8px;
+  margin: 18px;
+  border: 1px solid var(--client-border);
+  border-radius: var(--client-radius-sm);
+  background: #fff;
+  color: #344054;
+  padding: 18px;
+  box-shadow: var(--client-shadow-sm);
+}
+
+.client-state-panel p {
+  margin: 0;
+  color: var(--client-text-muted);
+  font-size: 14px;
+}
+
+.client-state-panel.is-error {
+  border-color: #f3b8ba;
+  background: #fffafa;
 }
 
 @media (max-width: 1500px) {
