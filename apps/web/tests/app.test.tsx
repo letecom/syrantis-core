@@ -660,6 +660,8 @@ const clientInboxMessages = {
         companyDisplay: null,
         subject: null,
         snippet: null,
+        subjectPreview: "Synthetic quote request",
+        snippetPreview: "Synthetic safe list preview",
         score: 92,
         scoreBand: "hot",
         category: "quote_request",
@@ -1254,10 +1256,14 @@ describe("admin app", () => {
     expect(screen.getByText("Internal validation only · Not final client UI")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "List v1 intentionally omits subject and snippet. Final client UI may require a separately approved safe preview policy.",
+        "List v1 keeps subject and snippet null while exposing bounded safe preview fields for final Inbox validation.",
       ),
     ).toBeInTheDocument();
     expect(await screen.findByText(clientInboxMailItemId)).toBeInTheDocument();
+    expect(screen.getByText("Subject preview")).toBeInTheDocument();
+    expect(screen.getByText("Snippet preview")).toBeInTheDocument();
+    expect(screen.getByText("Synthetic quote request")).toBeInTheDocument();
+    expect(screen.getByText("Synthetic safe list preview")).toBeInTheDocument();
     expect(screen.getByText("Subject value")).toBeInTheDocument();
     expect(screen.getByText("Snippet value")).toBeInTheDocument();
     expect(screen.getAllByText("null").length).toBeGreaterThanOrEqual(2);
@@ -1315,8 +1321,8 @@ describe("admin app", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("sender@example.test")).toBeInTheDocument();
     expect(screen.getByText("pilot@example.test")).toBeInTheDocument();
-    expect(screen.getByText(/listSubjectPreview/)).toBeInTheDocument();
-    expect(screen.getByText(/listSnippetPreview/)).toBeInTheDocument();
+    expect(screen.queryByText(/listSubjectPreview/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/listSnippetPreview/)).not.toBeInTheDocument();
     expect(screen.queryByText("forbidden-client-inbox-raw-payload")).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Draft subject"), "Smoke subject");

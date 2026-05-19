@@ -63,6 +63,8 @@ export const ClientInboxMessageItemSchema = z.object({
   companyDisplay: z.string().nullable(),
   subject: z.string().nullable(),
   snippet: z.string().nullable(),
+  subjectPreview: z.string().max(140).nullable(),
+  snippetPreview: z.string().max(220).nullable(),
   score: z.number().int().min(0).max(100).nullable(),
   scoreBand: ClientInboxScoreBandSchema,
   category: ClientInboxCategorySchema,

@@ -600,6 +600,8 @@ const clientInboxMessagesResponse = {
         companyDisplay: null,
         subject: null,
         snippet: null,
+        subjectPreview: "Synthetic quote request",
+        snippetPreview: "Synthetic safe list preview",
         score: 92,
         scoreBand: "hot",
         category: "quote_request",
@@ -944,6 +946,8 @@ describe("api client", () => {
       mailItemId: clientInboxMailItemId,
       subject: null,
       snippet: null,
+      subjectPreview: "Synthetic quote request",
+      snippetPreview: "Synthetic safe list preview",
       scoreBand: "hot",
       pipelineState: "draft_ready",
     });

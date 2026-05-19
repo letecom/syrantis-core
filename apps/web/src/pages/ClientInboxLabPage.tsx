@@ -151,8 +151,8 @@ function completenessRows(
   }
 
   const missingForFinalUI = [
-    selectedItem?.subject === null ? "listSubjectPreview" : null,
-    selectedItem?.snippet === null ? "listSnippetPreview" : null,
+    selectedItem?.subjectPreview ? null : "listSubjectPreview",
+    selectedItem?.snippetPreview ? null : "listSnippetPreview",
     selectedItem?.senderDisplay === null ? "senderDisplay" : null,
     selectedItem?.companyDisplay === null ? "companyDisplay" : null,
     detail.mail.attachments.length === 0 ? "attachments" : null,
@@ -210,6 +210,8 @@ function ListItemButton({
           ["Draft", item.draftStatus],
           ["Gmail export", item.gmailExportStatus],
           ["Flags", formatList(item.attentionFlags)],
+          ["Subject preview", item.subjectPreview],
+          ["Snippet preview", item.snippetPreview],
           ["Subject value", formatNullableText(item.subject)],
           ["Snippet value", formatNullableText(item.snippet)],
         ]}
@@ -594,8 +596,8 @@ export function ClientInboxLabPage() {
           </div>
 
           <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-            List v1 intentionally omits subject and snippet. Final client UI may require a
-            separately approved safe preview policy.
+            List v1 keeps subject and snippet null while exposing bounded safe preview fields for
+            final Inbox validation.
           </div>
 
           {listQuery.data ? (

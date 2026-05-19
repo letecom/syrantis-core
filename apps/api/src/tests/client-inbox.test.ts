@@ -27,12 +27,18 @@ const workspaceId = testUser.workspaceId;
 const mailItemId = "00000000-0000-4000-8000-000000023f01";
 const otherMailItemId = "00000000-0000-4000-8000-000000023f02";
 const classificationId = "00000000-0000-4000-8000-000000023f03";
+const ignoredClassificationId = "00000000-0000-4000-8000-000000023f08";
 const leadId = "00000000-0000-4000-8000-000000023f04";
 const contactId = "00000000-0000-4000-8000-000000023f05";
 const draftId = "00000000-0000-4000-8000-000000023f06";
 const userId = testUser.id;
-const inboundSubjectMarker = "023AF_SUBJECT_LEAD_EXACT_MARKER";
-const inboundBodyMarker = "023AF_BODY_LEAD_EXACT_MARKER";
+const ignoredMailItemId = "00000000-0000-4000-8000-000000023f09";
+const inboundSubjectMarker = "023AH_SUBJECT_PREVIEW_MARKER";
+const inboundSnippetPreviewMarker = "023AH_SNIPPET_PREVIEW_MARKER";
+const inboundBodyMarker = "023AH_BODY_DETAIL_EXACT_MARKER";
+const leadableListBodyMarker = "023AH_LEADABLE_LIST_BODY_SHOULD_NOT_APPEAR";
+const truncatedPreviewMarker = "023AH_TRUNCATED_PREVIEW_ALLOWED";
+const storedFullBodyMarker = `${truncatedPreviewMarker} ${"stored full body ".repeat(40)}023AH_FULL_BODY_END_MARKER`;
 const inboundFromEmail = "023af.from@example.test";
 const inboundToEmail = "023af.to@example.test";
 
@@ -117,13 +123,31 @@ function expectNoExactListLeaks(value: unknown) {
   const serialized = JSON.stringify(value);
 
   for (const marker of [
-    inboundSubjectMarker,
     inboundBodyMarker,
+    leadableListBodyMarker,
+    storedFullBodyMarker,
+    "023AH_FULL_BODY_END_MARKER",
     inboundFromEmail,
     inboundToEmail,
+    "forbidden-prompt",
+    "forbidden-output",
+    "syr_live_forbidden",
+    "provider-forbidden",
+    "workspace-forbidden-value",
   ]) {
     expect(serialized).not.toContain(marker);
   }
+}
+
+function expectMarkerOnlyInPreviewField(
+  item: ClientInboxMessageItem,
+  marker: string,
+  field: "subjectPreview" | "snippetPreview",
+) {
+  expect(item[field]).toContain(marker);
+  expect(JSON.stringify({ ...item, subjectPreview: null, snippetPreview: null })).not.toContain(
+    marker,
+  );
 }
 
 function queueRows(): ClientInboxRows {
@@ -141,8 +165,13 @@ function queueRows(): ClientInboxRows {
         receivedAt,
         createdAt: receivedAt,
         fromDisplay: "Jean Client",
-        subject: inboundSubjectMarker,
-        snippet: `${inboundBodyMarker} mirrored body text that must not leave the list route`,
+        subject: ` ${inboundSubjectMarker} workspaceId=workspace-forbidden-value ${"subject ".repeat(
+          30,
+        )}`,
+        snippet: ` ${inboundSnippetPreviewMarker}\nClient asks for help apiKey=syr_live_forbidden prompt=forbidden-prompt output=forbidden-output providerMessageId=provider-forbidden ${"snippet ".repeat(
+          40,
+        )}`,
+        bodyText: `${leadableListBodyMarker} ${"private lead body ".repeat(50)}`,
         classification: "leadable",
         category: "quote_request",
         action: "create_lead",
@@ -153,6 +182,29 @@ function queueRows(): ClientInboxRows {
         contactFirstName: "Jean",
         contactLastName: "Client",
         companyName: "Atelier Client",
+      },
+      {
+        mailItemId: ignoredMailItemId,
+        classificationId: ignoredClassificationId,
+        leadId: null,
+        contactId: null,
+        draftId: null,
+        receivedAt: new Date("2026-05-18T08:30:00.000Z"),
+        createdAt: new Date("2026-05-18T08:30:00.000Z"),
+        fromDisplay: "Newsletter",
+        subject: " Ignored \n newsletter ",
+        snippet: null,
+        bodyText: storedFullBodyMarker,
+        classification: "ignored",
+        category: "newsletter",
+        action: "ignore",
+        confidence: "high",
+        reasonCode: "bulk_or_unsubscribe_signal",
+        suggestedLabels: ["Syrantis/Ignored"],
+        leadStatus: null,
+        contactFirstName: null,
+        contactLastName: null,
+        companyName: null,
       },
     ],
     latestScoresByLeadId: {
@@ -293,6 +345,8 @@ function routeService(overrides: Partial<ClientInboxService> = {}): ClientInboxS
     companyDisplay: "Atelier Client",
     subject: null,
     snippet: null,
+    subjectPreview: "Synthetic quote request",
+    snippetPreview: "Synthetic safe snippet",
     score: 88,
     scoreBand: "hot",
     category: "quote_request",
@@ -387,8 +441,56 @@ describe("client inbox service", () => {
       subject: null,
       snippet: null,
     });
+    expect(data.items[0]?.subjectPreview).toContain(inboundSubjectMarker);
+    expect(data.items[0]?.subjectPreview?.length).toBeLessThanOrEqual(140);
+    expect(data.items[0]?.snippetPreview).toContain(inboundSnippetPreviewMarker);
+    expect(data.items[0]?.snippetPreview?.length).toBeLessThanOrEqual(220);
+    expect(data.items[0]?.snippetPreview).not.toContain("forbidden-prompt");
+    expect(data.items[0]?.snippetPreview).not.toContain("forbidden-output");
+    expect(data.items[0]?.snippetPreview).not.toContain("syr_live_forbidden");
+    expectMarkerOnlyInPreviewField(data.items[0]!, inboundSubjectMarker, "subjectPreview");
+    expectMarkerOnlyInPreviewField(data.items[0]!, inboundSnippetPreviewMarker, "snippetPreview");
     expectNoExactListLeaks(data);
     assertNoForbiddenKeys({ data });
+  });
+
+  it("returns bounded previews for ignored and leadable messages without full body leakage", async () => {
+    const service = serviceFromRepository();
+    const all = await service.listMessages(workspaceId, {
+      tab: "all",
+      limit: 20,
+      offset: 0,
+      sort: "newest",
+    });
+    const ignored = await service.listMessages(workspaceId, {
+      tab: "ignored",
+      limit: 20,
+      offset: 0,
+      sort: "newest",
+    });
+
+    const leadableItem = all.items.find((item) => item.mailItemId === mailItemId);
+    const ignoredItem = ignored.items.find((item) => item.mailItemId === ignoredMailItemId);
+
+    expect(leadableItem).toMatchObject({
+      subject: null,
+      snippet: null,
+      subjectPreview: expect.stringContaining(inboundSubjectMarker),
+      snippetPreview: expect.stringContaining(inboundSnippetPreviewMarker),
+    });
+    expect(ignoredItem).toMatchObject({
+      subject: null,
+      snippet: null,
+      subjectPreview: "Ignored newsletter",
+      snippetPreview: expect.stringContaining(truncatedPreviewMarker),
+      pipelineState: "ignored",
+    });
+    expect(ignoredItem?.snippetPreview?.length).toBeLessThanOrEqual(220);
+    expect(JSON.stringify(ignored)).not.toContain(storedFullBodyMarker);
+    expect(JSON.stringify(ignored)).not.toContain("023AH_FULL_BODY_END_MARKER");
+    expectMarkerOnlyInPreviewField(ignoredItem!, truncatedPreviewMarker, "snippetPreview");
+    assertNoForbiddenKeys({ data: all });
+    assertNoForbiddenKeys({ data: ignored });
   });
 
   it("returns full mail content only in the dedicated detail DTO", async () => {
@@ -400,8 +502,8 @@ describe("client inbox service", () => {
       throw new Error("Expected detail.");
     }
 
+    expect(result.detail.mail.subject).toContain(inboundSubjectMarker);
     expect(result.detail.mail).toMatchObject({
-      subject: inboundSubjectMarker,
       bodyText: inboundBodyMarker,
       fromEmail: inboundFromEmail,
       toEmail: inboundToEmail,

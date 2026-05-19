@@ -63,6 +63,7 @@ Validated current loop:
     draft-edit, and Gmail export request/cancel actions.
 14. 023AG adds an admin-only Client Inbox Lab to validate clean Gmail pilot runtime data before
     final client UI work.
+15. 023AH adds bounded Client Inbox list previews while keeping full mail body detail-only.
 
 ## Current Client/Admin Surfaces
 
@@ -72,7 +73,8 @@ must not be treated as a broad CRM, Gmail clone, or autonomous agent console.
 - `/app/client-dashboard`: safe cockpit summary for pipeline, Gmail intake/export, Sheets, system,
   and action state.
 - `/app/client-inbox-lab`: internal validation lab for 023AF Client Inbox Domain list/detail,
-  data-completeness gaps, draft edit, and Gmail export wrappers. It is not final client UI.
+  safe list preview readiness, data-completeness gaps, draft edit, and Gmail export wrappers. It is
+  not final client UI.
 - `/app/mail-queue`: read-only classified inbound mail review queue from `intake_classifications`.
 - `/app/draft-queue`: generated draft review queue with full generated draft detail and safe Gmail
   export request/cancel buttons.
@@ -224,10 +226,10 @@ UI:
   with RLS, FORCE RLS, tenant policy, updated-at trigger, and external id idempotency.
 - Public inbound intake now writes a mail item for every validated message. Ignored mail creates a
   mail item and classification without becoming a lead or job.
-- `GET /api/client/inbox/messages` returns safe list summaries and intentionally omits full body,
-  subject values, snippets, email addresses, workspace id, raw metadata, provider ids,
-  prompt/output, lease token, and API key material. The nullable `subject` and `snippet` fields
-  return `null` in v1.
+- `GET /api/client/inbox/messages` returns safe list summaries with bounded sanitized
+  `subjectPreview` and `snippetPreview`. It intentionally omits full body, email addresses,
+  workspace id, raw metadata, provider ids, prompt/output, lease token, and API key material. The
+  nullable `subject` and `snippet` fields remain present and return `null` in v1.
 - `GET /api/client/inbox/messages/:mailItemId` is the dedicated detail context where selected mail
   `bodyText`, `fromEmail`, and `toEmail` may be returned.
 - `PATCH /api/client/inbox/messages/:mailItemId/draft` edits the linked draft without returning
@@ -236,7 +238,11 @@ UI:
   service rules.
 
 Full inbound mail body remains forbidden outside `client_mail_items` and the dedicated detail DTO.
-023AF adds no client RBAC, AI rewrite, direct send, provider call, Gmail backend call, Resend,
+The 023AH previews are approved only for the dedicated Client Inbox list route and remain forbidden
+in public intake responses, activity logs, background jobs, Google Sheets, admin generic queues,
+provider payloads, prompt/output logs, and raw metadata.
+
+023AF/023AH add no client RBAC, AI rewrite, direct send, provider call, Gmail backend call, Resend,
 Google Sheets, Apps Script, deployment, Caddy, systemd, or env behavior.
 
 ## Clean Gmail Client Inbox Pilot / 023AG
@@ -250,15 +256,16 @@ The lab:
 - uses the 023AF Client Inbox list/detail/draft/export wrapper routes through the central web API
   client
 - lets a founder/admin validate clean Gmail pilot data completeness from live `client_mail_items`
+- displays `subjectPreview` and `snippetPreview` while keeping list `subject:null` and
+  `snippet:null`
 - shows the approved detail-route body/email fields for selected-message validation
-- computes final-UI gaps such as missing list subject/snippet preview, sender/company display,
-  attachments, and thread context
+- computes final-UI gaps such as sender/company display, attachments, and thread context; list
+  preview gaps disappear when the preview fields are present
 - smoke-tests Inbox draft edit and Gmail export request/cancel wrappers
 
 The lab intentionally does not apply the 023AE premium client UI, does not change
 `ClientInboxPreviewPage`, does not create `app.syrantis.fr`, and does not add backend behavior. List
-responses still return `subject:null` and `snippet:null`; any final client list preview policy must
-be separately approved.
+responses still return legacy `subject:null` and `snippet:null`; full body remains detail-only.
 
 Use `docs/runbooks/clean-gmail-client-inbox-pilot.md` for the real clean Gmail pilot procedure.
 

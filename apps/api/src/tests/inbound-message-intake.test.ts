@@ -98,6 +98,8 @@ function expectSafeSerialized(value: unknown) {
     "Jean Client",
     "fromEmail",
     "bodyText",
+    "subjectPreview",
+    "snippetPreview",
     "htmlBody",
     "attachments",
     "prompt",

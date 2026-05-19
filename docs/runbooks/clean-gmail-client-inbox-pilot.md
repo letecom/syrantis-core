@@ -1,6 +1,7 @@
 # Clean Gmail Client Inbox Pilot Runbook
 
-Issue: 023AG Clean Gmail Pilot + Admin Inbox Runtime Harness
+Issue: 023AG Clean Gmail Pilot + Admin Inbox Runtime Harness; updated by 023AH Client Inbox Safe
+Preview Policy
 
 ## Objective
 
@@ -70,7 +71,7 @@ Confirm the page shows:
 
 - `Client Inbox Lab`
 - `Internal validation only · Not final client UI`
-- the subject/snippet omission warning
+- the bounded safe preview notice
 - no final client app sidebar primitives
 - no raw response panel
 - no secret or API-key input
@@ -90,16 +91,21 @@ Confirm:
 - the ignored synthetic newsletter/bulk message is visible with the `ignored` filter
 - list items show mail item id, received time, category, score, score band, contact status,
   draft status, Gmail export status, pipeline state, and attention flags
+- list `subjectPreview` shows a bounded sanitized subject preview when stored subject is available
+- list `snippetPreview` shows a bounded sanitized snippet/body preview when safe input is available
 - list `subject` is `null`
 - list `snippet` is `null`
-- body text and email addresses are absent from list cards
+- body text, email addresses, workspace ids, raw metadata, provider ids, prompt/output material,
+  lease tokens, and API key material are absent from list cards
 
-Record the final UI gap:
+Confirm these final UI gaps are closed when previews are present:
 
 ```txt
-List v1 intentionally omits subject and snippet. Final client UI may require a separately approved
-safe preview policy.
+listSubjectPreview
+listSnippetPreview
 ```
+
+Full body remains detail-only. Do not copy preview text from real customer messages into reports.
 
 ## 6. Validate Detail Behavior
 
@@ -186,8 +192,9 @@ Agents must not access the database directly.
 
 Record answers before any final client Inbox implementation:
 
-- Does the final list need an approved subject preview policy?
-- Does the final list need an approved body snippet preview policy?
+- Do all expected list rows have safe `subjectPreview` and `snippetPreview` values?
+- Do any preview values show raw metadata, provider ids, prompt/output material, lease tokens, API
+  key material, or full body text?
 - Must the bridge send `toEmail`, thread id, message id, contact name, or body snippet more
   consistently?
 - Should attachments metadata be added later?
@@ -231,3 +238,8 @@ Expected for 023AG:
 - no env/systemd/Caddy change
 - no provider/Gmail/Resend behavior change
 - all checks green
+
+For 023AH, the same expected safety result applies. The only approved behavior change is bounded
+Client Inbox list previews on `GET /api/client/inbox/messages`; previews remain forbidden in public
+intake responses, activity logs, background jobs, Google Sheets, admin generic queues, provider
+payloads, prompt/output logs, and raw metadata.
