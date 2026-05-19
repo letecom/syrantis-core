@@ -1,4 +1,5 @@
 export { mockClientInbox } from "./data/mockInbox";
+export { ClientInboxLivePage } from "./pages/ClientInboxLivePage";
 export { AnalysisPanel } from "./components/AnalysisPanel";
 export { ClientInboxSidebar } from "./components/ClientInboxSidebar";
 export { ClientInboxTopbar } from "./components/ClientInboxTopbar";
@@ -23,9 +24,11 @@ export type {
   ClientInboxContactContext,
   ClientInboxDetail,
   ClientInboxDraft,
+  ClientInboxDraftEditControls,
   ClientInboxDraftStatus,
   ClientInboxExportStatus,
   ClientInboxFilter,
+  ClientInboxGmailExportControls,
   ClientInboxListItem,
   ClientInboxScoreBand,
   ClientInboxUser,

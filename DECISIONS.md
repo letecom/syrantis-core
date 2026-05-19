@@ -242,13 +242,14 @@ live route through feature components that consume UI ViewModels, not backend DT
 
 `/app/client-inbox-preview` remains the design harness. The Admin Client Inbox Lab remains a
 separate admin validation surface and must not be reused as the client UI. PR A extracts shared
-components only; PR B will add the live route and adapter from Client Inbox API DTOs into UI
-ViewModels.
+components only; PR B adds `/app/client/inbox` as an internal live route with an adapter from Client
+Inbox API DTOs into UI ViewModels.
 
 List UI ViewModels may contain bounded `subjectPreview` and `snippetPreview` copy but must not
 contain or render body text, sender email, recipient email, raw payloads, workspace identifiers, or
 provider identifiers. Detail UI ViewModels may render body and email fields in selected-message
 context.
 
-This does not approve a live client route, client RBAC, `app.syrantis.fr` foundation, backend route,
-migration, provider behavior, direct send, deployment, env, Caddy, systemd, or Google Sheets change.
+This approves only the internal `/app/client/inbox` route in the current web app. It does not
+approve client RBAC, `app.syrantis.fr` foundation, backend route, migration, provider behavior,
+direct send, deployment, env, Caddy, systemd, or Google Sheets change.
