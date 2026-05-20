@@ -5,6 +5,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { getAuthenticatedHomePath, isClientAppHost } from "../src/lib/routing";
+import { getLoginCopy } from "../src/pages/LoginPage";
 import { renderApp } from "./test-utils";
 
 const currentUser = {
@@ -106,6 +107,7 @@ const googleSheetsTestUrl = "/api/integrations/google-sheets/setup-test";
 const workspaceApiKeysUrl = "/api/workspace-api-keys";
 const workspaceApiKeyRevokeUrl =
   "/api/workspace-api-keys/12121212-1212-4121-8121-121212121212/revoke";
+const clientUsersUrl = "/api/admin/client-users";
 const opsHealthUrl = "/api/admin/ops/health";
 const opsRecentUrl = "/api/admin/ops/checks/recent?limit=20";
 const opsDbHealthUrl = "/api/admin/ops/checks/db-health";
@@ -896,6 +898,45 @@ const workspaceApiKeyRevoked = {
   },
 };
 
+const clientUsers = {
+  success: true,
+  data: [
+    {
+      id: "14141414-1414-4141-8141-141414141414",
+      email: "client@example.com",
+      displayName: "Client User",
+      role: "client",
+      status: "active",
+      createdAt: "2026-05-20T10:00:00.000Z",
+      updatedAt: "2026-05-20T10:00:00.000Z",
+      temporaryPassword: "forbidden-list-password",
+      passwordHash: "forbidden-hash",
+    },
+  ],
+};
+
+const clientUsersEmpty = {
+  success: true,
+  data: [],
+};
+
+const clientUserCreate = {
+  success: true,
+  data: {
+    user: {
+      id: "15151515-1515-4151-8151-151515151515",
+      email: "new-client@example.com",
+      displayName: "New Client",
+      role: "client",
+      status: "active",
+      createdAt: "2026-05-20T11:00:00.000Z",
+      updatedAt: "2026-05-20T11:00:00.000Z",
+      passwordHash: "forbidden-create-hash",
+    },
+    temporaryPassword: "temporary-password-shown-once",
+  },
+};
+
 const responsePolicyEmpty = {
   success: true,
   data: {
@@ -1154,6 +1195,16 @@ describe("admin app", () => {
     expect(isClientAppHost("admin.syrantis.fr")).toBe(false);
     expect(getAuthenticatedHomePath(currentClientUser.data)).toBe("/inbox");
     expect(getAuthenticatedHomePath(currentUser.data)).toBe("/app");
+    expect(getLoginCopy("app.syrantis.fr")).toEqual({
+      brand: "Syrantis",
+      title: "Espace client",
+      button: "Se connecter",
+    });
+    expect(getLoginCopy("admin.syrantis.fr")).toEqual({
+      brand: "Syrantis Admin",
+      title: "Sign in",
+      button: "Sign in",
+    });
   });
 
   it("renders the login form", () => {
@@ -1277,6 +1328,7 @@ describe("admin app", () => {
     expect(screen.getByRole("link", { name: "Client Dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Client Inbox Lab" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Client Install" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Client Users" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Draft Queue" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Mail Queue" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Gmail Export" })).toBeInTheDocument();
@@ -1307,6 +1359,7 @@ describe("admin app", () => {
       "Mail Queue",
       "Draft Queue",
       "Gmail Export",
+      "Client Users",
       "Client Inbox Lab",
       "Response Policy",
     ]) {
@@ -2520,6 +2573,76 @@ describe("admin app", () => {
     expect(await screen.findByText("No API keys yet.")).toBeInTheDocument();
   });
 
+  it("renders client users page with safe list fields", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === clientUsersUrl) {
+        return mockJson(clientUsers);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/client-users");
+
+    expect(await screen.findByRole("heading", { name: "Client Users" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Client Users" })).toBeInTheDocument();
+    expect(await screen.findByText("client@example.com")).toBeInTheDocument();
+    expect(screen.getByText("Client User")).toBeInTheDocument();
+    expect(screen.getByText("client")).toBeInTheDocument();
+    expect(screen.queryByText("forbidden-list-password")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-hash")).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw json/i)).not.toBeInTheDocument();
+  });
+
+  it("creates a client user, copies the password, and clears it on dismiss", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const request = vi.fn((url: string, init?: RequestInit) => {
+      if (url === clientUsersUrl && init?.method === "POST") {
+        return mockJson(clientUserCreate);
+      }
+
+      if (url === clientUsersUrl) {
+        return mockJson(clientUsersEmpty);
+      }
+
+      return mockJson(currentUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/client-users");
+    await user.type(await screen.findByLabelText("Email"), "new-client@example.com");
+    await user.type(screen.getByLabelText("Display name"), "New Client");
+    await user.click(screen.getByRole("button", { name: "Create client user" }));
+
+    expect(await screen.findByText("temporary-password-shown-once")).toBeInTheDocument();
+    expect(screen.getByText("Temporary password for new-client@example.com")).toBeInTheDocument();
+    expect(
+      screen.getByText("Copy this password now. It will not be shown again."),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+    expect(writeText).toHaveBeenCalledWith("temporary-password-shown-once");
+
+    const postCall = request.mock.calls.find(
+      ([url, init]) => url === clientUsersUrl && init?.method === "POST",
+    );
+    expect(postCall?.[1]?.body).toBe(
+      JSON.stringify({ email: "new-client@example.com", displayName: "New Client" }),
+    );
+    expect(JSON.stringify(postCall?.[1])).not.toContain("workspaceId");
+    expect(JSON.stringify(postCall?.[1])).not.toContain("role");
+    expect(JSON.stringify(postCall?.[1])).not.toContain("Authorization");
+
+    await user.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByText("temporary-password-shown-once")).not.toBeInTheDocument();
+    expect(screen.queryByText("forbidden-create-hash")).not.toBeInTheDocument();
+  });
+
   it("renders response policy empty state and nav link", async () => {
     const request = vi.fn((url: string) => {
       if (url === responsePolicyUrl) {
@@ -3244,6 +3367,7 @@ describe("admin app", () => {
       "../src/pages/ClientInboxLabPage.tsx",
       "../src/pages/ClientInboxPreviewPage.tsx",
       "../src/pages/ClientInstallPage.tsx",
+      "../src/pages/ClientUsersPage.tsx",
       "../src/pages/ClientPlaceholderPage.tsx",
       "../src/pages/DashboardPage.tsx",
       "../src/pages/GmailExportOpsPage.tsx",

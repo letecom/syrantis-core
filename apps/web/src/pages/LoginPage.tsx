@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { login } from "../lib/api-client";
 import { getAuthenticatedHomePath } from "../lib/routing";
+import { isClientAppHost } from "../lib/routing";
 
 const loginFormSchema = z.object({
   email: z.string().trim().email("Enter a valid email address."),
@@ -13,12 +14,29 @@ const loginFormSchema = z.object({
 
 type FormErrors = Partial<Record<keyof z.infer<typeof loginFormSchema>, string>>;
 
+export function getLoginCopy(hostname = window.location.hostname) {
+  if (isClientAppHost(hostname)) {
+    return {
+      brand: "Syrantis",
+      title: "Espace client",
+      button: "Se connecter",
+    };
+  }
+
+  return {
+    brand: "Syrantis Admin",
+    title: "Sign in",
+    button: "Sign in",
+  };
+}
+
 export function LoginPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [formErrors, setFormErrors] = useState<FormErrors>({});
+  const copy = getLoginCopy();
 
   const loginMutation = useMutation({
     mutationFn: login,
@@ -56,8 +74,8 @@ export function LoginPage() {
   return (
     <main className="grid min-h-screen place-items-center bg-slate-50 px-5 py-10 text-ink">
       <section className="w-full max-w-md rounded-lg border border-line bg-white p-6 shadow-sm">
-        <p className="text-sm font-semibold uppercase text-accent">Syrantis Admin</p>
-        <h1 className="mt-2 text-2xl font-semibold">Sign in</h1>
+        <p className="text-sm font-semibold uppercase text-accent">{copy.brand}</p>
+        <h1 className="mt-2 text-2xl font-semibold">{copy.title}</h1>
         <form className="mt-6 grid gap-4" onSubmit={handleSubmit}>
           <label className="grid gap-2 text-sm font-medium text-slate-700">
             Email
@@ -97,7 +115,7 @@ export function LoginPage() {
             disabled={loginMutation.isPending}
             type="submit"
           >
-            {loginMutation.isPending ? "Signing in..." : "Sign in"}
+            {loginMutation.isPending ? "Signing in..." : copy.button}
           </button>
         </form>
       </section>

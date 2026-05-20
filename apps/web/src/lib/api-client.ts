@@ -9,6 +9,9 @@ import {
   ClientResponsePolicyGetSuccessSchema,
   ClientResponsePolicyInputSchema,
   ClientResponsePolicyPutSuccessSchema,
+  ClientUserCreateInputSchema,
+  ClientUserCreateSuccessSchema,
+  ClientUserListSuccessSchema,
   DraftQueueDetailResponseSchema,
   DraftQueueResponseSchema,
   MailQueueDetailResponseSchema,
@@ -363,6 +366,8 @@ export type ClientResponsePolicyInput = z.infer<typeof ClientResponsePolicyInput
 export type ClientResponsePolicy = z.infer<
   typeof ClientResponsePolicyGetSuccessSchema
 >["data"]["policy"];
+export type ClientUserSafe = z.infer<typeof ClientUserListSuccessSchema>["data"][number];
+export type ClientUserCreateResponse = z.infer<typeof ClientUserCreateSuccessSchema>["data"];
 export type WorkspaceApiKeySafe = z.infer<typeof workspaceApiKeyListResponseSchema>["data"][number];
 export type WorkspaceApiKeyCreateResponse = z.infer<
   typeof workspaceApiKeyCreateResponseSchema
@@ -762,6 +767,24 @@ export async function putClientResponsePolicy(
   });
 
   return ClientResponsePolicyPutSuccessSchema.parse(payload).data.policy;
+}
+
+export async function listClientUsers(): Promise<ClientUserSafe[]> {
+  const payload = await requestJson("/api/admin/client-users");
+  return ClientUserListSuccessSchema.parse(payload).data;
+}
+
+export async function createClientUser(input: {
+  email: string;
+  displayName?: string;
+}): Promise<ClientUserCreateResponse> {
+  const parsed = ClientUserCreateInputSchema.parse(input);
+  const payload = await requestJson("/api/admin/client-users", {
+    method: "POST",
+    body: encodeJsonBody(parsed),
+  });
+
+  return ClientUserCreateSuccessSchema.parse(payload).data;
 }
 
 export async function listWorkspaceApiKeys(): Promise<WorkspaceApiKeySafe[]> {

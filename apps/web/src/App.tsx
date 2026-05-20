@@ -10,6 +10,7 @@ import { ClientInboxLabPage } from "./pages/ClientInboxLabPage";
 import { ClientInboxPreviewPage } from "./pages/ClientInboxPreviewPage";
 import { ClientInboxLivePage } from "./features/client-inbox";
 import { ClientInstallPage } from "./pages/ClientInstallPage";
+import { ClientUsersPage } from "./pages/ClientUsersPage";
 import { ClientPlaceholderPage } from "./pages/ClientPlaceholderPage";
 import { ClientDashboardPage } from "./pages/ClientDashboardPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -100,6 +101,7 @@ export function App() {
         <Route element={<ClientDashboardPage />} path="client-dashboard" />
         <Route element={<ClientInboxLabPage />} path="client-inbox-lab" />
         <Route element={<ClientInstallPage />} path="client-install" />
+        <Route element={<ClientUsersPage />} path="client-users" />
         <Route element={<DraftQueuePage />} path="draft-queue" />
         <Route element={<MailQueuePage />} path="mail-queue" />
         <Route element={<ResponsePolicyPage />} path="response-policy" />
