@@ -477,7 +477,7 @@ describe("client inbox live route", () => {
 
   it("disables draft save while saving and renders mutation errors", async () => {
     const user = userEvent.setup();
-    let resolvePatch: ((response: Response) => void) | null = null;
+    const patchResolver: { current: ((response: Response) => void) | null } = { current: null };
     const request = vi.fn((url: string, init?: RequestInit) => {
       if (url === listUrl) {
         return mockJson(liveMessages);
@@ -489,7 +489,7 @@ describe("client inbox live route", () => {
 
       if (url === draftUrl && init?.method === "PATCH") {
         return new Promise<Response>((resolve) => {
-          resolvePatch = resolve;
+          patchResolver.current = resolve;
         });
       }
 
@@ -501,13 +501,18 @@ describe("client inbox live route", () => {
 
     await user.click(await screen.findByRole("button", { name: "Enregistrer le brouillon" }));
     expect(await screen.findByRole("button", { name: "Enregistrement..." })).toBeDisabled();
-    expect(resolvePatch).not.toBeNull();
-    resolvePatch?.(
-      new Response(JSON.stringify({ success: false }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
+   expect(patchResolver.current).not.toBeNull();
+
+if (!patchResolver.current) {
+  throw new Error("Expected draft PATCH resolver to be captured.");
+}
+
+patchResolver.current(
+  new Response(JSON.stringify({ success: false }), {
+    status: 500,
+    headers: { "Content-Type": "application/json" },
+  }),
+);
 
     expect(await screen.findByText("Impossible d'enregistrer le brouillon.")).toBeInTheDocument();
   });
