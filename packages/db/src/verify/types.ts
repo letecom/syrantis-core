@@ -13,7 +13,8 @@ export type MigrationId =
   | "0019"
   | "0020"
   | "0021"
-  | "0022";
+  | "0022"
+  | "0023";
 
 export type ColumnSchemaInvariant = {
   kind: "column";
@@ -65,13 +66,23 @@ export type TriggerSchemaInvariant = {
   functionName: string;
 };
 
+export type TablePrivilegeSchemaInvariant = {
+  kind: "table_privilege";
+  migration: MigrationId;
+  schema: string;
+  table: string;
+  grantee: string;
+  privilegeType: "SELECT" | "INSERT" | "UPDATE" | "DELETE";
+};
+
 export type SchemaInvariant =
   | ColumnSchemaInvariant
   | IndexSchemaInvariant
   | CheckConstraintSchemaInvariant
   | RlsSchemaInvariant
   | TriggerFunctionSchemaInvariant
-  | TriggerSchemaInvariant;
+  | TriggerSchemaInvariant
+  | TablePrivilegeSchemaInvariant;
 
 export type ColumnCatalogRow = {
   dataType: string;
@@ -108,6 +119,12 @@ export type SchemaCatalog = {
     table: string;
     triggerName: string;
   }) => Promise<TriggerCatalogRow | null>;
+  hasTablePrivilege: (input: {
+    schema: string;
+    table: string;
+    grantee: string;
+    privilegeType: TablePrivilegeSchemaInvariant["privilegeType"];
+  }) => Promise<boolean>;
 };
 
 export type SchemaInvariantFailureReason =

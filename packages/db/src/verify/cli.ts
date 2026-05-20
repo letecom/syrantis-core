@@ -79,7 +79,9 @@ function isMigrationId(value: string | undefined): value is MigrationId {
     value === "0018" ||
     value === "0019" ||
     value === "0020" ||
-    value === "0021"
+    value === "0021" ||
+    value === "0022" ||
+    value === "0023"
   );
 }
 

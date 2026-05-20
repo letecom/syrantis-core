@@ -21,6 +21,8 @@ promotion. The created account belongs to the admin/founder session workspace, i
 - `apps/web/src/pages/LoginPage.tsx`
 - `apps/web/tests/api-client.test.ts`
 - `apps/web/tests/app.test.tsx`
+- `packages/db/migrations/0023_client_users_insert_grant.sql`
+- `packages/db/src/verify/*`
 - `README.md`
 - `docs/architecture/current-state.md`
 - `docs/runbooks/client-user-provisioning-v0.md`
@@ -47,6 +49,18 @@ promotion. The created account belongs to the admin/founder session workspace, i
 - No activity log is written, avoiding accidental password or PII logging in v0.
 - No localStorage or sessionStorage is used for temporary passwords.
 - ClientShell navigation remains Dashboard, Inbox, and Config only.
+
+## Production Permission Hotfix
+
+Production validation found that `POST /api/admin/client-users` failed with `permission denied for
+table users` after the route shipped. The runtime role already had `SELECT` on `users`, which
+supported auth and listing, but 023AK introduced the first legitimate runtime insert into
+`public.users`.
+
+Migration `0023_client_users_insert_grant.sql` grants only `INSERT` on `users` to `syrantis_app`.
+It does not grant `UPDATE`, `DELETE`, broad table grants, superuser, or RLS changes. The schema
+verifier includes a matching invariant for `syrantis_app.users.INSERT` so this provisioning
+permission remains explicit.
 
 ## Checks
 

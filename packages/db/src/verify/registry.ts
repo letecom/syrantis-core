@@ -264,6 +264,14 @@ export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
     triggerName: "client_mail_items_set_updated_at_trg",
     functionName: "syrantis_set_updated_at",
   },
+  {
+    kind: "table_privilege",
+    migration: "0023",
+    schema: defaultSchema,
+    table: "users",
+    grantee: "syrantis_app",
+    privilegeType: "INSERT",
+  },
 ] as const;
 
 export function getInvariantObject(invariant: SchemaInvariant): string {
@@ -285,6 +293,10 @@ export function getInvariantObject(invariant: SchemaInvariant): string {
 
   if (invariant.kind === "trigger") {
     return `${invariant.table}.${invariant.triggerName}`;
+  }
+
+  if (invariant.kind === "table_privilege") {
+    return `${invariant.grantee}.${invariant.table}.${invariant.privilegeType}`;
   }
 
   return invariant.indexName;
@@ -309,6 +321,10 @@ export function getInvariantKey(invariant: SchemaInvariant): string {
 
   if (invariant.kind === "trigger") {
     return `${invariant.migration}:${invariant.kind}:${invariant.schema}.${invariant.table}.${invariant.triggerName}`;
+  }
+
+  if (invariant.kind === "table_privilege") {
+    return `${invariant.migration}:${invariant.kind}:${invariant.schema}.${invariant.table}.${invariant.grantee}.${invariant.privilegeType}`;
   }
 
   return `${invariant.migration}:${invariant.kind}:${invariant.schema}.${invariant.table}.${invariant.indexName}`;
