@@ -8,6 +8,7 @@ export * from "./background-jobs.js";
 export * from "./client-cockpit.js";
 export * from "./client-inbox.js";
 export * from "./client-response-policy.js";
+export * from "./client-users.js";
 export * from "./contact-context.js";
 export * from "./contacts.js";
 export * from "./drafts.js";
