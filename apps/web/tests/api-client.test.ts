@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   cancelClientInboxGmailExport,
+  createClientUser,
   createWorkspaceApiKey,
   cancelDraftGmailExportRequest,
   getClientInboxMessage,
@@ -18,6 +19,7 @@ import {
   getDraftPushbackStatus,
   getEmailSendPushbackStatus,
   listClientInboxMessages,
+  listClientUsers,
   listWorkspaceApiKeys,
   login,
   replayEmailSendPushback,
@@ -345,6 +347,42 @@ const workspaceApiKeyRevokedResponse = {
     plaintextApiKey: "syr_live_forbidden_plaintext",
     key_hash: "forbidden-hash",
     workspaceId: "forbidden-workspace",
+  },
+};
+
+const clientUsersResponse = {
+  success: true,
+  data: [
+    {
+      id: "14141414-1414-4141-8141-141414141414",
+      email: "client@example.com",
+      displayName: "Client User",
+      role: "client",
+      status: "active",
+      createdAt: "2026-05-20T10:00:00.000Z",
+      updatedAt: "2026-05-20T10:00:00.000Z",
+      temporaryPassword: "forbidden-list-password",
+      passwordHash: "forbidden-hash",
+      workspaceId: "forbidden-workspace",
+    },
+  ],
+};
+
+const clientUserCreateResponse = {
+  success: true,
+  data: {
+    user: {
+      id: "15151515-1515-4151-8151-151515151515",
+      email: "new-client@example.com",
+      displayName: "New Client",
+      role: "client",
+      status: "active",
+      createdAt: "2026-05-20T11:00:00.000Z",
+      updatedAt: "2026-05-20T11:00:00.000Z",
+      passwordHash: "forbidden-hash",
+      workspaceId: "forbidden-workspace",
+    },
+    temporaryPassword: "temporary-password-shown-once",
   },
 };
 
@@ -1381,6 +1419,63 @@ describe("api client", () => {
         body: JSON.stringify({ name: "New intake" }),
       }),
     );
+    expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("workspaceId");
+    expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("Authorization");
+  });
+
+  it("lists client users and strips unsafe fields", async () => {
+    const request = vi.fn(() => mockResponse(clientUsersResponse));
+    vi.stubGlobal("fetch", request);
+
+    await expect(listClientUsers()).resolves.toEqual([
+      {
+        id: "14141414-1414-4141-8141-141414141414",
+        email: "client@example.com",
+        displayName: "Client User",
+        role: "client",
+        status: "active",
+        createdAt: "2026-05-20T10:00:00.000Z",
+        updatedAt: "2026-05-20T10:00:00.000Z",
+      },
+    ]);
+    expect(request).toHaveBeenCalledWith(
+      "/api/admin/client-users",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("creates a client user without sending role or tenant material", async () => {
+    const request = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
+      mockResponse(clientUserCreateResponse),
+    );
+    vi.stubGlobal("fetch", request);
+
+    await expect(
+      createClientUser({ email: "New-Client@Example.com", displayName: "New Client" }),
+    ).resolves.toEqual({
+      user: {
+        id: "15151515-1515-4151-8151-151515151515",
+        email: "new-client@example.com",
+        displayName: "New Client",
+        role: "client",
+        status: "active",
+        createdAt: "2026-05-20T11:00:00.000Z",
+        updatedAt: "2026-05-20T11:00:00.000Z",
+      },
+      temporaryPassword: "temporary-password-shown-once",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/admin/client-users",
+      expect.objectContaining({
+        credentials: "include",
+        method: "POST",
+        body: JSON.stringify({
+          email: "new-client@example.com",
+          displayName: "New Client",
+        }),
+      }),
+    );
+    expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("role");
     expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("workspaceId");
     expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("Authorization");
   });

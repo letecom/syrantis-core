@@ -232,6 +232,19 @@ while `admin.syrantis.fr` remains the founder/operator/admin validation and ops 
 Dashboard, full Config, user management, Integration Pilot Environment, direct send, backend Gmail
 OAuth, and Apps Script changes remain out of scope.
 
+## 2026-05-20 - 023AK Client User Provisioning Boundary
+
+Decision: basic client users may be provisioned only by authenticated admin/founder sessions in v0.
+
+The provisioning route derives `workspaceId` from the trusted session context, rejects
+client-supplied workspace/tenant identity and role fields, and always creates `role = client`,
+`status = active` users. Temporary passwords are generated server-side, hashed through the existing
+auth helper, and shown once in the create response.
+
+This does not approve public signup, self-registration, invite email, password reset, full User
+Manager, role management, workspace switching, full Config, Integration Pilot Environment, direct
+send, Gmail OAuth, Apps Script changes, or provider behavior changes.
+
 ## 2026-05-19 - 023AH Client Inbox List Previews Are Route-Scoped
 
 Decision: bounded `subjectPreview` and `snippetPreview` values are approved only on the dedicated

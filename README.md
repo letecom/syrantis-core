@@ -71,6 +71,9 @@ Validated current loop:
 18. 023AJ adds the first client app foundation: `role = client`, a separate ClientShell, live
     `/inbox`, placeholder `/dashboard` and `/config`, and a narrow client-safe access boundary for
     the approved Client Inbox APIs.
+19. 023AK adds admin/founder-only Client User Provisioning v0 so basic client test accounts no
+    longer require manual database promotion. Temporary passwords are generated server-side, shown
+    once, and the login page is client-facing on `app.syrantis.fr`.
 
 ## Current Client/Admin Surfaces
 
@@ -91,6 +94,9 @@ must not be treated as a broad CRM, Gmail clone, or autonomous agent console.
 - `/app/gmail-export`: single-draft Gmail export status, request, cancel, and refresh panel.
 - `/app/response-policy`: bounded response policy configuration for draft generation.
 - `/app/client-install`: bridge install guide, Script Properties, and Apps Script template.
+- `/app/client-users`: admin/founder-only client user provisioning v0. It creates only
+  `role = client` users in the trusted session workspace and shows the generated temporary password
+  once.
 - `/app/google-sheets`: Google Sheets setup status and backend-only setup test.
 - `/app/api-keys`: workspace API key create/list/detail/revoke with copy-once plaintext display.
 - `/app/ops`: bounded ops health checks and worker failed-summary review.
@@ -130,6 +136,7 @@ Current validated backend capabilities include:
 - mail review queue
 - client inbox domain read/action API
 - client app foundation and Client Inbox access boundary
+- client user provisioning v0
 - response policy
 - worker continuous runtime
 - systemd API/worker runtime foundations

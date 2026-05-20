@@ -259,6 +259,25 @@ rewrite, provider SDK, or raw JSON/debug panel.
 behavior, Google Sheets behavior, Caddy/env/systemd change, deployment behavior, `app.syrantis.fr`,
 client RBAC/domain split, dashboard/config UI, Scout behavior, or operational deploy mechanism.
 
+## 023AK Client User Provisioning v0 State
+
+023AK replaces manual DB promotion for basic test clients with a bounded admin/founder-only
+provisioning path:
+
+- `GET /api/admin/client-users` lists safe client user DTOs for the trusted session workspace.
+- `POST /api/admin/client-users` creates only `role = client`, `status = active` users.
+- The route rejects client-supplied workspace/tenant identity and role fields.
+- Temporary passwords are generated server-side, hashed through the existing auth password helper,
+  and returned only once in the create response.
+- `/app/client-users` provides the admin UI and one-time temporary password display.
+- `app.syrantis.fr/login` uses client-facing wording: `Syrantis`, `Espace client`, and
+  `Se connecter`.
+
+023AK adds no public signup, self-registration, invite email, password reset, full User Manager,
+role management UI, workspace switcher, full Config, full Dashboard, Integration Pilot Environment,
+direct send, AI rewrite, Gmail OAuth, Apps Script change, provider/OpenRouter/Resend/Google Sheets
+behavior, worker behavior, Caddy/env/systemd change, deployment behavior, or production mutation.
+
 ## 023AJ Client App Foundation + Access Boundary State
 
 023AJ adds the first client app foundation without turning the internal admin app into the final

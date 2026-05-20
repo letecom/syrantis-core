@@ -11,21 +11,31 @@ not mutate production data automatically.
 
 ## Current Tooling
 
-Existing safe creation tooling is founder-oriented:
+023AK adds a controlled admin/founder-only provisioning flow for basic client test accounts:
+
+- `/app/client-users`
+- `GET /api/admin/client-users`
+- `POST /api/admin/client-users`
+
+Use that flow for normal client test-account creation. It creates only `role = client` users in the
+trusted session workspace and shows the generated temporary password once.
+
+Founder-oriented tooling remains separate:
 
 ```bash
 pnpm --filter @syrantis/api create-founder
 make auth-create-founder
 ```
 
-It creates an internal admin/founder validation user and is not a client-user manager. 023AJ does
-not add a full User Manager or Admin Workspace Control Plane.
+It creates an internal admin/founder validation user and is not a client-user manager.
 
 ## Operator Path
 
-Until dedicated user management exists, an operator may create or promote a test user manually in
-the production database using approved operational access. Use placeholders in notes and commands;
-do not paste real credentials into shared artifacts.
+For basic test clients, use `/app/client-users` rather than manual database promotion.
+
+Manual production database changes are reserved for exceptional operator recovery work using
+approved operational access. Use placeholders in notes and commands; do not paste real credentials
+into shared artifacts.
 
 Required user state:
 
@@ -38,8 +48,8 @@ Required user state:
 If promoting an existing user, verify that only the intended test user changes role. Do not promote
 founder/admin/operator accounts used for production operations.
 
-Future required product work: add a User Manager/Admin Workspace Control Plane so operators can
-create client users without manual database intervention.
+Future product work remains: full User Manager/Admin Workspace Control Plane, full Config, invite
+emails, password reset, role management, and workspace switching.
 
 ## Verification
 
