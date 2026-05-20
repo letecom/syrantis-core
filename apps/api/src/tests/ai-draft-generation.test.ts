@@ -1262,8 +1262,7 @@ describe("023R migration guard", () => {
       readFileSync("../../packages/db/migrations/meta/_journal.json", "utf8"),
     ) as { entries: unknown[] };
 
-    expect(migrationFiles).toHaveLength(23);
-    expect(journal.entries).toHaveLength(23);
+    expect(journal.entries).toHaveLength(migrationFiles.length);
     expect(migrationFiles.join("\n")).not.toContain("023R");
   });
 });

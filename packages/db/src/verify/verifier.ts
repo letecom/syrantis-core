@@ -4,12 +4,12 @@ import type {
   SchemaInvariant,
   SchemaInvariantFailure,
   SchemaInvariantPass,
-  SchemaVerificationResult
+  SchemaVerificationResult,
 } from "./types.js";
 
 export async function verifySchemaInvariants(
   catalog: SchemaCatalog,
-  invariants: readonly SchemaInvariant[]
+  invariants: readonly SchemaInvariant[],
 ): Promise<SchemaVerificationResult> {
   const passed: SchemaInvariantPass[] = [];
   const failed: SchemaInvariantFailure[] = [];
@@ -20,7 +20,7 @@ export async function verifySchemaInvariants(
       const column = await catalog.findColumn({
         schema: invariant.schema,
         table: invariant.table,
-        column: invariant.column
+        column: invariant.column,
       });
 
       if (!column) {
@@ -30,7 +30,7 @@ export async function verifySchemaInvariants(
           object,
           reason: "missing",
           expected: invariant.dataType,
-          actual: null
+          actual: null,
         });
         continue;
       }
@@ -42,7 +42,7 @@ export async function verifySchemaInvariants(
           object,
           reason: "data_type_mismatch",
           expected: invariant.dataType,
-          actual: column.dataType
+          actual: column.dataType,
         });
         continue;
       }
@@ -54,7 +54,7 @@ export async function verifySchemaInvariants(
           object,
           reason: "nullability_mismatch",
           expected: invariant.isNullable,
-          actual: column.isNullable
+          actual: column.isNullable,
         });
         continue;
       }
@@ -62,7 +62,7 @@ export async function verifySchemaInvariants(
       passed.push({
         migration: invariant.migration,
         kind: invariant.kind,
-        object
+        object,
       });
       continue;
     }
@@ -72,7 +72,7 @@ export async function verifySchemaInvariants(
       const constraintExists = await catalog.hasCheckConstraint({
         schema: invariant.schema,
         table: invariant.table,
-        constraintName: invariant.constraintName
+        constraintName: invariant.constraintName,
       });
 
       if (!constraintExists) {
@@ -82,7 +82,7 @@ export async function verifySchemaInvariants(
           object,
           reason: "missing",
           expected: true,
-          actual: false
+          actual: false,
         });
         continue;
       }
@@ -90,7 +90,7 @@ export async function verifySchemaInvariants(
       passed.push({
         migration: invariant.migration,
         kind: invariant.kind,
-        object
+        object,
       });
       continue;
     }
@@ -99,7 +99,7 @@ export async function verifySchemaInvariants(
       const object = getInvariantObject(invariant);
       const rlsTable = await catalog.findRlsTable({
         schema: invariant.schema,
-        table: invariant.table
+        table: invariant.table,
       });
 
       if (!rlsTable) {
@@ -109,7 +109,7 @@ export async function verifySchemaInvariants(
           object,
           reason: "missing",
           expected: true,
-          actual: null
+          actual: null,
         });
         continue;
       }
@@ -121,7 +121,7 @@ export async function verifySchemaInvariants(
           object,
           reason: "rls_disabled",
           expected: true,
-          actual: false
+          actual: false,
         });
         continue;
       }
@@ -133,7 +133,7 @@ export async function verifySchemaInvariants(
           object,
           reason: "rls_force_disabled",
           expected: true,
-          actual: false
+          actual: false,
         });
         continue;
       }
@@ -141,7 +141,7 @@ export async function verifySchemaInvariants(
       const policyExists = await catalog.hasPolicy({
         schema: invariant.schema,
         table: invariant.table,
-        policyName: invariant.policyName
+        policyName: invariant.policyName,
       });
 
       if (!policyExists) {
@@ -151,7 +151,7 @@ export async function verifySchemaInvariants(
           object,
           reason: "policy_missing",
           expected: invariant.policyName,
-          actual: false
+          actual: false,
         });
         continue;
       }
@@ -159,7 +159,7 @@ export async function verifySchemaInvariants(
       passed.push({
         migration: invariant.migration,
         kind: invariant.kind,
-        object
+        object,
       });
       continue;
     }
@@ -168,7 +168,7 @@ export async function verifySchemaInvariants(
       const object = getInvariantObject(invariant);
       const functionExists = await catalog.hasTriggerFunction({
         schema: invariant.schema,
-        functionName: invariant.functionName
+        functionName: invariant.functionName,
       });
 
       if (!functionExists) {
@@ -178,7 +178,7 @@ export async function verifySchemaInvariants(
           object,
           reason: "missing",
           expected: true,
-          actual: false
+          actual: false,
         });
         continue;
       }
@@ -186,7 +186,7 @@ export async function verifySchemaInvariants(
       passed.push({
         migration: invariant.migration,
         kind: invariant.kind,
-        object
+        object,
       });
       continue;
     }
@@ -196,7 +196,7 @@ export async function verifySchemaInvariants(
       const trigger = await catalog.findTrigger({
         schema: invariant.schema,
         table: invariant.table,
-        triggerName: invariant.triggerName
+        triggerName: invariant.triggerName,
       });
 
       if (!trigger) {
@@ -206,7 +206,7 @@ export async function verifySchemaInvariants(
           object,
           reason: "missing",
           expected: true,
-          actual: null
+          actual: null,
         });
         continue;
       }
@@ -218,7 +218,7 @@ export async function verifySchemaInvariants(
           object,
           reason: "trigger_disabled",
           expected: true,
-          actual: false
+          actual: false,
         });
         continue;
       }
@@ -230,7 +230,7 @@ export async function verifySchemaInvariants(
           object,
           reason: "trigger_function_mismatch",
           expected: invariant.functionName,
-          actual: trigger.functionName
+          actual: trigger.functionName,
         });
         continue;
       }
@@ -238,7 +238,36 @@ export async function verifySchemaInvariants(
       passed.push({
         migration: invariant.migration,
         kind: invariant.kind,
-        object
+        object,
+      });
+      continue;
+    }
+
+    if (invariant.kind === "table_privilege") {
+      const object = getInvariantObject(invariant);
+      const privilegeExists = await catalog.hasTablePrivilege({
+        schema: invariant.schema,
+        table: invariant.table,
+        grantee: invariant.grantee,
+        privilegeType: invariant.privilegeType,
+      });
+
+      if (!privilegeExists) {
+        failed.push({
+          migration: invariant.migration,
+          kind: invariant.kind,
+          object,
+          reason: "missing",
+          expected: true,
+          actual: false,
+        });
+        continue;
+      }
+
+      passed.push({
+        migration: invariant.migration,
+        kind: invariant.kind,
+        object,
       });
       continue;
     }
@@ -247,7 +276,7 @@ export async function verifySchemaInvariants(
     const indexExists = await catalog.hasIndex({
       schema: invariant.schema,
       table: invariant.table,
-      indexName: invariant.indexName
+      indexName: invariant.indexName,
     });
 
     if (!indexExists) {
@@ -257,7 +286,7 @@ export async function verifySchemaInvariants(
         object,
         reason: "missing",
         expected: true,
-        actual: false
+        actual: false,
       });
       continue;
     }
@@ -265,7 +294,7 @@ export async function verifySchemaInvariants(
     passed.push({
       migration: invariant.migration,
       kind: invariant.kind,
-      object
+      object,
     });
   }
 
@@ -273,6 +302,6 @@ export async function verifySchemaInvariants(
     success: failed.length === 0,
     checked: invariants.length,
     passed,
-    failed
+    failed,
   };
 }

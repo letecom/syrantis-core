@@ -273,6 +273,11 @@ provisioning path:
 - `app.syrantis.fr/login` uses client-facing wording: `Syrantis`, `Espace client`, and
   `Se connecter`.
 
+Production validation after the shared export hotfix found `POST /api/admin/client-users` failing
+because `syrantis_app` lacked `INSERT` on `public.users`. Migration
+`0023_client_users_insert_grant.sql` fixes that with the minimal grant needed for client
+provisioning; existing `SELECT` remains the read path for auth, listing, and returned safe fields.
+
 023AK adds no public signup, self-registration, invite email, password reset, full User Manager,
 role management UI, workspace switcher, full Config, full Dashboard, Integration Pilot Environment,
 direct send, AI rewrite, Gmail OAuth, Apps Script change, provider/OpenRouter/Resend/Google Sheets

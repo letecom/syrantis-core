@@ -108,13 +108,21 @@ where n.nspname = $1
 limit 1
 `;
 
+export const tablePrivilegeInvariantSql = `
+select case
+  when not exists (select 1 from pg_roles where rolname = $1) then false
+  when to_regclass(format('%I.%I', $2, $3)) is null then false
+  else has_table_privilege($1, format('%I.%I', $2, $3), $4)
+end as has_privilege
+`;
+
 export function buildPgSchemaCatalog(pool: PgPool): SchemaCatalog {
   return {
     async findColumn(input): Promise<ColumnCatalogRow | null> {
       const result = await pool.query<InformationSchemaColumnRow>(columnInvariantSql, [
         input.schema,
         input.table,
-        input.column
+        input.column,
       ]);
       const row = result.rows[0];
 
@@ -124,18 +132,22 @@ export function buildPgSchemaCatalog(pool: PgPool): SchemaCatalog {
 
       return {
         dataType: row.data_type,
-        isNullable: row.is_nullable === "YES"
+        isNullable: row.is_nullable === "YES",
       };
     },
     async hasIndex(input): Promise<boolean> {
-      const result = await pool.query<PgIndexRow>(indexInvariantSql, [input.schema, input.table, input.indexName]);
+      const result = await pool.query<PgIndexRow>(indexInvariantSql, [
+        input.schema,
+        input.table,
+        input.indexName,
+      ]);
       return result.rows.length > 0;
     },
     async hasCheckConstraint(input): Promise<boolean> {
       const result = await pool.query<PgConstraintRow>(checkConstraintInvariantSql, [
         input.schema,
         input.table,
-        input.constraintName
+        input.constraintName,
       ]);
       return result.rows.length > 0;
     },
@@ -149,21 +161,21 @@ export function buildPgSchemaCatalog(pool: PgPool): SchemaCatalog {
 
       return {
         rlsEnabled: row.relrowsecurity,
-        rlsForced: row.relforcerowsecurity
+        rlsForced: row.relforcerowsecurity,
       };
     },
     async hasPolicy(input): Promise<boolean> {
       const result = await pool.query<PgPolicyRow>(policyInvariantSql, [
         input.schema,
         input.table,
-        input.policyName
+        input.policyName,
       ]);
       return result.rows.length > 0;
     },
     async hasTriggerFunction(input): Promise<boolean> {
       const result = await pool.query<PgFunctionRow>(triggerFunctionInvariantSql, [
         input.schema,
-        input.functionName
+        input.functionName,
       ]);
       return result.rows.length > 0;
     },
@@ -171,7 +183,7 @@ export function buildPgSchemaCatalog(pool: PgPool): SchemaCatalog {
       const result = await pool.query<PgTriggerRow>(triggerInvariantSql, [
         input.schema,
         input.table,
-        input.triggerName
+        input.triggerName,
       ]);
       const row = result.rows[0];
 
@@ -181,8 +193,17 @@ export function buildPgSchemaCatalog(pool: PgPool): SchemaCatalog {
 
       return {
         enabled: row.tgenabled === "O",
-        functionName: row.function_name
+        functionName: row.function_name,
       };
-    }
+    },
+    async hasTablePrivilege(input): Promise<boolean> {
+      const result = await pool.query<{ has_privilege: boolean }>(tablePrivilegeInvariantSql, [
+        input.grantee,
+        input.schema,
+        input.table,
+        input.privilegeType,
+      ]);
+      return result.rows[0]?.has_privilege ?? false;
+    },
   };
 }

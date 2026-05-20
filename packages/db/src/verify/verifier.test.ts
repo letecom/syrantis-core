@@ -6,6 +6,7 @@ import {
   columnInvariantSql,
   indexInvariantSql,
   policyInvariantSql,
+  tablePrivilegeInvariantSql,
   rlsInvariantSql,
   triggerFunctionInvariantSql,
   triggerInvariantSql,
@@ -41,6 +42,7 @@ function buildCatalog(input: {
   policy?: boolean | Record<string, boolean>;
   triggerFunction?: boolean | Record<string, boolean>;
   trigger?: TriggerCatalogRow | null | Record<string, TriggerCatalogRow | null>;
+  tablePrivilege?: boolean | Record<string, boolean>;
 }): SchemaCatalog {
   return {
     findColumn: async ({ table, column }) => {
@@ -91,12 +93,17 @@ function buildCatalog(input: {
       return (
         input.trigger ?? {
           enabled: true,
-          functionName:
-            triggerName.endsWith("_set_updated_at_trg")
-              ? "syrantis_set_updated_at"
-              : "enforce_email_sends_terminal_delivery_immutability",
+          functionName: triggerName.endsWith("_set_updated_at_trg")
+            ? "syrantis_set_updated_at"
+            : "enforce_email_sends_terminal_delivery_immutability",
         }
       );
+    },
+    hasTablePrivilege: async ({ table, grantee, privilegeType }) => {
+      const key = `${grantee}.${table}.${privilegeType}`;
+      return typeof input.tablePrivilege === "object"
+        ? (input.tablePrivilege[key] ?? false)
+        : (input.tablePrivilege ?? true);
     },
   };
 }
@@ -428,6 +435,20 @@ describe("schema invariant registry", () => {
     );
   });
 
+  it("includes the 0023 client users insert grant invariant", () => {
+    assert.ok(
+      schemaInvariantRegistry.some(
+        (invariant) =>
+          invariant.kind === "table_privilege" &&
+          invariant.migration === "0023" &&
+          invariant.schema === "public" &&
+          invariant.table === "users" &&
+          invariant.grantee === "syrantis_app" &&
+          invariant.privilegeType === "INSERT",
+      ),
+    );
+  });
+
   it("includes RLS tenant isolation invariants for expected tenant tables", () => {
     const rlsInvariants = schemaInvariantRegistry.filter(
       (invariant) =>
@@ -462,8 +483,8 @@ describe("schema invariant verifier", () => {
     );
 
     assert.equal(result.success, true);
-    assert.equal(result.checked, 87);
-    assert.equal(result.passed.length, 87);
+    assert.equal(result.checked, 88);
+    assert.equal(result.passed.length, 88);
     assert.equal(result.failed.length, 0);
   });
 
@@ -902,6 +923,30 @@ describe("schema invariant verifier", () => {
     });
   });
 
+  it("reports drift when the 0023 users insert grant is absent", async () => {
+    const [privilegeInvariant] = schemaInvariantRegistry.filter(
+      (invariant) => invariant.kind === "table_privilege" && invariant.migration === "0023",
+    );
+    assert.ok(privilegeInvariant?.kind === "table_privilege");
+
+    const result = await verifySchemaInvariants(
+      buildCatalog({
+        tablePrivilege: false,
+      }),
+      [privilegeInvariant],
+    );
+
+    assert.equal(result.success, false);
+    assert.deepEqual(result.failed[0], {
+      migration: "0023",
+      kind: "table_privilege",
+      object: "syrantis_app.users.INSERT",
+      reason: "missing",
+      expected: true,
+      actual: false,
+    });
+  });
+
   it("returns a failing process summary on drift", async () => {
     const result = await verifySchemaInvariants(
       buildCatalog({
@@ -913,12 +958,12 @@ describe("schema invariant verifier", () => {
     );
 
     assert.equal(getSchemaVerifyExitCode(result), 1);
-    assert.equal(result.checked, 87);
+    assert.equal(result.checked, 88);
     assert.equal(result.failed.length, 64);
   });
 
   it("keeps verification SQL limited to PostgreSQL catalog metadata", () => {
-    const combinedSql = `${columnInvariantSql}\n${indexInvariantSql}\n${checkConstraintInvariantSql}\n${rlsInvariantSql}\n${policyInvariantSql}\n${triggerFunctionInvariantSql}\n${triggerInvariantSql}`;
+    const combinedSql = `${columnInvariantSql}\n${indexInvariantSql}\n${checkConstraintInvariantSql}\n${rlsInvariantSql}\n${policyInvariantSql}\n${triggerFunctionInvariantSql}\n${triggerInvariantSql}\n${tablePrivilegeInvariantSql}`;
     assert.match(combinedSql, /information_schema\.columns/);
     assert.match(combinedSql, /pg_indexes/);
     assert.match(combinedSql, /pg_constraint/);
@@ -927,6 +972,7 @@ describe("schema invariant verifier", () => {
     assert.match(combinedSql, /pg_policy/);
     assert.match(combinedSql, /pg_proc/);
     assert.match(combinedSql, /pg_trigger/);
+    assert.match(combinedSql, /has_table_privilege/);
     assert.match(combinedSql, /contype = 'c'/);
     assert.match(combinedSql, /relkind = 'r'/);
     assert.doesNotMatch(
@@ -955,8 +1001,8 @@ describe("schema invariant verifier", () => {
     };
 
     assert.equal(parsed.success, true);
-    assert.equal(parsed.checked, 87);
-    assert.equal(parsed.passed, 87);
+    assert.equal(parsed.checked, 88);
+    assert.equal(parsed.passed, 88);
     assert.deepEqual(parsed.failed, []);
   });
 });

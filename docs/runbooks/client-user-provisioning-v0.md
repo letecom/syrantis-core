@@ -28,6 +28,10 @@ The temporary password is shown once. Refreshing or dismissing the panel removes
 
 ## Client Verification
 
+Before retesting a production failure with `permission denied for table users`, the operator must
+resync production to the fixed revision, run the database migration that grants `syrantis_app`
+`INSERT` on `public.users`, and restart the API. Codex must not perform those production actions.
+
 1. Open `https://app.syrantis.fr/login`.
 2. Confirm the login wording is client-facing:
    - `Syrantis`
@@ -41,6 +45,15 @@ The temporary password is shown once. Refreshing or dismissing the panel removes
    - Configuration
 6. Confirm admin surfaces are not visible in the client shell.
 7. Confirm admin-only APIs remain blocked for the client session.
+
+## Production Retest After Permission Fix
+
+1. Resync production to a revision that includes `0023_client_users_insert_grant.sql`.
+2. Run migrations through the approved production migration process.
+3. Restart the API through the approved production process.
+4. Retry `POST /api/admin/client-users` as an admin/founder.
+5. Confirm `temporaryPassword` appears once in the create response/UI.
+6. Sign in as the client on `https://app.syrantis.fr/login`.
 
 ## API Behavior
 
