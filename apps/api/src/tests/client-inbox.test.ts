@@ -17,7 +17,10 @@ import type {
   ClientInboxRows,
 } from "../repositories/client-inbox.repository.js";
 import { createClientInboxRoutes } from "../routes/client/inbox.js";
-import { createClientInboxService, type ClientInboxService } from "../services/client-inbox.service.js";
+import {
+  createClientInboxService,
+  type ClientInboxService,
+} from "../services/client-inbox.service.js";
 import type { AuthService } from "../services/auth.js";
 import type { GmailExportRequestService } from "../services/gmail-export-request.js";
 import { testUser, validSessionToken } from "./mocks/auth.js";
@@ -263,13 +266,15 @@ function queueRows(): ClientInboxRows {
   };
 }
 
-function detailRows(): ClientInboxRows<ClientInboxRows["mails"][number] & {
-  fromEmail: string | null;
-  toDisplay: string | null;
-  toEmail: string | null;
-  bodyText: string | null;
-  attachmentsJson: unknown[];
-}> {
+function detailRows(): ClientInboxRows<
+  ClientInboxRows["mails"][number] & {
+    fromEmail: string | null;
+    toDisplay: string | null;
+    toEmail: string | null;
+    bodyText: string | null;
+    attachmentsJson: unknown[];
+  }
+> {
   const rows = queueRows();
 
   return {
@@ -410,7 +415,10 @@ function routeService(overrides: Partial<ClientInboxService> = {}): ClientInboxS
   };
 }
 
-function createInboxApp(service: ClientInboxService = routeService(), user: AuthMe | null = testUser) {
+function createInboxApp(
+  service: ClientInboxService = routeService(),
+  user: AuthMe | null = testUser,
+) {
   const app = new Hono();
   app.route(
     "/api/client/inbox",
@@ -565,7 +573,46 @@ describe("client inbox routes", () => {
     expect(service.listMessages).not.toHaveBeenCalled();
   });
 
-  it("rejects non-admin sessions", async () => {
+  it("allows client, admin, and founder sessions for approved inbox endpoints", async () => {
+    for (const role of ["client", "admin", "founder"] as const) {
+      const service = routeService();
+      const app = createInboxApp(service, { ...testUser, role });
+
+      const list = await app.request("/api/client/inbox/messages", {
+        headers: validSessionHeaders(),
+      });
+      const detail = await app.request(`/api/client/inbox/messages/${mailItemId}`, {
+        headers: validSessionHeaders(),
+      });
+      const edit = await app.request(`/api/client/inbox/messages/${mailItemId}/draft`, {
+        method: "PATCH",
+        headers: validSessionHeaders(),
+        body: JSON.stringify({ subject: "Updated", bodyText: "Updated body" }),
+      });
+      const request = await app.request(
+        `/api/client/inbox/messages/${mailItemId}/gmail-export-request`,
+        {
+          method: "POST",
+          headers: validSessionHeaders(),
+        },
+      );
+      const cancel = await app.request(
+        `/api/client/inbox/messages/${mailItemId}/gmail-export-cancel`,
+        {
+          method: "POST",
+          headers: validSessionHeaders(),
+        },
+      );
+
+      expect(list.status).toBe(200);
+      expect(detail.status).toBe(200);
+      expect(edit.status).toBe(200);
+      expect(request.status).toBe(200);
+      expect(cancel.status).toBe(200);
+    }
+  });
+
+  it("rejects roles outside the client inbox access boundary", async () => {
     const service = routeService();
     const response = await createInboxApp(service, { ...testUser, role: "operator" }).request(
       "/api/client/inbox/messages",
@@ -574,6 +621,51 @@ describe("client inbox routes", () => {
 
     expect(response.status).toBe(403);
     expect(service.listMessages).not.toHaveBeenCalled();
+  });
+
+  it("rejects client-provided workspace identity from query, header, or body", async () => {
+    const service = routeService();
+    const app = createInboxApp(service, { ...testUser, role: "client" });
+
+    const query = await app.request(
+      "/api/client/inbox/messages?workspaceId=00000000-0000-4000-8000-000000023999",
+      {
+        headers: validSessionHeaders(),
+      },
+    );
+    const header = await app.request(`/api/client/inbox/messages/${mailItemId}`, {
+      headers: validSessionHeaders({
+        "x-workspace-id": "00000000-0000-4000-8000-000000023999",
+      }),
+    });
+    const body = await app.request(`/api/client/inbox/messages/${mailItemId}/draft`, {
+      method: "PATCH",
+      headers: validSessionHeaders(),
+      body: JSON.stringify({
+        subject: "Updated",
+        bodyText: "Updated body",
+        workspaceId: "00000000-0000-4000-8000-000000023999",
+      }),
+    });
+    const exportBody = await app.request(
+      `/api/client/inbox/messages/${mailItemId}/gmail-export-request`,
+      {
+        method: "POST",
+        headers: validSessionHeaders(),
+        body: JSON.stringify({
+          nested: { tenant_id: "00000000-0000-4000-8000-000000023999" },
+        }),
+      },
+    );
+
+    expect(query.status).toBe(400);
+    expect(header.status).toBe(400);
+    expect(body.status).toBe(400);
+    expect(exportBody.status).toBe(400);
+    expect(service.listMessages).not.toHaveBeenCalled();
+    expect(service.getMessageDetail).not.toHaveBeenCalled();
+    expect(service.updateDraft).not.toHaveBeenCalled();
+    expect(service.requestGmailExport).not.toHaveBeenCalled();
   });
 
   it("returns list and detail DTOs with the expected leak boundary", async () => {
@@ -633,12 +725,10 @@ describe("client inbox routes", () => {
     expect(response.status).toBe(200);
     expect(ClientInboxDraftEditResponseSchema.parse(body)).toEqual(body);
     expect(JSON.stringify(body)).not.toContain("Updated body");
-    expect(service.updateDraft).toHaveBeenCalledWith(
-      workspaceId,
-      userId,
-      mailItemId,
-      { subject: "Updated", bodyText: "Updated body" },
-    );
+    expect(service.updateDraft).toHaveBeenCalledWith(workspaceId, userId, mailItemId, {
+      subject: "Updated",
+      bodyText: "Updated body",
+    });
   });
 
   it("returns safe failure when draft actions have no draft", async () => {
@@ -674,10 +764,13 @@ describe("client inbox routes", () => {
         headers: validSessionHeaders(),
       },
     );
-    const cancel = await app.request(`/api/client/inbox/messages/${mailItemId}/gmail-export-cancel`, {
-      method: "POST",
-      headers: validSessionHeaders(),
-    });
+    const cancel = await app.request(
+      `/api/client/inbox/messages/${mailItemId}/gmail-export-cancel`,
+      {
+        method: "POST",
+        headers: validSessionHeaders(),
+      },
+    );
     const requestBody = await request.json();
     const cancelBody = await cancel.json();
 

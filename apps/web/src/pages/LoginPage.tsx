@@ -4,10 +4,11 @@ import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 
 import { login } from "../lib/api-client";
+import { getAuthenticatedHomePath } from "../lib/routing";
 
 const loginFormSchema = z.object({
   email: z.string().trim().email("Enter a valid email address."),
-  password: z.string().min(8, "Password must be at least 8 characters.")
+  password: z.string().min(8, "Password must be at least 8 characters."),
 });
 
 type FormErrors = Partial<Record<keyof z.infer<typeof loginFormSchema>, string>>;
@@ -24,8 +25,8 @@ export function LoginPage() {
     onSuccess: (user) => {
       queryClient.setQueryData(["session"], user);
       queryClient.invalidateQueries({ queryKey: ["session"] });
-      navigate("/app", { replace: true });
-    }
+      navigate(getAuthenticatedHomePath(user), { replace: true });
+    },
   });
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {

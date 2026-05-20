@@ -2,9 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { Navigate } from "react-router-dom";
 
 import { getCurrentUser } from "../lib/api-client";
-import { AdminShell } from "./AdminShell";
+import { ClientShell } from "./ClientShell";
 
-export function ProtectedRoute() {
+function canAccessClientShell(role: string): boolean {
+  return role === "client" || role === "admin" || role === "founder";
+}
+
+export function ClientProtectedRoute() {
   const sessionQuery = useQuery({
     queryKey: ["session"],
     queryFn: getCurrentUser,
@@ -22,9 +26,9 @@ export function ProtectedRoute() {
     return <Navigate replace to="/login" />;
   }
 
-  if (sessionQuery.data.role === "client") {
-    return <Navigate replace to="/inbox" />;
+  if (!canAccessClientShell(sessionQuery.data.role)) {
+    return <Navigate replace to="/app" />;
   }
 
-  return <AdminShell user={sessionQuery.data} />;
+  return <ClientShell user={sessionQuery.data} />;
 }

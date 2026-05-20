@@ -28,8 +28,7 @@ import type {
 } from "../../services/gmail-export-request.js";
 import type { AppEnv } from "../../types/hono.js";
 
-const uuidPattern =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const invalidRequestResponse = ApiErrorSchema.parse({
   success: false,
@@ -60,8 +59,16 @@ export type ClientInboxRoutesDependencies = {
   clientInboxService?: ClientInboxService;
 };
 
-function isAdminRole(role: string): boolean {
-  return role === "admin" || role === "founder";
+function canAccessClientInbox(role: string): boolean {
+  return role === "client" || role === "admin" || role === "founder";
+}
+
+function requireClientInboxAccess(c: Context<AppEnv>) {
+  if (!canAccessClientInbox(c.get("currentUser").role)) {
+    return c.json(forbidden("CLIENT_INBOX_ACCESS_REQUIRED"), 403);
+  }
+
+  return null;
 }
 
 function hasForbiddenWorkspaceId(value: unknown): boolean {
@@ -90,13 +97,13 @@ function hasForbiddenWorkspaceId(value: unknown): boolean {
 function hasWorkspaceHeader(c: Context<AppEnv>): boolean {
   return Boolean(
     c.req.header("workspaceId") ??
-      c.req.header("workspace-id") ??
-      c.req.header("workspace_id") ??
-      c.req.header("x-workspace-id") ??
-      c.req.header("tenantId") ??
-      c.req.header("tenant-id") ??
-      c.req.header("tenant_id") ??
-      c.req.header("x-tenant-id"),
+    c.req.header("workspace-id") ??
+    c.req.header("workspace_id") ??
+    c.req.header("x-workspace-id") ??
+    c.req.header("tenantId") ??
+    c.req.header("tenant-id") ??
+    c.req.header("tenant_id") ??
+    c.req.header("x-tenant-id"),
   );
 }
 
@@ -160,10 +167,7 @@ function requestConflictResponse(result: { code: string }) {
   });
 }
 
-function gmailRequestResponse(
-  c: Context<AppEnv>,
-  result: ClientInboxGmailExportActionResult,
-) {
+function gmailRequestResponse(c: Context<AppEnv>, result: ClientInboxGmailExportActionResult) {
   if (result.result === "not_found") {
     return c.json(messageNotFoundResponse, 404);
   }
@@ -220,8 +224,10 @@ export function createClientInboxRoutes(dependencies: ClientInboxRoutesDependenc
       return c.json(invalidRequestResponse, 400);
     }
 
-    if (!isAdminRole(c.get("currentUser").role)) {
-      return c.json(forbidden("ADMIN_REQUIRED"), 403);
+    const accessDenied = requireClientInboxAccess(c);
+
+    if (accessDenied) {
+      return accessDenied;
     }
 
     const parsedQuery = ClientInboxQuerySchema.safeParse(c.req.query());
@@ -251,8 +257,10 @@ export function createClientInboxRoutes(dependencies: ClientInboxRoutesDependenc
       return c.json(invalidRequestResponse, 400);
     }
 
-    if (!isAdminRole(c.get("currentUser").role)) {
-      return c.json(forbidden("ADMIN_REQUIRED"), 403);
+    const accessDenied = requireClientInboxAccess(c);
+
+    if (accessDenied) {
+      return accessDenied;
     }
 
     const body = await readJsonBody(c);
@@ -294,8 +302,10 @@ export function createClientInboxRoutes(dependencies: ClientInboxRoutesDependenc
       return c.json(invalidRequestResponse, 400);
     }
 
-    if (!isAdminRole(c.get("currentUser").role)) {
-      return c.json(forbidden("ADMIN_REQUIRED"), 403);
+    const accessDenied = requireClientInboxAccess(c);
+
+    if (accessDenied) {
+      return accessDenied;
     }
 
     try {
@@ -324,8 +334,10 @@ export function createClientInboxRoutes(dependencies: ClientInboxRoutesDependenc
       return c.json(invalidRequestResponse, 400);
     }
 
-    if (!isAdminRole(c.get("currentUser").role)) {
-      return c.json(forbidden("ADMIN_REQUIRED"), 403);
+    const accessDenied = requireClientInboxAccess(c);
+
+    if (accessDenied) {
+      return accessDenied;
     }
 
     try {
@@ -348,8 +360,10 @@ export function createClientInboxRoutes(dependencies: ClientInboxRoutesDependenc
       return c.json(invalidRequestResponse, 400);
     }
 
-    if (!isAdminRole(c.get("currentUser").role)) {
-      return c.json(forbidden("ADMIN_REQUIRED"), 403);
+    const accessDenied = requireClientInboxAccess(c);
+
+    if (accessDenied) {
+      return accessDenied;
     }
 
     try {
