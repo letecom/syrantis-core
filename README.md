@@ -38,7 +38,7 @@ Apps Script creates Gmail draft
   ↓
 human edits/sends in Gmail
   ↓
-future client Inbox / Config / Dashboard
+client Inbox / future Config / future Dashboard
   ↓
 future Scout
 ```
@@ -68,6 +68,9 @@ Validated current loop:
     without adding the live route or API integration.
 17. 023AI-B adds `/app/client/inbox` as a live internal client Inbox route using the shared
     components and existing 023AF/023AH backend routes only.
+18. 023AJ adds the first client app foundation: `role = client`, a separate ClientShell, live
+    `/inbox`, placeholder `/dashboard` and `/config`, and a narrow client-safe access boundary for
+    the approved Client Inbox APIs.
 
 ## Current Client/Admin Surfaces
 
@@ -95,6 +98,20 @@ must not be treated as a broad CRM, Gmail clone, or autonomous agent console.
   `app.syrantis.fr` product contract. 023AI-A refactors it to use shared client Inbox feature
   components and mock UI ViewModels. It has no backend behavior and is not the live client Inbox.
 
+The client app foundation now also exists:
+
+- `/inbox`: live client Inbox in the new client shell, reusing the 023AI shared components and
+  approved 023AF/023AH backend routes.
+- `/dashboard`: safe placeholder for the future client Dashboard.
+- `/config`: safe placeholder for the future client Config.
+
+`app.syrantis.fr` DNS is already created by the operator as `app` CNAME to `admin.syrantis.fr`.
+Before the 023AJ Caddy runbook is applied, production `https://app.syrantis.fr/` and
+`https://app.syrantis.fr/inbox` fail with a TLS internal error because Caddy lacks an
+`app.syrantis.fr` site block/certificate. 023AJ adds the runbook and app routing foundation only;
+it does not edit production Caddy, deploy, add full user management UI, add Integration Pilot
+Environment, add direct send, add backend Gmail OAuth, or change Apps Script.
+
 ## Current Backend Capabilities
 
 Current validated backend capabilities include:
@@ -112,6 +129,7 @@ Current validated backend capabilities include:
 - draft review queue
 - mail review queue
 - client inbox domain read/action API
+- client app foundation and Client Inbox access boundary
 - response policy
 - worker continuous runtime
 - systemd API/worker runtime foundations

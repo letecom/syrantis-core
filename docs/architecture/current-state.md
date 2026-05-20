@@ -258,3 +258,36 @@ rewrite, provider SDK, or raw JSON/debug panel.
 023AI-B adds no backend/API source change, migration, provider/OpenRouter/GmailApp/googleapis/Resend
 behavior, Google Sheets behavior, Caddy/env/systemd change, deployment behavior, `app.syrantis.fr`,
 client RBAC/domain split, dashboard/config UI, Scout behavior, or operational deploy mechanism.
+
+## 023AJ Client App Foundation + Access Boundary State
+
+023AJ adds the first client app foundation without turning the internal admin app into the final
+client product:
+
+- `role = client` is supported by the existing auth/session flow.
+- The database and shared/web auth contracts already allowed `client`; no migration was required.
+- `/inbox` renders the live Client Inbox in a separate `ClientShell`.
+- `/dashboard` and `/config` render safe placeholders only.
+- `/app/client/inbox` remains the internal validation live route.
+- `/app/client-inbox-preview` remains the mock-only design harness.
+- Client shell navigation is limited to Dashboard, Inbox, and Config.
+
+The approved client-safe API boundary is narrow. `client`, `admin`, and `founder` may access only
+the Client Inbox list/detail/draft edit/Gmail export request/cancel routes under
+`/api/client/inbox/messages`. All remain tenant-scoped through `tenantGuard`, and `workspaceId`
+still comes only from trusted session context. Client-provided workspace or tenant identity in
+query strings, headers, or bodies is rejected.
+
+Client users remain blocked from admin/founder validation surfaces such as `/api/admin/*`, ops,
+workspace API key management, Google Sheets setup/test, workspace context admin routes, Mail Queue,
+Draft Queue, Response Policy admin APIs, and other arbitrary admin-only routes.
+
+`app.syrantis.fr` is the intended client domain. Operator DNS is already created as `app` CNAME to
+`admin.syrantis.fr`, with both names resolving to `178.105.0.89`. Before the operator applies the
+023AJ Caddy runbook, production `https://app.syrantis.fr/` and `https://app.syrantis.fr/inbox`
+fail with a TLS internal error because Caddy lacks an `app.syrantis.fr` site block/certificate.
+
+023AJ does not add full Config, full Dashboard, full user management UI, Integration Pilot
+Environment, direct send, backend Gmail OAuth, Apps Script changes, provider/OpenRouter behavior,
+Resend behavior, Google Sheets behavior, worker behavior, Scout behavior, production Caddy edits,
+production env edits, deployment, or an operational deploy mechanism.

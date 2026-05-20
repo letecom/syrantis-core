@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { getAuthenticatedHomePath, isClientAppHost } from "../src/lib/routing";
 import { renderApp } from "./test-utils";
 
 const currentUser = {
@@ -12,9 +13,19 @@ const currentUser = {
     id: "11111111-1111-4111-8111-111111111111",
     email: "admin@example.com",
     name: "Admin User",
-    role: "admin",
+    role: "admin" as const,
     workspaceId: "22222222-2222-4222-8222-222222222222",
     workspaceName: "Hidden tenant",
+  },
+};
+
+const currentClientUser = {
+  success: true,
+  data: {
+    ...currentUser.data,
+    email: "client@example.com",
+    name: "Client User",
+    role: "client" as const,
   },
 };
 
@@ -1138,6 +1149,13 @@ afterEach(() => {
 });
 
 describe("admin app", () => {
+  it("keeps client-host routing minimal and explicit", () => {
+    expect(isClientAppHost("app.syrantis.fr")).toBe(true);
+    expect(isClientAppHost("admin.syrantis.fr")).toBe(false);
+    expect(getAuthenticatedHomePath(currentClientUser.data)).toBe("/inbox");
+    expect(getAuthenticatedHomePath(currentUser.data)).toBe("/app");
+  });
+
   it("renders the login form", () => {
     vi.stubGlobal(
       "fetch",
@@ -1190,6 +1208,34 @@ describe("admin app", () => {
     expect(await screen.findByRole("heading", { name: "Admin dashboard" })).toBeInTheDocument();
   });
 
+  it("redirects client login to the live inbox", async () => {
+    const user = userEvent.setup();
+    const request = vi.fn((url: string) => {
+      if (url === "/auth/login" || url === "/auth/me") {
+        return mockJson(currentClientUser);
+      }
+
+      if (url === clientInboxMessagesUrl) {
+        return mockJson(clientInboxMessages);
+      }
+
+      if (url === clientInboxDetailUrl) {
+        return mockJson(clientInboxDetail);
+      }
+
+      return mockJson(currentClientUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/login");
+    await user.type(screen.getByLabelText("Email"), "client@example.com");
+    await user.type(screen.getByLabelText("Password"), "password123");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByRole("heading", { name: "Boîte de réception" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Espace client" })).toBeInTheDocument();
+  });
+
   it("shows a generic invalid credentials message", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
@@ -1237,6 +1283,116 @@ describe("admin app", () => {
     expect(screen.getByRole("link", { name: "API Keys" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Google Sheets" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ops" })).toBeInTheDocument();
+  });
+
+  it("renders the client shell with only client navigation", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => mockJson(currentClientUser)),
+    );
+
+    renderApp("/dashboard");
+
+    expect(await screen.findByRole("heading", { name: "Espace client" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Tableau de bord" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Boîte de réception" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Configuration" })).toBeInTheDocument();
+    expect(screen.queryByText("Syrantis Admin")).not.toBeInTheDocument();
+
+    for (const forbidden of [
+      "Ops",
+      "API Keys",
+      "Google Sheets",
+      "Pushback",
+      "Mail Queue",
+      "Draft Queue",
+      "Gmail Export",
+      "Client Inbox Lab",
+      "Response Policy",
+    ]) {
+      expect(screen.queryByText(forbidden)).not.toBeInTheDocument();
+    }
+  });
+
+  it("renders the client placeholders in the client shell", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => mockJson(currentClientUser)),
+    );
+
+    const dashboard = renderApp("/dashboard");
+    expect(await screen.findByRole("heading", { name: "Tableau de bord" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Le tableau de bord client arrive dans une prochaine étape."),
+    ).toBeInTheDocument();
+    dashboard.unmount();
+
+    const config = renderApp("/config");
+    expect(await screen.findByRole("heading", { name: "Configuration" })).toBeInTheDocument();
+    expect(screen.getByText("La configuration client arrive ensuite.")).toBeInTheDocument();
+    config.unmount();
+  });
+
+  it("renders the live Client Inbox at /inbox inside the client shell", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === clientInboxMessagesUrl) {
+        return mockJson(clientInboxMessages);
+      }
+
+      if (url === clientInboxDetailUrl) {
+        return mockJson(clientInboxDetail);
+      }
+
+      return mockJson(currentClientUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/inbox");
+
+    expect(await screen.findByRole("heading", { name: "Espace client" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Boîte de réception" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(clientInboxMessagesUrl, expect.anything()),
+    );
+    expect(screen.getByRole("link", { name: "Tableau de bord" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Configuration" })).toBeInTheDocument();
+    expect(screen.queryByText("Syrantis Admin")).not.toBeInTheDocument();
+    expect(screen.queryByText("Client Inbox Lab")).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw json/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/debug/i)).not.toBeInTheDocument();
+
+    for (const forbiddenButton of [
+      "Send",
+      "Reply",
+      "Forward",
+      "Composer",
+      "Archive",
+      "Delete",
+      "Spam",
+    ]) {
+      expect(screen.queryByRole("button", { name: forbiddenButton })).not.toBeInTheDocument();
+    }
+  });
+
+  it("redirects client users away from admin surfaces", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === clientInboxMessagesUrl) {
+        return mockJson(clientInboxMessages);
+      }
+
+      if (url === clientInboxDetailUrl) {
+        return mockJson(clientInboxDetail);
+      }
+
+      return mockJson(currentClientUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/ops");
+
+    expect(await screen.findByRole("heading", { name: "Boîte de réception" })).toBeInTheDocument();
+    expect(screen.queryByText("Syrantis Admin")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Ops" })).not.toBeInTheDocument();
   });
 
   it("renders the Client Inbox Lab inside the protected admin app", async () => {
@@ -3079,12 +3235,16 @@ describe("admin app", () => {
     const sourceFiles = [
       "../src/App.tsx",
       "../src/components/AdminShell.tsx",
+      "../src/components/ClientProtectedRoute.tsx",
+      "../src/components/ClientShell.tsx",
       "../src/components/ProtectedRoute.tsx",
+      "../src/lib/routing.ts",
       "../src/pages/ApiKeysPage.tsx",
       "../src/pages/ClientDashboardPage.tsx",
       "../src/pages/ClientInboxLabPage.tsx",
       "../src/pages/ClientInboxPreviewPage.tsx",
       "../src/pages/ClientInstallPage.tsx",
+      "../src/pages/ClientPlaceholderPage.tsx",
       "../src/pages/DashboardPage.tsx",
       "../src/pages/GmailExportOpsPage.tsx",
       "../src/pages/GoogleSheetsPage.tsx",

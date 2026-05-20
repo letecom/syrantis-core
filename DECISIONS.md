@@ -219,6 +219,19 @@ item relation and reuse existing draft/export rules. This does not approve live 
 direct send, backend Gmail OAuth, provider calls, Resend changes, Google Sheets changes, deployment,
 or client RBAC.
 
+## 2026-05-20 - 023AJ Client Role Boundary
+
+Decision: the `client` role is allowed only through explicitly approved client-safe surfaces.
+
+For 023AJ, that means the live Client Inbox APIs under `/api/client/inbox/messages` and the client
+shell routes `/inbox`, `/dashboard`, and `/config`. Other `/api/client/*` validation routes remain
+admin/founder-only until a later issue reviews and approves each one for client access.
+
+Client users must not see the admin shell. `app.syrantis.fr` is the client-facing domain foundation,
+while `admin.syrantis.fr` remains the founder/operator/admin validation and ops surface. Full
+Dashboard, full Config, user management, Integration Pilot Environment, direct send, backend Gmail
+OAuth, and Apps Script changes remain out of scope.
+
 ## 2026-05-19 - 023AH Client Inbox List Previews Are Route-Scoped
 
 Decision: bounded `subjectPreview` and `snippetPreview` values are approved only on the dedicated

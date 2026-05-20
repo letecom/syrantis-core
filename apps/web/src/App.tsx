@@ -1,13 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 
+import { ClientProtectedRoute } from "./components/ClientProtectedRoute";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { getCurrentUser } from "./lib/api-client";
+import { getAuthenticatedHomePath } from "./lib/routing";
 import { ApiKeysPage } from "./pages/ApiKeysPage";
 import { ClientInboxLabPage } from "./pages/ClientInboxLabPage";
 import { ClientInboxPreviewPage } from "./pages/ClientInboxPreviewPage";
 import { ClientInboxLivePage } from "./features/client-inbox";
 import { ClientInstallPage } from "./pages/ClientInstallPage";
+import { ClientPlaceholderPage } from "./pages/ClientPlaceholderPage";
 import { ClientDashboardPage } from "./pages/ClientDashboardPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DraftQueuePage } from "./pages/DraftQueuePage";
@@ -34,7 +37,12 @@ function RootRedirect() {
     );
   }
 
-  return <Navigate replace to={sessionQuery.data ? "/app" : "/login"} />;
+  return (
+    <Navigate
+      replace
+      to={sessionQuery.data ? getAuthenticatedHomePath(sessionQuery.data) : "/login"}
+    />
+  );
 }
 
 function ClientAppRouteGuard() {
@@ -64,6 +72,25 @@ export function App() {
       <Route element={<RootRedirect />} path="/" />
       <Route element={<LoginPage />} path="/login" />
       <Route element={<ClientInboxPreviewPage />} path="/app/client-inbox-preview" />
+      <Route element={<ClientProtectedRoute />}>
+        <Route
+          element={
+            <ClientPlaceholderPage title="Tableau de bord">
+              Le tableau de bord client arrive dans une prochaine étape.
+            </ClientPlaceholderPage>
+          }
+          path="/dashboard"
+        />
+        <Route element={<ClientInboxLivePage />} path="/inbox" />
+        <Route
+          element={
+            <ClientPlaceholderPage title="Configuration">
+              La configuration client arrive ensuite.
+            </ClientPlaceholderPage>
+          }
+          path="/config"
+        />
+      </Route>
       <Route element={<ClientAppRouteGuard />} path="/app/client">
         <Route element={<ClientInboxLivePage />} path="inbox" />
       </Route>
