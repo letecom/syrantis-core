@@ -6,6 +6,7 @@ import {
   createWorkspaceApiKey,
   cancelDraftGmailExportRequest,
   getClientInboxMessage,
+  getClientConfigResponsePolicy,
   getGoogleSheetsSetupStatus,
   getCurrentUser,
   getClientResponsePolicy,
@@ -29,6 +30,7 @@ import {
   runOpsCheck,
   testGoogleSheetsSetup,
   putClientResponsePolicy,
+  putClientConfigResponsePolicy,
   updateClientInboxDraft,
 } from "../src/lib/api-client";
 
@@ -614,6 +616,33 @@ const clientResponsePolicyResponse = {
   },
 };
 
+const clientConfigResponsePolicyResponse = {
+  success: true,
+  data: {
+    policy: {
+      configured: true,
+      language: "fr",
+      tone: "warm",
+      customToneNotes: "Répondre clairement.",
+      defaultGreeting: "Bonjour,",
+      defaultClosing: "Bien cordialement,",
+      signature: "L'équipe Acme",
+      structureLines: ["Accuser réception"],
+      businessRules: ["Confirmer les créneaux avant de promettre une intervention."],
+      forbiddenClaims: ["Ne pas garantir un prix exact avant qualification."],
+      escalationRules: ["Transférer les réclamations à un humain."],
+      offerNotes: ["Mettre en avant le diagnostic."],
+      catalogSummary: "Chauffage et plomberie.",
+      exampleReplies: [{ label: "Devis", body: "Bonjour, merci pour votre demande." }],
+      updatedAt: "2026-05-22T10:00:00.000Z",
+      workspaceId: "forbidden-client-config-workspace",
+      status: "forbidden-admin-status",
+      responseStructure: ["forbidden-admin-field"],
+      bodyText: "forbidden-admin-example-field",
+    },
+  },
+};
+
 const clientInboxMailItemId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
 const clientInboxDraftId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const clientInboxLeadId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
@@ -1128,6 +1157,63 @@ describe("api client", () => {
     );
     expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("workspaceId");
     expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("Authorization");
+  });
+
+  it("loads client config response policy through the dedicated client route", async () => {
+    const request = vi.fn(() => mockResponse(clientConfigResponsePolicyResponse));
+    vi.stubGlobal("fetch", request);
+
+    const result = await getClientConfigResponsePolicy();
+
+    expect(result).toMatchObject({
+      configured: true,
+      language: "fr",
+      tone: "warm",
+      structureLines: ["Accuser réception"],
+      exampleReplies: [{ label: "Devis", body: "Bonjour, merci pour votre demande." }],
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/api/client/config/response-policy",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(JSON.stringify(result)).not.toContain("workspaceId");
+    expect(JSON.stringify(result)).not.toContain("responseStructure");
+    expect(JSON.stringify(result)).not.toContain("bodyText");
+  });
+
+  it("saves client config response policy without tenant or admin material", async () => {
+    const request = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
+      mockResponse(clientConfigResponsePolicyResponse),
+    );
+    vi.stubGlobal("fetch", request);
+
+    await expect(
+      putClientConfigResponsePolicy({
+        language: "fr",
+        tone: "warm",
+        customToneNotes: "Répondre clairement.",
+        defaultGreeting: "Bonjour,",
+        defaultClosing: "Bien cordialement,",
+        signature: "L'équipe Acme",
+        structureLines: ["Accuser réception"],
+        businessRules: ["Confirmer les créneaux avant de promettre une intervention."],
+        forbiddenClaims: ["Ne pas garantir un prix exact avant qualification."],
+        escalationRules: ["Transférer les réclamations à un humain."],
+        offerNotes: ["Mettre en avant le diagnostic."],
+        catalogSummary: "Chauffage et plomberie.",
+        exampleReplies: [{ label: "Devis", body: "Bonjour, merci pour votre demande." }],
+      }),
+    ).resolves.toMatchObject({ configured: true });
+    expect(request).toHaveBeenCalledWith(
+      "/api/client/config/response-policy",
+      expect.objectContaining({
+        credentials: "include",
+        method: "PUT",
+      }),
+    );
+    expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("workspaceId");
+    expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("responseStructure");
+    expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("bodyText");
   });
 
   it("requests draft Gmail export without client workspace material", async () => {

@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import {
   ClientCockpitSummaryResponseSchema,
+  ClientConfigResponsePolicySuccessSchema,
+  ClientConfigResponsePolicyUpdateSchema,
   ClientInboxDraftEditInputSchema,
   ClientInboxDraftEditResponseSchema,
   ClientInboxMessageDetailResponseSchema,
@@ -18,6 +20,8 @@ import {
   MailQueueResponseSchema,
   type ClientInboxDraftEditInput,
   type ClientInboxQuery,
+  type ClientConfigResponsePolicy,
+  type ClientConfigResponsePolicyUpdate,
 } from "@syrantis/shared";
 
 const { stringify: encodeJsonBody } = JSON;
@@ -366,6 +370,8 @@ export type ClientResponsePolicyInput = z.infer<typeof ClientResponsePolicyInput
 export type ClientResponsePolicy = z.infer<
   typeof ClientResponsePolicyGetSuccessSchema
 >["data"]["policy"];
+export type ClientConfigResponsePolicyInput = ClientConfigResponsePolicyUpdate;
+export type ClientConfigResponsePolicyData = ClientConfigResponsePolicy;
 export type ClientUserSafe = z.infer<typeof ClientUserListSuccessSchema>["data"][number];
 export type ClientUserCreateResponse = z.infer<typeof ClientUserCreateSuccessSchema>["data"];
 export type WorkspaceApiKeySafe = z.infer<typeof workspaceApiKeyListResponseSchema>["data"][number];
@@ -767,6 +773,23 @@ export async function putClientResponsePolicy(
   });
 
   return ClientResponsePolicyPutSuccessSchema.parse(payload).data.policy;
+}
+
+export async function getClientConfigResponsePolicy(): Promise<ClientConfigResponsePolicyData> {
+  const payload = await requestJson("/api/client/config/response-policy");
+  return ClientConfigResponsePolicySuccessSchema.parse(payload).data.policy;
+}
+
+export async function putClientConfigResponsePolicy(
+  input: ClientConfigResponsePolicyInput,
+): Promise<ClientConfigResponsePolicyData> {
+  const parsed = ClientConfigResponsePolicyUpdateSchema.parse(input);
+  const payload = await requestJson("/api/client/config/response-policy", {
+    method: "PUT",
+    body: encodeJsonBody(parsed),
+  });
+
+  return ClientConfigResponsePolicySuccessSchema.parse(payload).data.policy;
 }
 
 export async function listClientUsers(): Promise<ClientUserSafe[]> {
