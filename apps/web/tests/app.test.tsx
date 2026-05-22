@@ -130,6 +130,7 @@ const mailQueueCategoryUrl =
 const mailQueueClassificationId = "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd";
 const mailQueueDetailUrl = `/api/client/mail-queue/${mailQueueClassificationId}`;
 const responsePolicyUrl = "/api/client/response-policy";
+const clientConfigResponsePolicyUrl = "/api/client/config/response-policy";
 const clientInboxMailItemId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
 const clientInboxDraftId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const clientInboxLeadId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
@@ -985,6 +986,61 @@ const responsePolicyConfigured = {
   },
 };
 
+const clientConfigResponsePolicyEmpty = {
+  success: true,
+  data: {
+    policy: {
+      configured: false,
+      language: "auto",
+      tone: "professional",
+      customToneNotes: null,
+      defaultGreeting: null,
+      defaultClosing: null,
+      signature: null,
+      structureLines: [],
+      businessRules: [],
+      forbiddenClaims: [],
+      escalationRules: [],
+      offerNotes: [],
+      catalogSummary: null,
+      exampleReplies: [],
+      updatedAt: null,
+      workspaceId: "forbidden-client-config-workspace",
+      providerMessageId: "forbidden-client-config-provider",
+      prompt: "forbidden-client-config-prompt",
+      output: "forbidden-client-config-output",
+    },
+  },
+};
+
+const clientConfigResponsePolicyConfigured = {
+  success: true,
+  data: {
+    policy: {
+      configured: true,
+      language: "fr",
+      tone: "warm",
+      customToneNotes: "Répondre avec clarté.",
+      defaultGreeting: "Bonjour,",
+      defaultClosing: "Bien cordialement,",
+      signature: "L'équipe Acme",
+      structureLines: ["Accuser réception", "Proposer une prochaine étape"],
+      businessRules: ["Confirmer les créneaux avant de promettre une intervention."],
+      forbiddenClaims: ["Ne pas garantir un prix exact avant qualification."],
+      escalationRules: ["Transférer les réclamations à un humain."],
+      offerNotes: ["Mettre en avant le diagnostic."],
+      catalogSummary: "Chauffage et plomberie.",
+      exampleReplies: [{ label: "Devis", body: "Bonjour, merci pour votre demande." }],
+      updatedAt: "2026-05-22T10:00:00.000Z",
+      workspaceId: "forbidden-client-config-workspace",
+      rawJson: { hidden: true },
+      providerMessageId: "forbidden-client-config-provider",
+      prompt: "forbidden-client-config-prompt",
+      output: "forbidden-client-config-output",
+    },
+  },
+};
+
 const opsHealth = {
   success: true,
   data: {
@@ -1372,7 +1428,7 @@ describe("admin app", () => {
     }
   });
 
-  it("renders the client placeholders in the client shell", async () => {
+  it("renders the client dashboard placeholder in the client shell", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() => mockJson(currentClientUser)),
@@ -1384,11 +1440,174 @@ describe("admin app", () => {
       screen.getByText("Le tableau de bord client arrive dans une prochaine étape."),
     ).toBeInTheDocument();
     dashboard.unmount();
+  });
 
-    const config = renderApp("/config");
-    expect(await screen.findByRole("heading", { name: "Configuration" })).toBeInTheDocument();
-    expect(screen.getByText("La configuration client arrive ensuite.")).toBeInTheDocument();
-    config.unmount();
+  it("renders /config inside ClientShell without admin navigation", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === clientConfigResponsePolicyUrl) {
+        return mockJson(clientConfigResponsePolicyConfigured);
+      }
+
+      return mockJson(currentClientUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/config");
+
+    expect(
+      await screen.findByRole("heading", { name: "Configuration de l'assistant" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Espace client" })).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("client-shell-sidebar"))
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Tableau de bord", "Boîte de réception", "Configuration"]);
+    expect(screen.queryByText("Syrantis Admin")).not.toBeInTheDocument();
+    expect(screen.queryByText("Response Policy")).not.toBeInTheDocument();
+    expect(request).toHaveBeenCalledWith(
+      clientConfigResponsePolicyUrl,
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(request).not.toHaveBeenCalledWith(
+      responsePolicyUrl,
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(request).not.toHaveBeenCalledWith(
+      "/api/admin/response-policy",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("loads the French client config sections and keeps unsafe fields hidden", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === clientConfigResponsePolicyUrl) {
+        return mockJson(clientConfigResponsePolicyConfigured);
+      }
+
+      return mockJson(currentClientUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    const { container } = renderApp("/config");
+
+    expect(await screen.findByText("Définis comment Syrantis prépare les réponses avant validation humaine.")).toBeInTheDocument();
+    expect(screen.getByText("Complétude")).toBeInTheDocument();
+    expect(screen.getByText("Configurée")).toBeInTheDocument();
+    for (const section of [
+      "Identité & ton",
+      "Formules & signature",
+      "Structure de réponse",
+      "Règles métier",
+      "Mentions interdites",
+      "Escalade humaine",
+      "Offre & catalogue",
+      "Exemples de réponses",
+    ]) {
+      expect(screen.getByRole("heading", { name: section })).toBeInTheDocument();
+    }
+    for (const forbidden of [
+      "forbidden-client-config-workspace",
+      "forbidden-client-config-provider",
+      "forbidden-client-config-prompt",
+      "forbidden-client-config-output",
+      "workspaceId",
+      "providerMessageId",
+      "raw JSON",
+      "API key",
+    ]) {
+      expect(container.textContent).not.toContain(forbidden);
+    }
+  });
+
+  it("keeps save disabled until edits and reset restores loaded values", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === clientConfigResponsePolicyUrl) {
+        return mockJson(clientConfigResponsePolicyConfigured);
+      }
+
+      return mockJson(currentClientUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/config");
+
+    const notes = await screen.findByLabelText("Notes de ton");
+    const save = screen.getByRole("button", { name: "Enregistrer" });
+    const reset = screen.getByRole("button", { name: "Réinitialiser" });
+    expect(save).toBeDisabled();
+
+    await userEvent.clear(notes);
+    await userEvent.type(notes, "Répondre très simplement.");
+
+    expect(save).toBeEnabled();
+    expect(reset).toBeEnabled();
+
+    await userEvent.click(reset);
+    expect(screen.getByLabelText("Notes de ton")).toHaveValue("Répondre avec clarté.");
+    expect(save).toBeDisabled();
+  });
+
+  it("saves client config through PUT on the dedicated client route", async () => {
+    const request = vi.fn((url: string, init?: RequestInit) => {
+      if (url === clientConfigResponsePolicyUrl && init?.method === "PUT") {
+        return mockJson(clientConfigResponsePolicyConfigured);
+      }
+
+      if (url === clientConfigResponsePolicyUrl) {
+        return mockJson(clientConfigResponsePolicyEmpty);
+      }
+
+      return mockJson(currentClientUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/config");
+
+    const greeting = await screen.findByLabelText("Salutation par défaut");
+    await userEvent.type(greeting, "Bonjour,");
+    await userEvent.click(screen.getByRole("button", { name: "Enregistrer" }));
+
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        clientConfigResponsePolicyUrl,
+        expect.objectContaining({ method: "PUT", credentials: "include" }),
+      ),
+    );
+    const putCall = request.mock.calls.find(
+      ([url, init]) => url === clientConfigResponsePolicyUrl && init?.method === "PUT",
+    );
+    expect(JSON.stringify(putCall?.[1])).not.toContain("workspaceId");
+    expect(JSON.stringify(putCall?.[1])).not.toContain("responseStructure");
+    expect(JSON.stringify(putCall?.[1])).not.toContain("bodyText");
+    expect(request).not.toHaveBeenCalledWith(responsePolicyUrl, expect.anything());
+    expect(request).not.toHaveBeenCalledWith("/api/admin/response-policy", expect.anything());
+  });
+
+  it("shows client config validation errors safely", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === clientConfigResponsePolicyUrl) {
+        return mockJson(clientConfigResponsePolicyConfigured);
+      }
+
+      return mockJson(currentClientUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/config");
+
+    await screen.findByRole("heading", { name: "Configuration de l'assistant" });
+    await userEvent.click(screen.getByRole("button", { name: "Ajouter un exemple" }));
+    const responseField = screen.getByLabelText("Réponse 2");
+    await userEvent.type(responseField, "Réponse sans libellé.");
+    await userEvent.click(screen.getByRole("button", { name: "Enregistrer" }));
+
+    expect(await screen.findByText("Certains champs dépassent les limites prévues.")).toBeInTheDocument();
+    expect(screen.getByText("Vérifie la longueur, le nombre d'éléments et les champs autorisés.")).toBeInTheDocument();
+    expect(request).not.toHaveBeenCalledWith(
+      clientConfigResponsePolicyUrl,
+      expect.objectContaining({ method: "PUT" }),
+    );
   });
 
   it("renders the live Client Inbox at /inbox inside the client shell", async () => {
@@ -3373,6 +3592,7 @@ describe("admin app", () => {
       "../src/components/ProtectedRoute.tsx",
       "../src/lib/routing.ts",
       "../src/pages/ApiKeysPage.tsx",
+      "../src/pages/ClientConfigPage.tsx",
       "../src/pages/ClientDashboardPage.tsx",
       "../src/pages/ClientInboxLabPage.tsx",
       "../src/pages/ClientInboxPreviewPage.tsx",

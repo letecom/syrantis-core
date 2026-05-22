@@ -361,6 +361,24 @@ The policy lets the client configure language, tone, greeting, closing, signatur
 structure, business rules, forbidden claims, escalation rules, offer notes, catalog summary, and
 example replies. Policy routes do not call Gmail, Google, Resend, OpenRouter, or any provider.
 
+## Client Config / 023AM
+
+023AM adds the live client-safe response behavior configuration surface:
+
+- `GET /api/client/config/response-policy`
+- `PUT /api/client/config/response-policy`
+- `/config` inside `ClientShell`
+
+The client config route is separate from the existing admin/founder Response Policy route. It uses a
+strict client-safe DTO whitelist, never accepts `workspaceId` from the client, and does not expose
+raw JSON, prompt/output, provider identifiers, API keys, tokens, secrets, logs, admin debug fields,
+or the admin response policy DTO shape. The existing admin Response Policy remains available at
+`/app/response-policy` and `GET/PUT /api/client/response-policy`.
+
+023AM does not add personas/response profiles, services/offers packs, Draft Generation v2, provider
+behavior, Gmail/App Script, Google Sheets, direct send, public signup, migrations, worker jobs, or
+deployment changes. The saved response behavior remains future input for Draft Generation v2 only.
+
 ## Contextual AI Draft Generation / 023R
 
 023R upgrades the existing `POST /api/leads/:id/generate-draft` flow without adding a route, UI, job type, or migration. The route still only creates or reuses a `generate_ai_draft` job and does not call the provider.
@@ -691,6 +709,8 @@ Current baseline through 023AD:
 - 023AB Draft Queue Gmail Export Actions exist using existing 023U routes
 - 023AC Client Mail Review Queue exists at `/app/mail-queue`
 - 023AD Client Response Policy Pack exists at `/app/response-policy`
+- 023AM Client Config Foundation exists at `/config` with dedicated
+  `GET/PUT /api/client/config/response-policy`
 - no final client dashboard exists yet
 - no broad `email_sends` list exists
 - frontend performs no provider calls
@@ -1835,6 +1855,7 @@ Not implemented yet.
 | 023AG    | Clean Gmail Pilot + Admin Inbox Lab                   | done   |
 | 023AH    | Client Inbox Safe Preview Policy                      | done   |
 | 023AI-A  | Client Inbox Shared Components + Preview Refactor     | done   |
+| 023AM    | Client Config Foundation v1                           | done   |
 
 Near-term candidates:
 

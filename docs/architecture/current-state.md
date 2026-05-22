@@ -115,6 +115,32 @@ worker still blocks `prior_complaint` before provider calls, AI run creation, or
 The feature does not add provider calls from routes, Gmail/Google/Resend calls, send/export/approval
 actions, file uploads, raw JSON panels, or prompt/output exposure.
 
+## 023AM Client Config Foundation State
+
+Client users now have a live response behavior configuration surface at `/config` inside
+`ClientShell`.
+
+- `GET /api/client/config/response-policy` returns a client-safe DTO whitelist.
+- `PUT /api/client/config/response-policy` accepts a strict full-object update and stores through
+  the existing response policy service/repository.
+- `client`, `admin`, and `founder` may use the dedicated client config route; `operator` remains
+  blocked.
+- The route derives `workspaceId` only from `tenantGuard` context and rejects client-provided
+  workspace or tenant identity.
+- The live `/config` page calls only the dedicated client config route and does not import
+  `AdminShell` or render admin navigation.
+
+The client DTO uses `configured`, `structureLines`, and example reply `{ label, body }` fields.
+It does not expose the admin response policy DTO shape, raw JSON, activity metadata, prompts,
+outputs, provider identifiers, API key/token/secret material, logs, debug fields, or workspace
+identifiers.
+
+The existing 023AD admin/founder Response Policy surface remains separate at `/app/response-policy`
+and `GET/PUT /api/client/response-policy`. The saved policy remains future input for Draft
+Generation v2, but 023AM does not change generation behavior and does not add personas, services
+packs, provider calls, worker jobs, direct send, Gmail/App Script, Google Sheets, Resend, migrations,
+or deployment changes.
+
 ## 023AE Client App Design System + Inbox Contract State
 
 023AE freezes the first client-facing product contract before the live Inbox is built:
@@ -317,9 +343,10 @@ client product:
 
 The approved client-safe API boundary is narrow. `client`, `admin`, and `founder` may access only
 the Client Inbox list/detail/draft edit/Gmail export request/cancel routes under
-`/api/client/inbox/messages`. All remain tenant-scoped through `tenantGuard`, and `workspaceId`
-still comes only from trusted session context. Client-provided workspace or tenant identity in
-query strings, headers, or bodies is rejected.
+`/api/client/inbox/messages` plus the 023AM client config response policy route under
+`/api/client/config/response-policy`. All remain tenant-scoped through `tenantGuard`, and
+`workspaceId` still comes only from trusted session context. Client-provided workspace or tenant
+identity in query strings, headers, or bodies is rejected.
 
 Client users remain blocked from admin/founder validation surfaces such as `/api/admin/*`, ops,
 workspace API key management, Google Sheets setup/test, workspace context admin routes, Mail Queue,

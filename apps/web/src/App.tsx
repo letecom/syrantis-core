@@ -9,6 +9,7 @@ import { ApiKeysPage } from "./pages/ApiKeysPage";
 import { ClientInboxLabPage } from "./pages/ClientInboxLabPage";
 import { ClientInboxPreviewPage } from "./pages/ClientInboxPreviewPage";
 import { ClientInboxLivePage } from "./features/client-inbox";
+import { ClientConfigPage } from "./pages/ClientConfigPage";
 import { ClientInstallPage } from "./pages/ClientInstallPage";
 import { ClientUsersPage } from "./pages/ClientUsersPage";
 import { ClientPlaceholderPage } from "./pages/ClientPlaceholderPage";
@@ -83,14 +84,7 @@ export function App() {
           path="/dashboard"
         />
         <Route element={<ClientInboxLivePage />} path="/inbox" />
-        <Route
-          element={
-            <ClientPlaceholderPage title="Configuration">
-              La configuration client arrive ensuite.
-            </ClientPlaceholderPage>
-          }
-          path="/config"
-        />
+        <Route element={<ClientConfigPage />} path="/config" />
       </Route>
       <Route element={<ClientAppRouteGuard />} path="/app/client">
         <Route element={<ClientInboxLivePage />} path="inbox" />

@@ -259,6 +259,26 @@ This does not approve backend/API changes, migrations, auth changes, full Config
 response profiles, services/offers config, Draft Generation v2, direct send, provider behavior,
 deployment, env, Caddy, systemd, or Google Sheets changes.
 
+## 2026-05-22 - 023AM Client Config Uses Dedicated Client-Safe Route
+
+Decision: the live client Config surface may edit response behavior only through
+`GET/PUT /api/client/config/response-policy`.
+
+The route is separate from the existing admin/founder Response Policy surface at
+`GET/PUT /api/client/response-policy` and `/app/response-policy`. It exposes a strict client-safe DTO
+whitelist, maps client-facing field names onto the existing stored response policy, and never
+accepts workspace or tenant identity from the client. `client`, `admin`, and `founder` may use the
+dedicated client config route; `operator` remains blocked.
+
+The client DTO must not expose workspace identifiers, raw JSON, activity metadata, prompts, outputs,
+provider identifiers, API keys, tokens, secrets, logs, debug fields, or admin-only response policy
+fields. The saved fields may feed future Draft Generation v2, but 023AM does not change generation
+behavior.
+
+This does not approve personas/response profiles, services/offers packs, Draft Generation v2,
+prompt previews, provider calls, worker jobs, Gmail/App Script, Google Sheets, Resend, direct send,
+public signup, migrations, deployment, env, Caddy, or systemd changes.
+
 ## 2026-05-19 - 023AH Client Inbox List Previews Are Route-Scoped
 
 Decision: bounded `subjectPreview` and `snippetPreview` values are approved only on the dedicated
