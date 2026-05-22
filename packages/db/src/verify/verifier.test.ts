@@ -973,6 +973,10 @@ describe("schema invariant verifier", () => {
     assert.match(combinedSql, /pg_proc/);
     assert.match(combinedSql, /pg_trigger/);
     assert.match(combinedSql, /has_table_privilege/);
+    assert.match(tablePrivilegeInvariantSql, /\$1::text/);
+    assert.match(tablePrivilegeInvariantSql, /\$2::text/);
+    assert.match(tablePrivilegeInvariantSql, /\$3::text/);
+    assert.match(tablePrivilegeInvariantSql, /\$4::text/);
     assert.match(combinedSql, /contype = 'c'/);
     assert.match(combinedSql, /relkind = 'r'/);
     assert.doesNotMatch(
