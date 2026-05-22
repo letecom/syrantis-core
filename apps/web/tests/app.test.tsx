@@ -1349,6 +1349,11 @@ describe("admin app", () => {
     expect(screen.getByRole("link", { name: "Tableau de bord" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Boîte de réception" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Configuration" })).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("client-shell-sidebar"))
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Tableau de bord", "Boîte de réception", "Configuration"]);
     expect(screen.queryByText("Syrantis Admin")).not.toBeInTheDocument();
 
     for (const forbidden of [
@@ -1404,11 +1409,16 @@ describe("admin app", () => {
 
     expect(await screen.findByRole("heading", { name: "Espace client" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Boîte de réception" })).toBeInTheDocument();
+    expect(screen.getByTestId("client-shell-sidebar")).toBeInTheDocument();
+    expect(screen.getByTestId("client-inbox-work-area")).toBeInTheDocument();
     await waitFor(() =>
       expect(request).toHaveBeenCalledWith(clientInboxMessagesUrl, expect.anything()),
     );
+    expect(screen.getAllByLabelText("Navigation client")).toHaveLength(1);
     expect(screen.getByRole("link", { name: "Tableau de bord" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Configuration" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Application client")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Sélecteur de compte client")).not.toBeInTheDocument();
     expect(screen.queryByText("Syrantis Admin")).not.toBeInTheDocument();
     expect(screen.queryByText("Client Inbox Lab")).not.toBeInTheDocument();
     expect(screen.queryByText(/raw json/i)).not.toBeInTheDocument();

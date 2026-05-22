@@ -1,13 +1,8 @@
 import type { ClientInboxViewModel } from "../types/ui";
-import { AnalysisPanel } from "./AnalysisPanel";
 import { ClientInboxSidebar } from "./ClientInboxSidebar";
 import { ClientInboxTopbar } from "./ClientInboxTopbar";
-import { CompanyPolicyContext } from "./CompanyPolicyContext";
-import { ContactContext } from "./ContactContext";
-import { DraftPanel } from "./DraftPanel";
 import { InboxFilterPills } from "./InboxFilterPills";
-import { MessageDetail } from "./MessageDetail";
-import { MessageList } from "./MessageList";
+import { InboxPanels } from "./InboxPanels";
 
 type InboxLayoutProps = {
   inbox: ClientInboxViewModel;
@@ -15,7 +10,7 @@ type InboxLayoutProps = {
 
 export function InboxLayout({ inbox }: InboxLayoutProps) {
   return (
-    <div className="client-inbox-preview">
+    <div className="client-inbox-preview" data-testid="client-inbox-preview-shell">
       <div className="client-app-shell">
         <ClientInboxSidebar
           accountName={inbox.accountName}
@@ -25,22 +20,16 @@ export function InboxLayout({ inbox }: InboxLayoutProps) {
         <main className="client-app-main">
           <ClientInboxTopbar accountName={inbox.accountName} />
           <InboxFilterPills filters={inbox.filters} />
-          <div className="client-inbox-grid">
-            <MessageList messages={inbox.messages} />
-            <MessageDetail detail={inbox.selectedDetail} />
-            <aside className="client-ai-panel" aria-label="Analyse et brouillon">
-              <AnalysisPanel analysis={inbox.selectedDetail.analysis} />
-              <ContactContext contactContext={inbox.selectedDetail.contactContext} />
-              <CompanyPolicyContext
-                companyPolicyContext={inbox.selectedDetail.companyPolicyContext}
-              />
-              <DraftPanel
-                actions={inbox.selectedDetail.actions}
-                draft={inbox.selectedDetail.draft}
-                exportStatus={getSelectedExportStatus(inbox)}
-              />
-            </aside>
-          </div>
+          <InboxPanels
+            detail={inbox.selectedDetail}
+            exportStatus={getSelectedExportStatus(inbox)}
+            hasSelectedMessage={true}
+            isDetailError={false}
+            isDetailLoading={false}
+            isListError={false}
+            isListLoading={false}
+            messages={inbox.messages}
+          />
         </main>
       </div>
     </div>

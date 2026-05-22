@@ -34,8 +34,11 @@ export function ClientShell({ user, children }: ClientShellProps) {
 
   return (
     <div className="min-h-screen bg-slate-50 text-ink">
-      <div className="grid min-h-screen lg:grid-cols-[244px_minmax(0,1fr)]">
-        <aside className="border-b border-slate-200 bg-slate-100 px-5 py-5 lg:border-b-0 lg:border-r">
+      <div className="grid min-h-screen lg:h-screen lg:min-h-0 lg:grid-cols-[244px_minmax(0,1fr)] lg:overflow-hidden">
+        <aside
+          className="border-b border-slate-200 bg-slate-100 px-5 py-5 lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r"
+          data-testid="client-shell-sidebar"
+        >
           <div>
             <p className="text-xs font-semibold uppercase text-teal-700">Syrantis</p>
             <h1 className="mt-1 text-xl font-semibold text-slate-950">Espace client</h1>
@@ -52,7 +55,7 @@ export function ClientShell({ user, children }: ClientShellProps) {
             </NavLink>
           </nav>
         </aside>
-        <div className="flex min-h-screen flex-col">
+        <div className="flex min-h-screen flex-col lg:min-h-0">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-white px-5 py-4">
             <p className="text-sm font-medium text-slate-700">{displayName}</p>
             <button
@@ -60,10 +63,12 @@ export function ClientShell({ user, children }: ClientShellProps) {
               onClick={handleLogout}
               type="button"
             >
-              Logout
+              Déconnexion
             </button>
           </header>
-          <main className="flex-1">{children ?? <Outlet context={user} />}</main>
+          <main className="min-h-0 flex-1 overflow-hidden">
+            {children ?? <Outlet context={user} />}
+          </main>
         </div>
       </div>
     </div>

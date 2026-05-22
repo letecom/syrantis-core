@@ -163,6 +163,7 @@ export const mockClientInbox: ClientInboxViewModel = {
         "Ne jamais partager les tables tarifaires internes.",
       ],
       matchText: "Règles respectées : 98%",
+      statusText: "Configurée",
     },
     draft: {
       status: "draft_ready",

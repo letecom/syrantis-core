@@ -245,6 +245,20 @@ This does not approve public signup, self-registration, invite email, password r
 Manager, role management, workspace switching, full Config, Integration Pilot Environment, direct
 send, Gmail OAuth, Apps Script changes, or provider behavior changes.
 
+## 2026-05-22 - 023AL Live Client Inbox Uses ClientShell Chrome Only
+
+Decision: the live client Inbox must be embedded inside `ClientShell` and must not render the
+preview/internal Inbox sidebar, brand, account picker, workspace shell card, user shell card, or
+AdminShell.
+
+`/app/client-inbox-preview` remains the mock design harness and may keep its full visual shell.
+Shared Inbox components should separate preview framing from live work-area content so live data
+hooks and mutations are not duplicated and mock data does not leak into the live route.
+
+This does not approve backend/API changes, migrations, auth changes, full Config, personas,
+response profiles, services/offers config, Draft Generation v2, direct send, provider behavior,
+deployment, env, Caddy, systemd, or Google Sheets changes.
+
 ## 2026-05-19 - 023AH Client Inbox List Previews Are Route-Scoped
 
 Decision: bounded `subjectPreview` and `snippetPreview` values are approved only on the dedicated

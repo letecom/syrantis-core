@@ -1,4 +1,3 @@
-import type { CurrentUser } from "../../../lib/api-client";
 import type {
   ClientInboxActions,
   ClientInboxAttachment,
@@ -12,7 +11,6 @@ import type {
   ClientInboxFilter,
   ClientInboxListItem,
   ClientInboxScoreBand,
-  ClientInboxUser,
 } from "../types/ui";
 import type {
   ClientInboxLiveDetail,
@@ -56,19 +54,19 @@ const attentionTextByKey: Record<string, string> = {
   urgent_action: "Action urgente",
   missing_info: "Infos manquantes",
   needs_review: "À revoir",
+  blocked: "Bloqué",
+};
+
+const intentTextByKey: Record<string, string> = {
+  quote_request: "Demande de devis",
+  urgent_service: "Intervention urgente",
+  follow_up: "Relance",
+  newsletter: "Newsletter",
+  system: "Système",
+  unknown: "À qualifier",
 };
 
 const filterTabs: ClientInboxLiveTab[] = ["all", "needs_review", "hot", "ready_draft", "ignored"];
-
-export function mapCurrentUserToClientInboxUser(user: CurrentUser): ClientInboxUser {
-  const displayName = user.name?.trim() || user.email;
-
-  return {
-    initials: initialsFromText(displayName),
-    name: displayName,
-    roleText: "Espace client interne",
-  };
-}
 
 export function mapListDataToFilters(input: {
   data: ClientInboxLiveListData | undefined;
@@ -224,15 +222,19 @@ function mapCompanyPolicyContext(
   detail: ClientInboxLiveDetail,
   companyName: string | null | undefined,
 ): ClientInboxCompanyPolicyContext {
-  const rules = [
-    ...detail.companyPolicyContext.keyRulesMatched.map((rule) => `Règle: ${rule}`),
-    ...detail.companyPolicyContext.missingInfo.map((info) => `À demander: ${info}`),
-    ...detail.companyPolicyContext.forbiddenClaims.map((claim) => `À éviter: ${claim}`),
-  ];
+  const rules = detail.companyPolicyContext.keyRulesMatched.map((rule) => rule);
+  const hasConfiguration = Boolean(
+    companyName?.trim() ||
+      detail.companyPolicyContext.tone?.trim() ||
+      detail.companyPolicyContext.sector?.trim() ||
+      detail.companyPolicyContext.language?.trim() ||
+      rules.length,
+  );
 
   return {
-    title: companyName?.trim() || "Règles entreprise",
+    title: companyName?.trim() || "Configuration utilisée",
     rules: rules.length ? rules : ["Aucune règle spécifique détectée."],
+    statusText: hasConfiguration ? "Configurée" : "Incomplète",
     matchText: detail.companyPolicyContext.tone
       ? `Ton ${detail.companyPolicyContext.tone}`
       : "Ton à valider",
@@ -341,7 +343,7 @@ function formatAttentionFlag(flag: string) {
 
 function formatIntent(intent: string | null, category: string) {
   if (intent) {
-    return intent.replaceAll("_", " ");
+    return intentTextByKey[intent] ?? intent.replaceAll("_", " ");
   }
 
   return categoryTextByKey[category] ?? "À qualifier";
