@@ -110,9 +110,9 @@ limit 1
 
 export const tablePrivilegeInvariantSql = `
 select case
-  when not exists (select 1 from pg_roles where rolname = $1) then false
-  when to_regclass(format('%I.%I', $2, $3)) is null then false
-  else has_table_privilege($1, format('%I.%I', $2, $3), $4)
+  when not exists (select 1 from pg_roles where rolname = $1::text) then false
+  when to_regclass(format('%I.%I', $2::text, $3::text)) is null then false
+  else has_table_privilege($1::text, format('%I.%I', $2::text, $3::text), $4::text)
 end as has_privilege
 `;
 
