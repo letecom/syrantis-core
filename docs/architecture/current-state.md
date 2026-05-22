@@ -283,6 +283,25 @@ role management UI, workspace switcher, full Config, full Dashboard, Integration
 direct send, AI rewrite, Gmail OAuth, Apps Script change, provider/OpenRouter/Resend/Google Sheets
 behavior, worker behavior, Caddy/env/systemd change, deployment behavior, or production mutation.
 
+## 023AL Client Shell + Inbox Layout Cleanup State
+
+023AL is frontend-only and cleans the live client Inbox layout:
+
+- `/inbox` renders inside `ClientShell`, and `ClientShell` is now the only live client chrome.
+- The live Inbox uses an embedded work area without the old preview/internal sidebar, lowercase
+  brand, account picker, workspace card, or user shell card.
+- The work area preserves the three-column list, selected detail, and right analysis/context/draft
+  panel.
+- Live list loading, message selection, detail loading, draft editing, Gmail export request, and
+  Gmail export cancel behavior remain backed by the existing 023AF/023AH API routes.
+- `/app/client-inbox-preview` remains a mock design harness with mock data and its visual shell.
+- `/app/client/inbox` remains the internal live validation route.
+
+023AL adds no backend/API route, shared API contract, migration, DB behavior, auth/role behavior,
+provider/OpenRouter/GmailApp/googleapis/Resend behavior, Google Sheets behavior, worker behavior,
+Caddy/env/systemd change, deployment behavior, direct send, full Config, personas, response
+profiles, services/offers config, or Draft Generation v2.
+
 ## 023AJ Client App Foundation + Access Boundary State
 
 023AJ adds the first client app foundation without turning the internal admin app into the final
@@ -306,10 +325,8 @@ Client users remain blocked from admin/founder validation surfaces such as `/api
 workspace API key management, Google Sheets setup/test, workspace context admin routes, Mail Queue,
 Draft Queue, Response Policy admin APIs, and other arbitrary admin-only routes.
 
-`app.syrantis.fr` is the intended client domain. Operator DNS is already created as `app` CNAME to
-`admin.syrantis.fr`, with both names resolving to `178.105.0.89`. Before the operator applies the
-023AJ Caddy runbook, production `https://app.syrantis.fr/` and `https://app.syrantis.fr/inbox`
-fail with a TLS internal error because Caddy lacks an `app.syrantis.fr` site block/certificate.
+`app.syrantis.fr` is the client domain and has been production-validated for client login,
+provisioned client users, `/inbox`, `/dashboard`, and `/config`.
 
 023AJ does not add full Config, full Dashboard, full user management UI, Integration Pilot
 Environment, direct send, backend Gmail OAuth, Apps Script changes, provider/OpenRouter behavior,

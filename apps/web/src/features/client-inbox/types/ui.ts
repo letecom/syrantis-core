@@ -77,6 +77,7 @@ export type ClientInboxCompanyPolicyContext = {
   title: string;
   rules: string[];
   matchText: string;
+  statusText: string;
 };
 
 export type ClientInboxDraft = {

@@ -387,6 +387,84 @@ afterEach(() => {
 });
 
 describe("client inbox live route", () => {
+  it("renders /inbox inside ClientShell with one client navigation surface", async () => {
+    setupLiveFetch();
+
+    renderApp("/inbox");
+
+    expect(await screen.findByTestId("client-shell-sidebar")).toBeInTheDocument();
+    expect(screen.getByTestId("client-inbox-work-area")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Boîte de réception" })).toBeInTheDocument();
+
+    const navigationSurfaces = screen.getAllByLabelText("Navigation client");
+    expect(navigationSurfaces).toHaveLength(1);
+    expect(
+      within(screen.getByTestId("client-shell-sidebar"))
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Tableau de bord", "Boîte de réception", "Configuration"]);
+  });
+
+  it("does not render the preview sidebar or internal preview chrome on /inbox", async () => {
+    setupLiveFetch();
+
+    renderApp("/inbox");
+    await screen.findByText("Demande chauffage urgente");
+
+    expect(screen.queryByTestId("client-inbox-preview-shell")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Application client")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Sélecteur de compte client")).not.toBeInTheDocument();
+    expect(screen.queryByText("syrantis")).not.toBeInTheDocument();
+    expect(screen.queryByText("Espace client interne")).not.toBeInTheDocument();
+  });
+
+  it("keeps admin, lab, debug, and raw identifiers out of /inbox", async () => {
+    setupLiveFetch();
+
+    renderApp("/inbox");
+    await screen.findByText("Demande chauffage urgente");
+
+    for (const forbidden of [
+      "Ops",
+      "API Keys",
+      "Google Sheets",
+      "Pushback",
+      "Mail Queue",
+      "Draft Queue",
+      "Gmail Export",
+      "Client Inbox Lab",
+      "Response Policy",
+      "Internal validation",
+      "Smoke form",
+      "Data completeness",
+      "raw JSON",
+      "workspaceId",
+      "providerMessageId",
+    ]) {
+      expect(document.body.textContent).not.toContain(forbidden);
+    }
+  });
+
+  it("keeps live list, detail, draft, and Gmail controls working on /inbox", async () => {
+    const user = userEvent.setup();
+    const request = setupLiveFetch();
+
+    renderApp("/inbox");
+
+    await screen.findByText("Demande chauffage urgente");
+    const list = screen.getByLabelText("Messages priorisés");
+    expect(within(list).getByText("Demande chauffage urgente")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Objet du brouillon")).toHaveValue("Brouillon chauffage");
+
+    await user.click(screen.getByRole("button", { name: "Préparer dans Gmail" }));
+    await user.click(screen.getByRole("button", { name: "Confirmer la préparation Gmail" }));
+    await waitFor(() => expect(callsTo(request, exportRequestUrl).length).toBe(1));
+
+    await user.click(within(list).getByText("Brouillon déjà demandé"));
+    await user.click(await screen.findByRole("button", { name: "Annuler la préparation Gmail" }));
+    await waitFor(() => expect(callsTo(request, exportCancelUrl).length).toBe(1));
+  });
+
   it("renders the live route, calls the list endpoint, and keeps list previews safe", async () => {
     const request = setupLiveFetch();
 

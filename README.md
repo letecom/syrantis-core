@@ -74,6 +74,8 @@ Validated current loop:
 19. 023AK adds admin/founder-only Client User Provisioning v0 so basic client test accounts no
     longer require manual database promotion. Temporary passwords are generated server-side, shown
     once, and the login page is client-facing on `app.syrantis.fr`.
+20. 023AL cleans the live `/inbox` layout so ClientShell is the only client chrome, while
+    `/app/client-inbox-preview` remains the mock design harness.
 
 ## Current Client/Admin Surfaces
 
@@ -85,9 +87,8 @@ must not be treated as a broad CRM, Gmail clone, or autonomous agent console.
 - `/app/client-inbox-lab`: internal validation lab for 023AF Client Inbox Domain list/detail,
   safe list preview readiness, data-completeness gaps, draft edit, and Gmail export wrappers. It is
   not final client UI.
-- `/app/client/inbox`: live internal client Inbox route that reuses shared 023AI components and
-  existing 023AF/023AH routes. It is not `app.syrantis.fr` and does not add client RBAC/domain
-  split.
+- `/app/client/inbox`: live internal client Inbox validation route that reuses shared 023AI
+  components and existing 023AF/023AH routes.
 - `/app/mail-queue`: read-only classified inbound mail review queue from `intake_classifications`.
 - `/app/draft-queue`: generated draft review queue with full generated draft detail and safe Gmail
   export request/cancel buttons.
@@ -106,17 +107,15 @@ must not be treated as a broad CRM, Gmail clone, or autonomous agent console.
 
 The client app foundation now also exists:
 
-- `/inbox`: live client Inbox in the new client shell, reusing the 023AI shared components and
-  approved 023AF/023AH backend routes.
+- `/inbox`: live client Inbox in `ClientShell`, reusing the 023AI shared components and approved
+  023AF/023AH backend routes. 023AL removes the old preview sidebar/brand from this live route so
+  there is only one client navigation surface.
 - `/dashboard`: safe placeholder for the future client Dashboard.
 - `/config`: safe placeholder for the future client Config.
 
-`app.syrantis.fr` DNS is already created by the operator as `app` CNAME to `admin.syrantis.fr`.
-Before the 023AJ Caddy runbook is applied, production `https://app.syrantis.fr/` and
-`https://app.syrantis.fr/inbox` fail with a TLS internal error because Caddy lacks an
-`app.syrantis.fr` site block/certificate. 023AJ adds the runbook and app routing foundation only;
-it does not edit production Caddy, deploy, add full user management UI, add Integration Pilot
-Environment, add direct send, add backend Gmail OAuth, or change Apps Script.
+`app.syrantis.fr` is live for the client shell. Client login, client user provisioning, `/inbox`,
+`/dashboard`, and `/config` are present. Full Dashboard, full Config, personas, response profiles,
+direct send, backend Gmail OAuth, and public signup remain future work.
 
 ## Current Backend Capabilities
 

@@ -1,18 +1,34 @@
 import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EmptyState, ErrorState, LoadingState } from "../src/features/client-inbox";
 import { renderApp } from "./test-utils";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("client inbox shared preview", () => {
   it("renders the preview route through shared UI components", () => {
     renderApp("/app/client-inbox-preview");
 
+    expect(screen.getByTestId("client-inbox-preview-shell")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Boîte de réception" })).toBeInTheDocument();
     expect(screen.getByText("Analyse Syrantis")).toBeInTheDocument();
     expect(screen.getByText("Contexte contact")).toBeInTheDocument();
-    expect(screen.getByText("Règles entreprise")).toBeInTheDocument();
+    expect(screen.getByText("Configuration utilisée")).toBeInTheDocument();
     expect(screen.getByText("Brouillon IA")).toBeInTheDocument();
+  });
+
+  it("keeps the preview route mock-only without live API calls", () => {
+    const request = vi.fn();
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/app/client-inbox-preview");
+
+    expect(screen.getByTestId("client-inbox-preview-shell")).toBeInTheDocument();
+    expect(screen.getByLabelText("Application client")).toBeInTheDocument();
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("shows subjectPreview and snippetPreview copy in the message list", () => {

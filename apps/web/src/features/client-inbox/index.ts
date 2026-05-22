@@ -9,6 +9,8 @@ export { ErrorState } from "./components/ErrorState";
 export { ExportControls } from "./components/ExportControls";
 export { InboxFilterPills } from "./components/InboxFilterPills";
 export { InboxLayout } from "./components/InboxLayout";
+export { InboxPanels } from "./components/InboxPanels";
+export { InboxWorkArea } from "./components/InboxWorkArea";
 export { LoadingState } from "./components/LoadingState";
 export { MessageDetail } from "./components/MessageDetail";
 export { MessageList } from "./components/MessageList";
