@@ -169,6 +169,13 @@
       "when": 1778932800000,
       "tag": "0023_client_users_insert_grant",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1779019200000,
+      "tag": "0024_workspace_response_profiles",
+      "breakpoints": true
     }
   ]
 }

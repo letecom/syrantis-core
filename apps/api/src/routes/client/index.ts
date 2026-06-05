@@ -6,6 +6,7 @@ import { clientDraftQueueRoutes } from "./draft-queue.js";
 import { clientInboxRoutes } from "./inbox.js";
 import { clientMailQueueRoutes } from "./mail-queue.js";
 import { clientResponsePolicyRoutes } from "./response-policy.js";
+import { clientResponseProfilesRoutes } from "./response-profiles.js";
 
 export const clientRoutes = new Hono();
 
@@ -15,3 +16,4 @@ clientRoutes.route("/draft-queue", clientDraftQueueRoutes);
 clientRoutes.route("/inbox", clientInboxRoutes);
 clientRoutes.route("/mail-queue", clientMailQueueRoutes);
 clientRoutes.route("/response-policy", clientResponsePolicyRoutes);
+clientRoutes.route("/config/response-profiles", clientResponseProfilesRoutes);

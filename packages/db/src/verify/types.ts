@@ -14,7 +14,8 @@ export type MigrationId =
   | "0020"
   | "0021"
   | "0022"
-  | "0023";
+  | "0023"
+  | "0024";
 
 export type ColumnSchemaInvariant = {
   kind: "column";

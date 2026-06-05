@@ -141,6 +141,28 @@ Generation v2, but 023AM does not change generation behavior and does not add pe
 packs, provider calls, worker jobs, direct send, Gmail/App Script, Google Sheets, Resend, migrations,
 or deployment changes.
 
+## 023AN Response Profiles / Profils de réponse State
+
+Client users can now configure multiple response profiles in `/config` under `Profils de réponse`.
+This is a configuration/data-model feature only; draft generation does not consume profiles yet.
+
+- `workspace_response_profiles` stores one row per active or inactive profile with workspace RLS,
+  FORCE RLS, tenant isolation, updated-at trigger, bounded checks, active/order indexes, and a
+  partial unique index enforcing one active default profile per workspace.
+- Runtime grants for `syrantis_app` are limited to `SELECT`, `INSERT`, and `UPDATE`.
+- `GET/POST/PUT/DELETE /api/client/config/response-profiles` is the client-safe API surface.
+- `client`, `admin`, and `founder` may use the route; `operator` is blocked.
+- Routes derive `workspaceId` only from `tenantGuard`, reject client-provided workspace identity,
+  and return `404` for missing/cross-workspace profile mutations.
+- Deactivation is soft (`is_active=false`); default and last-active profile deactivation returns
+  `409`.
+- Activity logs contain only safe IDs, changed field names, source, and action.
+
+The client DTO does not expose workspace identifiers, raw JSON/metadata, prompt/output fields,
+provider/model identifiers, API keys, tokens, secrets, or debug fields. `/inbox` does not display a
+profile used because no real Draft Generation v2 selection exists yet. Future 023AQ may consume
+profiles through a separately approved server-side read and selection path.
+
 ## 023AE Client App Design System + Inbox Contract State
 
 023AE freezes the first client-facing product contract before the live Inbox is built:

@@ -2,13 +2,24 @@ import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { ClientConfigResponsePolicyUpdateSchema } from "@syrantis/shared";
+import {
+  ClientConfigResponsePolicyUpdateSchema,
+  ClientResponseProfileCreateSchema,
+  ClientResponseProfileUpdateSchema,
+} from "@syrantis/shared";
 
 import {
+  createClientResponseProfile,
+  deactivateClientResponseProfile,
   getClientConfigResponsePolicy,
+  listClientResponseProfiles,
   putClientConfigResponsePolicy,
+  updateClientResponseProfile,
   type ClientConfigResponsePolicyData,
   type ClientConfigResponsePolicyInput,
+  type ClientResponseProfileCreateInput,
+  type ClientResponseProfileData,
+  type ClientResponseProfileUpdateInput,
 } from "../lib/api-client";
 
 type ExampleReplyForm = {
@@ -17,6 +28,22 @@ type ExampleReplyForm = {
 };
 
 type PolicyForm = ClientConfigResponsePolicyInput;
+type ProfileForm = ClientResponseProfileUpdateInput;
+
+const toneLabels: Record<ProfileForm["tone"], string> = {
+  professional: "Professionnel",
+  friendly: "Chaleureux",
+  formal: "Formel",
+  empathetic: "Empathique",
+  concise: "Concis",
+  direct: "Direct",
+};
+
+const authorityLabels: Record<ProfileForm["authorityLevel"], string> = {
+  standard: "Standard",
+  manager: "Manager",
+  direction: "Direction",
+};
 
 const emptyForm: PolicyForm = {
   language: "auto",
@@ -34,12 +61,34 @@ const emptyForm: PolicyForm = {
   exampleReplies: [],
 };
 
+const emptyProfileForm: ProfileForm = {
+  name: "",
+  senderName: "",
+  roleLabel: "",
+  description: null,
+  tone: "professional",
+  styleNotes: null,
+  authorityLevel: "standard",
+  appliesToCategories: [],
+  specificRules: [],
+  escalationRules: [],
+  forbiddenClaims: [],
+  isDefault: false,
+  sortOrder: 0,
+};
+
 type ArrayField =
   | "structureLines"
   | "businessRules"
   | "forbiddenClaims"
   | "escalationRules"
   | "offerNotes";
+
+type ProfileArrayField =
+  | "appliesToCategories"
+  | "specificRules"
+  | "escalationRules"
+  | "forbiddenClaims";
 
 function textOrNull(value: string | null): string | null {
   const trimmed = value?.trim() ?? "";
@@ -75,6 +124,24 @@ function formFromPolicy(policy: ClientConfigResponsePolicyData): PolicyForm {
   };
 }
 
+function formFromProfile(profile: ClientResponseProfileData): ProfileForm {
+  return {
+    name: profile.name,
+    senderName: profile.senderName,
+    roleLabel: profile.roleLabel,
+    description: profile.description,
+    tone: profile.tone,
+    styleNotes: profile.styleNotes,
+    authorityLevel: profile.authorityLevel,
+    appliesToCategories: profile.appliesToCategories,
+    specificRules: profile.specificRules,
+    escalationRules: profile.escalationRules,
+    forbiddenClaims: profile.forbiddenClaims,
+    isDefault: profile.isDefault,
+    sortOrder: profile.sortOrder,
+  };
+}
+
 function payloadFromForm(form: PolicyForm): ClientConfigResponsePolicyInput {
   return {
     language: form.language,
@@ -92,6 +159,33 @@ function payloadFromForm(form: PolicyForm): ClientConfigResponsePolicyInput {
     exampleReplies: form.exampleReplies
       .map((reply) => ({ label: reply.label.trim(), body: reply.body.trim() }))
       .filter((reply) => reply.label.length > 0 || reply.body.length > 0),
+  };
+}
+
+function payloadFromProfileForm(form: ProfileForm): ClientResponseProfileUpdateInput {
+  return {
+    name: form.name.trim(),
+    senderName: form.senderName.trim(),
+    roleLabel: form.roleLabel.trim(),
+    description: textOrNull(form.description),
+    tone: form.tone,
+    styleNotes: textOrNull(form.styleNotes),
+    authorityLevel: form.authorityLevel,
+    appliesToCategories: form.appliesToCategories.map((item) => item.trim()).filter(Boolean),
+    specificRules: form.specificRules.map((item) => item.trim()).filter(Boolean),
+    escalationRules: form.escalationRules.map((item) => item.trim()).filter(Boolean),
+    forbiddenClaims: form.forbiddenClaims.map((item) => item.trim()).filter(Boolean),
+    isDefault: form.isDefault,
+    sortOrder: Number.isFinite(form.sortOrder) ? form.sortOrder : 0,
+  };
+}
+
+function payloadFromProfileCreateForm(form: ProfileForm): ClientResponseProfileCreateInput {
+  const payload = payloadFromProfileForm(form);
+  return {
+    ...payload,
+    isDefault: payload.isDefault,
+    sortOrder: payload.sortOrder,
   };
 }
 
@@ -126,6 +220,24 @@ function payloadsEqual(
     arraysEqual(left.offerNotes, right.offerNotes) &&
     left.catalogSummary === right.catalogSummary &&
     examplesEqual(left.exampleReplies, right.exampleReplies)
+  );
+}
+
+function profilePayloadsEqual(left: ProfileForm, right: ProfileForm): boolean {
+  return (
+    left.name === right.name &&
+    left.senderName === right.senderName &&
+    left.roleLabel === right.roleLabel &&
+    left.description === right.description &&
+    left.tone === right.tone &&
+    left.styleNotes === right.styleNotes &&
+    left.authorityLevel === right.authorityLevel &&
+    arraysEqual(left.appliesToCategories, right.appliesToCategories) &&
+    arraysEqual(left.specificRules, right.specificRules) &&
+    arraysEqual(left.escalationRules, right.escalationRules) &&
+    arraysEqual(left.forbiddenClaims, right.forbiddenClaims) &&
+    left.isDefault === right.isDefault &&
+    left.sortOrder === right.sortOrder
   );
 }
 
@@ -270,10 +382,20 @@ export function ClientConfigPage() {
   const [form, setForm] = useState<PolicyForm>(emptyForm);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | "new" | null>(null);
+  const [profileForm, setProfileForm] = useState<ProfileForm>(emptyProfileForm);
+  const [profileFieldErrors, setProfileFieldErrors] = useState<Record<string, string>>({});
+  const [profileFormError, setProfileFormError] = useState<string | null>(null);
+  const [profileFeedback, setProfileFeedback] = useState<string | null>(null);
 
   const configQuery = useQuery({
     queryKey: ["client-config-response-policy"],
     queryFn: getClientConfigResponsePolicy,
+  });
+
+  const profilesQuery = useQuery({
+    queryKey: ["client-response-profiles"],
+    queryFn: listClientResponseProfiles,
   });
 
   useEffect(() => {
@@ -297,6 +419,77 @@ export function ClientConfigPage() {
     },
   });
 
+  useEffect(() => {
+    if (!profilesQuery.data) {
+      return;
+    }
+
+    if (selectedProfileId === "new") {
+      return;
+    }
+
+    if (profilesQuery.data.length === 0) {
+      setSelectedProfileId(null);
+      setProfileForm(emptyProfileForm);
+      return;
+    }
+
+    const selected =
+      profilesQuery.data.find((profile) => profile.id === selectedProfileId) ??
+      profilesQuery.data.find((profile) => profile.isDefault) ??
+      profilesQuery.data[0];
+
+    if (selected) {
+      setSelectedProfileId(selected.id);
+      setProfileForm(formFromProfile(selected));
+      setProfileFieldErrors({});
+      setProfileFormError(null);
+    }
+  }, [profilesQuery.data, selectedProfileId]);
+
+  const createProfileMutation = useMutation({
+    mutationFn: createClientResponseProfile,
+    onSuccess: async (profile) => {
+      setSelectedProfileId(profile.id);
+      setProfileForm(formFromProfile(profile));
+      setProfileFieldErrors({});
+      setProfileFormError(null);
+      setProfileFeedback("Profil créé.");
+      await queryClient.invalidateQueries({ queryKey: ["client-response-profiles"] });
+    },
+    onError: () => {
+      setProfileFormError("Le profil n'a pas pu être créé.");
+    },
+  });
+
+  const updateProfileMutation = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: ClientResponseProfileUpdateInput }) =>
+      updateClientResponseProfile(id, input),
+    onSuccess: async (profile) => {
+      setSelectedProfileId(profile.id);
+      setProfileForm(formFromProfile(profile));
+      setProfileFieldErrors({});
+      setProfileFormError(null);
+      setProfileFeedback("Profil enregistré.");
+      await queryClient.invalidateQueries({ queryKey: ["client-response-profiles"] });
+    },
+    onError: () => {
+      setProfileFormError("Le profil n'a pas pu être enregistré.");
+    },
+  });
+
+  const deactivateProfileMutation = useMutation({
+    mutationFn: deactivateClientResponseProfile,
+    onSuccess: async () => {
+      setProfileFeedback("Profil désactivé.");
+      setSelectedProfileId(null);
+      await queryClient.invalidateQueries({ queryKey: ["client-response-profiles"] });
+    },
+    onError: () => {
+      setProfileFormError("Le profil n'a pas pu être désactivé.");
+    },
+  });
+
   const dirty = useMemo(() => {
     if (!configQuery.data) {
       return false;
@@ -307,6 +500,28 @@ export function ClientConfigPage() {
 
   const completion = useMemo(() => completionFor(form), [form]);
   const configured = configQuery.data?.configured ?? false;
+  const selectedProfile = useMemo(
+    () => profilesQuery.data?.find((profile) => profile.id === selectedProfileId) ?? null,
+    [profilesQuery.data, selectedProfileId],
+  );
+  const profileDirty = useMemo(() => {
+    if (selectedProfileId === "new") {
+      return !profilePayloadsEqual(profileForm, emptyProfileForm);
+    }
+
+    if (!selectedProfile) {
+      return false;
+    }
+
+    return !profilePayloadsEqual(
+      payloadFromProfileForm(profileForm),
+      payloadFromProfileForm(formFromProfile(selectedProfile)),
+    );
+  }, [profileForm, selectedProfile, selectedProfileId]);
+  const profileMutationPending =
+    createProfileMutation.isPending ||
+    updateProfileMutation.isPending ||
+    deactivateProfileMutation.isPending;
 
   function update<K extends keyof PolicyForm>(key: K, value: PolicyForm[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -314,6 +529,34 @@ export function ClientConfigPage() {
 
   function updateLines(key: ArrayField) {
     return (value: string) => update(key, lines(value));
+  }
+
+  function updateProfile<K extends keyof ProfileForm>(key: K, value: ProfileForm[K]) {
+    setProfileFeedback(null);
+    setProfileForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateProfileLines(key: ProfileArrayField) {
+    return (value: string) => updateProfile(key, lines(value));
+  }
+
+  function selectProfile(profile: ClientResponseProfileData) {
+    setSelectedProfileId(profile.id);
+    setProfileForm(formFromProfile(profile));
+    setProfileFieldErrors({});
+    setProfileFormError(null);
+    setProfileFeedback(null);
+  }
+
+  function startNewProfile() {
+    setSelectedProfileId("new");
+    setProfileForm({
+      ...emptyProfileForm,
+      isDefault: (profilesQuery.data?.length ?? 0) === 0,
+    });
+    setProfileFieldErrors({});
+    setProfileFormError(null);
+    setProfileFeedback(null);
   }
 
   function handleExampleChange(index: number, key: keyof ExampleReplyForm) {
@@ -347,6 +590,19 @@ export function ClientConfigPage() {
     setForm(configQuery.data ? formFromPolicy(configQuery.data) : emptyForm);
   }
 
+  function resetProfileLocal() {
+    setProfileFieldErrors({});
+    setProfileFormError(null);
+    setProfileFeedback(null);
+
+    if (selectedProfileId === "new" || !selectedProfile) {
+      startNewProfile();
+      return;
+    }
+
+    setProfileForm(formFromProfile(selectedProfile));
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const parsed = ClientConfigResponsePolicyUpdateSchema.safeParse(payloadFromForm(form));
@@ -360,6 +616,50 @@ export function ClientConfigPage() {
     setFieldErrors({});
     setFormError(null);
     saveMutation.mutate(parsed.data);
+  }
+
+  function handleProfileSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const payload = payloadFromProfileForm(profileForm);
+    const parsed =
+      selectedProfileId === "new"
+        ? ClientResponseProfileCreateSchema.safeParse(payloadFromProfileCreateForm(profileForm))
+        : ClientResponseProfileUpdateSchema.safeParse(payload);
+
+    if (!parsed.success) {
+      setProfileFieldErrors(collectFieldErrors(parsed.error));
+      setProfileFormError("Certains champs du profil sont à vérifier.");
+      return;
+    }
+
+    setProfileFieldErrors({});
+    setProfileFormError(null);
+    setProfileFeedback(null);
+
+    if (selectedProfileId === "new") {
+      createProfileMutation.mutate(parsed.data as ClientResponseProfileCreateInput);
+      return;
+    }
+
+    if (typeof selectedProfileId === "string") {
+      updateProfileMutation.mutate({
+        id: selectedProfileId,
+        input: parsed.data as ClientResponseProfileUpdateInput,
+      });
+    }
+  }
+
+  function handleDeactivateProfile() {
+    if (!selectedProfile || selectedProfile.isDefault || profileMutationPending) {
+      return;
+    }
+
+    const confirmed = window.confirm("Désactiver ce profil de réponse ?");
+
+    if (confirmed) {
+      setProfileFeedback(null);
+      deactivateProfileMutation.mutate(selectedProfile.id);
+    }
   }
 
   if (configQuery.isLoading) {
@@ -415,6 +715,256 @@ export function ClientConfigPage() {
             </p>
           </div>
         </div>
+
+        <section className="rounded-md border border-line bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-950">Profils de réponse</h2>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Configure les voix d'équipe disponibles pour les prochaines réponses assistées.
+              </p>
+            </div>
+            <button
+              className="rounded-md border border-line bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              onClick={startNewProfile}
+              type="button"
+            >
+              Ajouter un profil
+            </button>
+          </div>
+
+          {profilesQuery.isLoading ? (
+            <p className="mt-5 text-sm text-slate-600">Chargement des profils...</p>
+          ) : null}
+          {profilesQuery.isError ? (
+            <p className="mt-5 text-sm font-medium text-red-700">Profils indisponibles.</p>
+          ) : null}
+          {!profilesQuery.isLoading && !profilesQuery.isError ? (
+            <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(220px,320px)_minmax(0,1fr)]">
+              <div className="grid content-start gap-3">
+                {(profilesQuery.data?.length ?? 0) === 0 && selectedProfileId !== "new" ? (
+                  <p className="rounded-md border border-dashed border-line p-4 text-sm leading-6 text-slate-600">
+                    Crée ton premier profil de réponse. Il deviendra le profil par défaut.
+                  </p>
+                ) : null}
+                {profilesQuery.data?.map((profile) => (
+                  <button
+                    className={`w-full rounded-md border px-4 py-3 text-left text-sm transition ${
+                      selectedProfileId === profile.id
+                        ? "border-brand bg-slate-50"
+                        : "border-line bg-white hover:bg-slate-50"
+                    }`}
+                    key={profile.id}
+                    onClick={() => selectProfile(profile)}
+                    type="button"
+                  >
+                    <span className="block font-semibold text-slate-950">{profile.name}</span>
+                    <span className="mt-1 block text-xs text-slate-600">{profile.roleLabel}</span>
+                    <span className="mt-3 flex flex-wrap gap-2">
+                      <span className="rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                        {toneLabels[profile.tone]}
+                      </span>
+                      <span className="rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                        {authorityLabels[profile.authorityLevel]}
+                      </span>
+                      {profile.isDefault ? (
+                        <span className="rounded bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
+                          Par défaut
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {selectedProfileId ? (
+                <form className="grid gap-4" onSubmit={handleProfileSubmit}>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field error={profileFieldErrors.name} label="Nom du profil">
+                      <TextInput
+                        maxLength={100}
+                        onChange={(value) => updateProfile("name", value)}
+                        value={profileForm.name}
+                      />
+                    </Field>
+                    <Field
+                      error={profileFieldErrors.senderName}
+                      label="Nom utilisé dans la réponse"
+                    >
+                      <TextInput
+                        maxLength={100}
+                        onChange={(value) => updateProfile("senderName", value)}
+                        value={profileForm.senderName}
+                      />
+                    </Field>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field error={profileFieldErrors.roleLabel} label="Rôle">
+                      <TextInput
+                        maxLength={120}
+                        onChange={(value) => updateProfile("roleLabel", value)}
+                        value={profileForm.roleLabel}
+                      />
+                    </Field>
+                    <Field error={profileFieldErrors.sortOrder} label="Ordre d'affichage">
+                      <input
+                        className="w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-brand"
+                        min={0}
+                        onChange={(event) =>
+                          updateProfile("sortOrder", Math.max(0, Number(event.target.value) || 0))
+                        }
+                        type="number"
+                        value={profileForm.sortOrder}
+                      />
+                    </Field>
+                  </div>
+                  <Field error={profileFieldErrors.description} label="Description">
+                    <TextArea
+                      maxLength={500}
+                      onChange={(value) => updateProfile("description", value)}
+                      value={profileForm.description}
+                    />
+                  </Field>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field error={profileFieldErrors.tone} label="Ton">
+                      <select
+                        className="w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-brand"
+                        onChange={(event) =>
+                          updateProfile("tone", event.target.value as ProfileForm["tone"])
+                        }
+                        value={profileForm.tone}
+                      >
+                        {Object.entries(toneLabels).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field error={profileFieldErrors.authorityLevel} label="Niveau d'autorité">
+                      <select
+                        className="w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-brand"
+                        onChange={(event) =>
+                          updateProfile(
+                            "authorityLevel",
+                            event.target.value as ProfileForm["authorityLevel"],
+                          )
+                        }
+                        value={profileForm.authorityLevel}
+                      >
+                        {Object.entries(authorityLabels).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+                  <Field error={profileFieldErrors.styleNotes} label="Notes de style">
+                    <TextArea
+                      maxLength={1000}
+                      onChange={(value) => updateProfile("styleNotes", value)}
+                      value={profileForm.styleNotes}
+                    />
+                  </Field>
+                  <Field
+                    error={profileFieldErrors.appliesToCategories}
+                    hint="Une ligne par catégorie."
+                    label="Catégories concernées"
+                  >
+                    <TextArea
+                      maxLength={2400}
+                      onChange={updateProfileLines("appliesToCategories")}
+                      value={linesText(profileForm.appliesToCategories)}
+                    />
+                  </Field>
+                  <Field
+                    error={profileFieldErrors.specificRules}
+                    hint="Une ligne par règle."
+                    label="Règles spécifiques"
+                  >
+                    <TextArea
+                      maxLength={2400}
+                      minRows={4}
+                      onChange={updateProfileLines("specificRules")}
+                      value={linesText(profileForm.specificRules)}
+                    />
+                  </Field>
+                  <Field
+                    error={profileFieldErrors.escalationRules}
+                    hint="Une ligne par règle."
+                    label="Règles d'escalade"
+                  >
+                    <TextArea
+                      maxLength={2400}
+                      minRows={4}
+                      onChange={updateProfileLines("escalationRules")}
+                      value={linesText(profileForm.escalationRules)}
+                    />
+                  </Field>
+                  <Field
+                    error={profileFieldErrors.forbiddenClaims}
+                    hint="Une ligne par mention."
+                    label="Mentions interdites complémentaires"
+                  >
+                    <TextArea
+                      maxLength={2400}
+                      minRows={4}
+                      onChange={updateProfileLines("forbiddenClaims")}
+                      value={linesText(profileForm.forbiddenClaims)}
+                    />
+                  </Field>
+                  <label className="flex items-center gap-3 text-sm font-semibold text-slate-950">
+                    <input
+                      checked={profileForm.isDefault}
+                      className="h-4 w-4 rounded border-line text-brand"
+                      onChange={(event) => updateProfile("isDefault", event.target.checked)}
+                      type="checkbox"
+                    />
+                    Définir comme profil par défaut
+                  </label>
+
+                  {profileFormError ? (
+                    <p className="text-sm font-medium text-red-700">{profileFormError}</p>
+                  ) : null}
+                  {profileFeedback ? (
+                    <p className="text-sm font-medium text-emerald-700">{profileFeedback}</p>
+                  ) : null}
+
+                  <div className="flex flex-wrap gap-3 border-t border-line pt-4">
+                    <button
+                      className="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
+                      disabled={!profileDirty || profileMutationPending}
+                      type="submit"
+                    >
+                      {profileMutationPending ? "Enregistrement..." : "Enregistrer le profil"}
+                    </button>
+                    <button
+                      className="rounded-md border border-line bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                      disabled={!profileDirty || profileMutationPending}
+                      onClick={resetProfileLocal}
+                      type="button"
+                    >
+                      Réinitialiser le profil
+                    </button>
+                    {selectedProfileId !== "new" ? (
+                      <button
+                        className="rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                        disabled={
+                          profileMutationPending || !selectedProfile || selectedProfile.isDefault
+                        }
+                        onClick={handleDeactivateProfile}
+                        type="button"
+                      >
+                        Désactiver
+                      </button>
+                    ) : null}
+                  </div>
+                </form>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
 
         <form className="grid gap-5" onSubmit={handleSubmit}>
           <Section

@@ -8,6 +8,10 @@ import {
   ClientInboxDraftEditResponseSchema,
   ClientInboxMessageDetailResponseSchema,
   ClientInboxMessagesResponseSchema,
+  ClientResponseProfileCreateSchema,
+  ClientResponseProfileSuccessSchema,
+  ClientResponseProfilesListSuccessSchema,
+  ClientResponseProfileUpdateSchema,
   ClientResponsePolicyGetSuccessSchema,
   ClientResponsePolicyInputSchema,
   ClientResponsePolicyPutSuccessSchema,
@@ -22,6 +26,9 @@ import {
   type ClientInboxQuery,
   type ClientConfigResponsePolicy,
   type ClientConfigResponsePolicyUpdate,
+  type ClientResponseProfile,
+  type ClientResponseProfileCreate,
+  type ClientResponseProfileUpdate,
 } from "@syrantis/shared";
 
 const { stringify: encodeJsonBody } = JSON;
@@ -372,6 +379,9 @@ export type ClientResponsePolicy = z.infer<
 >["data"]["policy"];
 export type ClientConfigResponsePolicyInput = ClientConfigResponsePolicyUpdate;
 export type ClientConfigResponsePolicyData = ClientConfigResponsePolicy;
+export type ClientResponseProfileData = ClientResponseProfile;
+export type ClientResponseProfileCreateInput = ClientResponseProfileCreate;
+export type ClientResponseProfileUpdateInput = ClientResponseProfileUpdate;
 export type ClientUserSafe = z.infer<typeof ClientUserListSuccessSchema>["data"][number];
 export type ClientUserCreateResponse = z.infer<typeof ClientUserCreateSuccessSchema>["data"];
 export type WorkspaceApiKeySafe = z.infer<typeof workspaceApiKeyListResponseSchema>["data"][number];
@@ -790,6 +800,46 @@ export async function putClientConfigResponsePolicy(
   });
 
   return ClientConfigResponsePolicySuccessSchema.parse(payload).data.policy;
+}
+
+export async function listClientResponseProfiles(): Promise<ClientResponseProfileData[]> {
+  const payload = await requestJson("/api/client/config/response-profiles");
+  return ClientResponseProfilesListSuccessSchema.parse(payload).data.profiles;
+}
+
+export async function createClientResponseProfile(
+  input: ClientResponseProfileCreateInput,
+): Promise<ClientResponseProfileData> {
+  const parsed = ClientResponseProfileCreateSchema.parse(input);
+  const payload = await requestJson("/api/client/config/response-profiles", {
+    method: "POST",
+    body: encodeJsonBody(parsed),
+  });
+
+  return ClientResponseProfileSuccessSchema.parse(payload).data.profile;
+}
+
+export async function updateClientResponseProfile(
+  id: string,
+  input: ClientResponseProfileUpdateInput,
+): Promise<ClientResponseProfileData> {
+  const parsed = ClientResponseProfileUpdateSchema.parse(input);
+  const payload = await requestJson(`/api/client/config/response-profiles/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: encodeJsonBody(parsed),
+  });
+
+  return ClientResponseProfileSuccessSchema.parse(payload).data.profile;
+}
+
+export async function deactivateClientResponseProfile(
+  id: string,
+): Promise<ClientResponseProfileData> {
+  const payload = await requestJson(`/api/client/config/response-profiles/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+
+  return ClientResponseProfileSuccessSchema.parse(payload).data.profile;
 }
 
 export async function listClientUsers(): Promise<ClientUserSafe[]> {

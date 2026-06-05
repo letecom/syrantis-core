@@ -76,6 +76,9 @@ Validated current loop:
     once, and the login page is client-facing on `app.syrantis.fr`.
 20. 023AL cleans the live `/inbox` layout so ClientShell is the only client chrome, while
     `/app/client-inbox-preview` remains the mock design harness.
+21. 023AM makes `/config` a live client-safe response policy editor.
+22. 023AN adds client-configurable `Profils de réponse` for future Draft Generation v2 selection,
+    without changing generation behavior yet.
 
 ## Current Client/Admin Surfaces
 
@@ -111,10 +114,10 @@ The client app foundation now also exists:
   023AF/023AH backend routes. 023AL removes the old preview sidebar/brand from this live route so
   there is only one client navigation surface.
 - `/dashboard`: safe placeholder for the future client Dashboard.
-- `/config`: safe placeholder for the future client Config.
+- `/config`: live client configuration for response policy and `Profils de réponse`.
 
 `app.syrantis.fr` is live for the client shell. Client login, client user provisioning, `/inbox`,
-`/dashboard`, and `/config` are present. Full Dashboard, full Config, personas, response profiles,
+`/dashboard`, and `/config` are present. Full Dashboard, Draft Generation v2 profile selection,
 direct send, backend Gmail OAuth, and public signup remain future work.
 
 ## Current Backend Capabilities
@@ -137,6 +140,7 @@ Current validated backend capabilities include:
 - client app foundation and Client Inbox access boundary
 - client user provisioning v0
 - response policy
+- response profiles
 - worker continuous runtime
 - systemd API/worker runtime foundations
 

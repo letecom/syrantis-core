@@ -7,6 +7,8 @@ import {
   cancelDraftGmailExportRequest,
   getClientInboxMessage,
   getClientConfigResponsePolicy,
+  createClientResponseProfile,
+  deactivateClientResponseProfile,
   getGoogleSheetsSetupStatus,
   getCurrentUser,
   getClientResponsePolicy,
@@ -20,6 +22,7 @@ import {
   getDraftPushbackStatus,
   getEmailSendPushbackStatus,
   listClientInboxMessages,
+  listClientResponseProfiles,
   listClientUsers,
   listWorkspaceApiKeys,
   login,
@@ -31,6 +34,7 @@ import {
   testGoogleSheetsSetup,
   putClientResponsePolicy,
   putClientConfigResponsePolicy,
+  updateClientResponseProfile,
   updateClientInboxDraft,
 } from "../src/lib/api-client";
 
@@ -643,6 +647,40 @@ const clientConfigResponsePolicyResponse = {
   },
 };
 
+const responseProfileId = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
+
+const clientResponseProfilesResponse = {
+  success: true,
+  data: {
+    profiles: [
+      {
+        id: responseProfileId,
+        name: "Léa SAV",
+        senderName: "Léa",
+        roleLabel: "SAV",
+        description: "Demandes de suivi.",
+        tone: "empathetic",
+        styleNotes: "Répondre avec calme.",
+        authorityLevel: "standard",
+        appliesToCategories: ["sav"],
+        specificRules: ["Confirmer le dossier."],
+        escalationRules: ["Escalader les litiges."],
+        forbiddenClaims: ["Ne pas promettre de remise."],
+        isDefault: true,
+        isActive: true,
+        sortOrder: 0,
+        createdAt: "2026-05-22T09:00:00.000Z",
+        updatedAt: "2026-05-22T10:00:00.000Z",
+        workspaceId: "forbidden-profile-workspace",
+        prompt: "forbidden-profile-prompt",
+        output: "forbidden-profile-output",
+        providerId: "forbidden-profile-provider",
+        apiKey: "forbidden-profile-key",
+      },
+    ],
+  },
+};
+
 const clientInboxMailItemId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
 const clientInboxDraftId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const clientInboxLeadId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
@@ -1214,6 +1252,84 @@ describe("api client", () => {
     expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("workspaceId");
     expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("responseStructure");
     expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toContain("bodyText");
+  });
+
+  it("loads client response profiles through the dedicated client route", async () => {
+    const request = vi.fn(() => mockResponse(clientResponseProfilesResponse));
+    vi.stubGlobal("fetch", request);
+
+    const result = await listClientResponseProfiles();
+
+    expect(result).toMatchObject([
+      {
+        id: responseProfileId,
+        name: "Léa SAV",
+        senderName: "Léa",
+        isDefault: true,
+      },
+    ]);
+    expect(request).toHaveBeenCalledWith(
+      "/api/client/config/response-profiles",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(JSON.stringify(result)).not.toContain("workspaceId");
+    expect(JSON.stringify(result)).not.toContain("prompt");
+    expect(JSON.stringify(result)).not.toContain("output");
+    expect(JSON.stringify(result)).not.toContain("apiKey");
+  });
+
+  it("creates, updates, and deactivates client response profiles safely", async () => {
+    const request = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
+      mockResponse({
+        success: true,
+        data: { profile: clientResponseProfilesResponse.data.profiles[0] },
+      }),
+    );
+    vi.stubGlobal("fetch", request);
+
+    const input = {
+      name: "Paul Expérience client",
+      senderName: "Paul",
+      roleLabel: "Expérience client",
+      description: "Suivi commercial.",
+      tone: "friendly" as const,
+      styleNotes: "Rester concret.",
+      authorityLevel: "manager" as const,
+      appliesToCategories: ["follow_up"],
+      specificRules: ["Proposer une prochaine étape."],
+      escalationRules: ["Escalader les demandes sensibles."],
+      forbiddenClaims: ["Ne pas confirmer de prix exact."],
+      isDefault: false,
+      sortOrder: 1,
+    };
+
+    await expect(createClientResponseProfile(input)).resolves.toMatchObject({ id: responseProfileId });
+    await expect(updateClientResponseProfile(responseProfileId, input)).resolves.toMatchObject({
+      id: responseProfileId,
+    });
+    await expect(deactivateClientResponseProfile(responseProfileId)).resolves.toMatchObject({
+      id: responseProfileId,
+    });
+
+    expect(request).toHaveBeenCalledWith(
+      "/api/client/config/response-profiles",
+      expect.objectContaining({ credentials: "include", method: "POST" }),
+    );
+    expect(request).toHaveBeenCalledWith(
+      `/api/client/config/response-profiles/${responseProfileId}`,
+      expect.objectContaining({ credentials: "include", method: "PUT" }),
+    );
+    expect(request).toHaveBeenCalledWith(
+      `/api/client/config/response-profiles/${responseProfileId}`,
+      expect.objectContaining({ credentials: "include", method: "DELETE" }),
+    );
+
+    for (const call of request.mock.calls) {
+      expect(JSON.stringify(call[1])).not.toContain("workspaceId");
+      expect(JSON.stringify(call[1])).not.toContain("prompt");
+      expect(JSON.stringify(call[1])).not.toContain("providerId");
+      expect(JSON.stringify(call[1])).not.toContain("apiKey");
+    }
   });
 
   it("requests draft Gmail export without client workspace material", async () => {

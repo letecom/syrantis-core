@@ -127,6 +127,16 @@ const allCheckConstraints = {
   client_mail_items_direction_check: true,
   client_mail_items_source_non_empty_check: true,
   client_mail_items_attachments_json_array_check: true,
+  workspace_response_profiles_tone_check: true,
+  workspace_response_profiles_authority_level_check: true,
+  workspace_response_profiles_applies_to_categories_array_check: true,
+  workspace_response_profiles_specific_rules_array_check: true,
+  workspace_response_profiles_escalation_rules_array_check: true,
+  workspace_response_profiles_forbidden_claims_array_check: true,
+  workspace_response_profiles_sort_order_check: true,
+  workspace_response_profiles_name_non_empty_check: true,
+  workspace_response_profiles_sender_name_non_empty_check: true,
+  workspace_response_profiles_role_label_non_empty_check: true,
 };
 
 const deliveryColumns = [
@@ -174,6 +184,20 @@ const allColumns = {
   received_at: { dataType: "timestamp with time zone", isNullable: true },
   has_attachments: { dataType: "boolean", isNullable: false },
   attachments_json: { dataType: "jsonb", isNullable: false },
+  name: { dataType: "character varying", isNullable: false },
+  sender_name: { dataType: "character varying", isNullable: false },
+  role_label: { dataType: "character varying", isNullable: false },
+  description: { dataType: "text", isNullable: true },
+  tone: { dataType: "character varying", isNullable: false },
+  style_notes: { dataType: "text", isNullable: true },
+  authority_level: { dataType: "character varying", isNullable: false },
+  applies_to_categories: { dataType: "jsonb", isNullable: false },
+  specific_rules: { dataType: "jsonb", isNullable: false },
+  escalation_rules: { dataType: "jsonb", isNullable: false },
+  forbidden_claims: { dataType: "jsonb", isNullable: false },
+  is_default: { dataType: "boolean", isNullable: false },
+  is_active: { dataType: "boolean", isNullable: false },
+  sort_order: { dataType: "integer", isNullable: false },
 };
 
 const expectedRlsTables = [
@@ -195,6 +219,7 @@ const expectedRlsTables = [
   "workspace_context_profiles",
   "intake_classifications",
   "client_mail_items",
+  "workspace_response_profiles",
 ];
 
 describe("schema invariant registry", () => {
@@ -449,6 +474,77 @@ describe("schema invariant registry", () => {
     );
   });
 
+  it("includes the 0024 workspace response profile invariants", () => {
+    for (const column of [
+      "workspace_id",
+      "name",
+      "sender_name",
+      "role_label",
+      "tone",
+      "authority_level",
+      "applies_to_categories",
+      "specific_rules",
+      "escalation_rules",
+      "forbidden_claims",
+      "is_default",
+      "is_active",
+      "sort_order",
+    ]) {
+      assert.ok(
+        schemaInvariantRegistry.some(
+          (invariant) =>
+            invariant.kind === "column" &&
+            invariant.migration === "0024" &&
+            invariant.table === "workspace_response_profiles" &&
+            invariant.column === column,
+        ),
+        `missing registry entry for ${column}`,
+      );
+    }
+
+    for (const indexName of [
+      "workspace_response_profiles_workspace_active_idx",
+      "workspace_response_profiles_workspace_order_idx",
+      "workspace_response_profiles_one_active_default_idx",
+    ]) {
+      assert.ok(
+        schemaInvariantRegistry.some(
+          (invariant) =>
+            invariant.kind === "index" &&
+            invariant.migration === "0024" &&
+            invariant.table === "workspace_response_profiles" &&
+            invariant.indexName === indexName,
+        ),
+        `missing registry entry for ${indexName}`,
+      );
+    }
+
+    assert.ok(
+      schemaInvariantRegistry.some(
+        (invariant) =>
+          invariant.kind === "trigger" &&
+          invariant.migration === "0024" &&
+          invariant.table === "workspace_response_profiles" &&
+          invariant.triggerName === "workspace_response_profiles_set_updated_at_trg" &&
+          invariant.functionName === "syrantis_set_updated_at",
+      ),
+    );
+
+    for (const privilegeType of ["SELECT", "INSERT", "UPDATE"]) {
+      assert.ok(
+        schemaInvariantRegistry.some(
+          (invariant) =>
+            invariant.kind === "table_privilege" &&
+            invariant.migration === "0024" &&
+            invariant.table === "workspace_response_profiles" &&
+            invariant.grantee === "syrantis_app" &&
+            invariant.privilegeType === privilegeType,
+        ),
+        `missing grant registry entry for ${privilegeType}`,
+      );
+    }
+  });
+
   it("includes RLS tenant isolation invariants for expected tenant tables", () => {
     const rlsInvariants = schemaInvariantRegistry.filter(
       (invariant) =>
@@ -483,8 +579,8 @@ describe("schema invariant verifier", () => {
     );
 
     assert.equal(result.success, true);
-    assert.equal(result.checked, 88);
-    assert.equal(result.passed.length, 88);
+    assert.equal(result.checked, 124);
+    assert.equal(result.passed.length, 124);
     assert.equal(result.failed.length, 0);
   });
 
@@ -958,8 +1054,8 @@ describe("schema invariant verifier", () => {
     );
 
     assert.equal(getSchemaVerifyExitCode(result), 1);
-    assert.equal(result.checked, 88);
-    assert.equal(result.failed.length, 64);
+    assert.equal(result.checked, 124);
+    assert.equal(result.failed.length, 95);
   });
 
   it("keeps verification SQL limited to PostgreSQL catalog metadata", () => {
@@ -981,7 +1077,7 @@ describe("schema invariant verifier", () => {
     assert.match(combinedSql, /relkind = 'r'/);
     assert.doesNotMatch(
       combinedSql,
-      /from\s+(organizations|contacts|leads|tasks|approvals|activity_logs|drafts|email_sends|background_jobs|ai_runs|lead_scores|workspace_context_profiles|intake_classifications|client_mail_items|external_connections|external_object_mappings|integration_events|workspace_api_keys)\b/i,
+      /from\s+(organizations|contacts|leads|tasks|approvals|activity_logs|drafts|email_sends|background_jobs|ai_runs|lead_scores|workspace_context_profiles|workspace_response_profiles|intake_classifications|client_mail_items|external_connections|external_object_mappings|integration_events|workspace_api_keys)\b/i,
     );
   });
 
@@ -1005,8 +1101,8 @@ describe("schema invariant verifier", () => {
     };
 
     assert.equal(parsed.success, true);
-    assert.equal(parsed.checked, 88);
-    assert.equal(parsed.passed, 88);
+    assert.equal(parsed.checked, 124);
+    assert.equal(parsed.passed, 124);
     assert.deepEqual(parsed.failed, []);
   });
 });
