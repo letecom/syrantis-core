@@ -131,6 +131,9 @@ const mailQueueClassificationId = "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd";
 const mailQueueDetailUrl = `/api/client/mail-queue/${mailQueueClassificationId}`;
 const responsePolicyUrl = "/api/client/response-policy";
 const clientConfigResponsePolicyUrl = "/api/client/config/response-policy";
+const clientResponseProfilesUrl = "/api/client/config/response-profiles";
+const clientResponseProfileId = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
+const clientResponseProfileUrl = `${clientResponseProfilesUrl}/${clientResponseProfileId}`;
 const clientInboxMailItemId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
 const clientInboxDraftId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const clientInboxLeadId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
@@ -1041,6 +1044,57 @@ const clientConfigResponsePolicyConfigured = {
   },
 };
 
+const clientResponseProfilesEmpty = {
+  success: true,
+  data: {
+    profiles: [],
+  },
+};
+
+const leaResponseProfile = {
+  id: clientResponseProfileId,
+  name: "Léa SAV",
+  senderName: "Léa",
+  roleLabel: "SAV",
+  description: "Demandes de suivi et réclamations.",
+  tone: "empathetic",
+  styleNotes: "Répondre avec calme.",
+  authorityLevel: "standard",
+  appliesToCategories: ["sav"],
+  specificRules: ["Confirmer le dossier."],
+  escalationRules: ["Escalader les litiges."],
+  forbiddenClaims: ["Ne pas promettre de remise."],
+  isDefault: true,
+  isActive: true,
+  sortOrder: 0,
+  createdAt: "2026-05-22T09:00:00.000Z",
+  updatedAt: "2026-05-22T10:00:00.000Z",
+  workspaceId: "forbidden-profile-workspace",
+  prompt: "forbidden-profile-prompt",
+  output: "forbidden-profile-output",
+  providerId: "forbidden-profile-provider",
+  apiKey: "forbidden-profile-key",
+};
+
+const paulResponseProfile = {
+  ...leaResponseProfile,
+  id: "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb",
+  name: "Paul Expérience client",
+  senderName: "Paul",
+  roleLabel: "Expérience client",
+  tone: "friendly",
+  authorityLevel: "manager",
+  isDefault: false,
+  sortOrder: 1,
+};
+
+const clientResponseProfilesConfigured = {
+  success: true,
+  data: {
+    profiles: [leaResponseProfile, paulResponseProfile],
+  },
+};
+
 const opsHealth = {
   success: true,
   data: {
@@ -1448,6 +1502,10 @@ describe("admin app", () => {
         return mockJson(clientConfigResponsePolicyConfigured);
       }
 
+      if (url === clientResponseProfilesUrl) {
+        return mockJson(clientResponseProfilesConfigured);
+      }
+
       return mockJson(currentClientUser);
     });
     vi.stubGlobal("fetch", request);
@@ -1483,6 +1541,10 @@ describe("admin app", () => {
     const request = vi.fn((url: string) => {
       if (url === clientConfigResponsePolicyUrl) {
         return mockJson(clientConfigResponsePolicyConfigured);
+      }
+
+      if (url === clientResponseProfilesUrl) {
+        return mockJson(clientResponseProfilesConfigured);
       }
 
       return mockJson(currentClientUser);
@@ -1526,6 +1588,10 @@ describe("admin app", () => {
         return mockJson(clientConfigResponsePolicyConfigured);
       }
 
+      if (url === clientResponseProfilesUrl) {
+        return mockJson(clientResponseProfilesConfigured);
+      }
+
       return mockJson(currentClientUser);
     });
     vi.stubGlobal("fetch", request);
@@ -1556,6 +1622,10 @@ describe("admin app", () => {
 
       if (url === clientConfigResponsePolicyUrl) {
         return mockJson(clientConfigResponsePolicyEmpty);
+      }
+
+      if (url === clientResponseProfilesUrl) {
+        return mockJson(clientResponseProfilesEmpty);
       }
 
       return mockJson(currentClientUser);
@@ -1590,6 +1660,10 @@ describe("admin app", () => {
         return mockJson(clientConfigResponsePolicyConfigured);
       }
 
+      if (url === clientResponseProfilesUrl) {
+        return mockJson(clientResponseProfilesConfigured);
+      }
+
       return mockJson(currentClientUser);
     });
     vi.stubGlobal("fetch", request);
@@ -1606,6 +1680,176 @@ describe("admin app", () => {
     expect(screen.getByText("Vérifie la longueur, le nombre d'éléments et les champs autorisés.")).toBeInTheDocument();
     expect(request).not.toHaveBeenCalledWith(
       clientConfigResponsePolicyUrl,
+      expect.objectContaining({ method: "PUT" }),
+    );
+  });
+
+  it("renders response profiles in /config and keeps unsafe profile fields hidden", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === clientConfigResponsePolicyUrl) {
+        return mockJson(clientConfigResponsePolicyConfigured);
+      }
+
+      if (url === clientResponseProfilesUrl) {
+        return mockJson(clientResponseProfilesConfigured);
+      }
+
+      return mockJson(currentClientUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    const { container } = renderApp("/config");
+
+    expect(await screen.findByRole("heading", { name: "Profils de réponse" })).toBeInTheDocument();
+    expect(screen.getByText("Léa SAV")).toBeInTheDocument();
+    expect(screen.getByText("Paul Expérience client")).toBeInTheDocument();
+    expect(screen.getByText("Par défaut")).toBeInTheDocument();
+    expect(screen.getByLabelText("Nom du profil")).toHaveValue("Léa SAV");
+    expect(request).toHaveBeenCalledWith(
+      clientResponseProfilesUrl,
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(request).not.toHaveBeenCalledWith("/api/admin/response-profiles", expect.anything());
+
+    for (const forbidden of [
+      "forbidden-profile-workspace",
+      "forbidden-profile-prompt",
+      "forbidden-profile-output",
+      "forbidden-profile-provider",
+      "forbidden-profile-key",
+      "workspaceId",
+      "providerId",
+      "apiKey",
+    ]) {
+      expect(container.textContent).not.toContain(forbidden);
+    }
+  });
+
+  it("shows response profile empty state and creates the first default profile", async () => {
+    const request = vi.fn((url: string, init?: RequestInit) => {
+      if (url === clientResponseProfilesUrl && init?.method === "POST") {
+        return mockJson({ success: true, data: { profile: leaResponseProfile } });
+      }
+
+      if (url === clientResponseProfilesUrl) {
+        return mockJson(clientResponseProfilesEmpty);
+      }
+
+      if (url === clientConfigResponsePolicyUrl) {
+        return mockJson(clientConfigResponsePolicyConfigured);
+      }
+
+      return mockJson(currentClientUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/config");
+
+    expect(
+      await screen.findByText("Crée ton premier profil de réponse. Il deviendra le profil par défaut."),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Ajouter un profil" }));
+    await userEvent.type(screen.getByLabelText("Nom du profil"), "Léa SAV");
+    await userEvent.type(screen.getByLabelText("Nom utilisé dans la réponse"), "Léa");
+    await userEvent.type(screen.getByLabelText("Rôle"), "SAV");
+    await userEvent.click(screen.getByRole("button", { name: "Enregistrer le profil" }));
+
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        clientResponseProfilesUrl,
+        expect.objectContaining({ method: "POST", credentials: "include" }),
+      ),
+    );
+    const postCall = request.mock.calls.find(
+      ([url, init]) => url === clientResponseProfilesUrl && init?.method === "POST",
+    );
+    expect(JSON.parse(String(postCall?.[1]?.body))).toMatchObject({ isDefault: true });
+    expect(JSON.stringify(postCall?.[1])).not.toContain("workspaceId");
+    expect(JSON.stringify(postCall?.[1])).not.toContain("prompt");
+  });
+
+  it("edits, sets default, and deactivates non-default response profiles", async () => {
+    const request = vi.fn((url: string, init?: RequestInit) => {
+      if (url === clientResponseProfileUrl && init?.method === "PUT") {
+        return mockJson({
+          success: true,
+          data: { profile: { ...leaResponseProfile, name: "Léa Support", isDefault: true } },
+        });
+      }
+
+      if (url === `${clientResponseProfilesUrl}/${paulResponseProfile.id}` && init?.method === "DELETE") {
+        return mockJson({
+          success: true,
+          data: { profile: { ...paulResponseProfile, isActive: false } },
+        });
+      }
+
+      if (url === clientResponseProfilesUrl) {
+        return mockJson(clientResponseProfilesConfigured);
+      }
+
+      if (url === clientConfigResponsePolicyUrl) {
+        return mockJson(clientConfigResponsePolicyConfigured);
+      }
+
+      return mockJson(currentClientUser);
+    });
+    vi.stubGlobal("fetch", request);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderApp("/config");
+
+    const name = await screen.findByLabelText("Nom du profil");
+    await userEvent.clear(name);
+    await userEvent.type(name, "Léa Support");
+    await userEvent.click(screen.getByRole("button", { name: "Enregistrer le profil" }));
+
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        clientResponseProfileUrl,
+        expect.objectContaining({ method: "PUT", credentials: "include" }),
+      ),
+    );
+
+    const paulCard = screen.getByText("Paul Expérience client").closest("button");
+    expect(paulCard).not.toBeNull();
+    await userEvent.click(paulCard as HTMLButtonElement);
+    expect(screen.getByRole("button", { name: "Désactiver" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Désactiver" }));
+
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        `${clientResponseProfilesUrl}/${paulResponseProfile.id}`,
+        expect.objectContaining({ method: "DELETE", credentials: "include" }),
+      ),
+    );
+    expect(JSON.stringify(request.mock.calls)).not.toContain("/api/admin/response-profiles");
+  });
+
+  it("shows response profile validation errors and blocks default deactivation", async () => {
+    const request = vi.fn((url: string) => {
+      if (url === clientResponseProfilesUrl) {
+        return mockJson(clientResponseProfilesConfigured);
+      }
+
+      if (url === clientConfigResponsePolicyUrl) {
+        return mockJson(clientConfigResponsePolicyConfigured);
+      }
+
+      return mockJson(currentClientUser);
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderApp("/config");
+
+    const name = await screen.findByLabelText("Nom du profil");
+    await userEvent.clear(name);
+    expect(screen.getByRole("button", { name: "Désactiver" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Enregistrer le profil" }));
+
+    expect(await screen.findByText("Certains champs du profil sont à vérifier.")).toBeInTheDocument();
+    expect(request).not.toHaveBeenCalledWith(
+      clientResponseProfileUrl,
       expect.objectContaining({ method: "PUT" }),
     );
   });

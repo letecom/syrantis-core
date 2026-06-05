@@ -69,6 +69,9 @@ export const ActivityLogActionSchema = z.enum([
   "workspace_context.updated",
   "client_response_policy.created",
   "client_response_policy.updated",
+  "response_profile.created",
+  "response_profile.updated",
+  "response_profile.deactivated",
   "public_lead.received",
 ]);
 
@@ -86,6 +89,7 @@ export const ActivityLogEntityTypeSchema = z.enum([
   "external_object_mapping",
   "workspace_api_key",
   "workspace_context_profile",
+  "response_profile",
   "google_sheets_setup",
   "admin_ops",
 ]);

@@ -219,6 +219,20 @@ item relation and reuse existing draft/export rules. This does not approve live 
 direct send, backend Gmail OAuth, provider calls, Resend changes, Google Sheets changes, deployment,
 or client RBAC.
 
+## 2026-05-22 - 023AN Response Profiles Use a Table
+
+Decision: client response profiles are stored in `workspace_response_profiles`, not as JSON inside
+`workspace_context_profiles.context_json`.
+
+The table gives future Draft Generation v2 a clean tenant-scoped lookup path, ordered active list,
+database-enforced one-active-default constraint, row-level RLS/FORCE RLS coverage, and reviewable
+runtime grants. Profile deactivation is soft through `is_active=false`; no hard delete behavior or
+DELETE grant is approved.
+
+023AN only approves the data model, client-safe API, and `/config` UI. It does not approve prompt
+selection, provider calls, worker changes, Inbox profile display, direct send, Gmail/App Script,
+Google Sheets, Resend, Caddy/env/systemd changes, or deployment.
+
 ## 2026-05-20 - 023AJ Client Role Boundary
 
 Decision: the `client` role is allowed only through explicitly approved client-safe surfaces.

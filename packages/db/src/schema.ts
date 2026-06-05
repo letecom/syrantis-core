@@ -559,6 +559,82 @@ export const workspaceContextProfiles = pgTable(
   ],
 );
 
+export const workspaceResponseProfiles = pgTable(
+  "workspace_response_profiles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 100 }).notNull(),
+    senderName: varchar("sender_name", { length: 100 }).notNull(),
+    roleLabel: varchar("role_label", { length: 120 }).notNull(),
+    description: text("description"),
+    tone: varchar("tone", { length: 40 }).notNull(),
+    styleNotes: text("style_notes"),
+    authorityLevel: varchar("authority_level", { length: 40 }).notNull(),
+    appliesToCategories: jsonb("applies_to_categories")
+      .$type<string[]>()
+      .notNull()
+      .default(emptyJsonArray),
+    specificRules: jsonb("specific_rules").$type<string[]>().notNull().default(emptyJsonArray),
+    escalationRules: jsonb("escalation_rules").$type<string[]>().notNull().default(emptyJsonArray),
+    forbiddenClaims: jsonb("forbidden_claims").$type<string[]>().notNull().default(emptyJsonArray),
+    isDefault: boolean("is_default").notNull().default(false),
+    isActive: boolean("is_active").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    ...timestamps,
+  },
+  (table) => [
+    check(
+      "workspace_response_profiles_tone_check",
+      sql`${table.tone} in ('professional', 'friendly', 'formal', 'empathetic', 'concise', 'direct')`,
+    ),
+    check(
+      "workspace_response_profiles_authority_level_check",
+      sql`${table.authorityLevel} in ('standard', 'manager', 'direction')`,
+    ),
+    check(
+      "workspace_response_profiles_applies_to_categories_array_check",
+      sql`jsonb_typeof(${table.appliesToCategories}) = 'array'`,
+    ),
+    check(
+      "workspace_response_profiles_specific_rules_array_check",
+      sql`jsonb_typeof(${table.specificRules}) = 'array'`,
+    ),
+    check(
+      "workspace_response_profiles_escalation_rules_array_check",
+      sql`jsonb_typeof(${table.escalationRules}) = 'array'`,
+    ),
+    check(
+      "workspace_response_profiles_forbidden_claims_array_check",
+      sql`jsonb_typeof(${table.forbiddenClaims}) = 'array'`,
+    ),
+    check("workspace_response_profiles_sort_order_check", sql`${table.sortOrder} >= 0`),
+    check("workspace_response_profiles_name_non_empty_check", sql`btrim(${table.name}) <> ''`),
+    check(
+      "workspace_response_profiles_sender_name_non_empty_check",
+      sql`btrim(${table.senderName}) <> ''`,
+    ),
+    check(
+      "workspace_response_profiles_role_label_non_empty_check",
+      sql`btrim(${table.roleLabel}) <> ''`,
+    ),
+    index("workspace_response_profiles_workspace_active_idx").on(
+      table.workspaceId,
+      table.isActive,
+    ),
+    index("workspace_response_profiles_workspace_order_idx").on(
+      table.workspaceId,
+      table.sortOrder,
+      table.createdAt,
+    ),
+    uniqueIndex("workspace_response_profiles_one_active_default_idx")
+      .on(table.workspaceId)
+      .where(sql`${table.isDefault} = true AND ${table.isActive} = true`),
+  ],
+);
+
 export const intakeClassifications = pgTable(
   "intake_classifications",
   {

@@ -21,6 +21,7 @@ const rlsTenantInvariants = [
   ["0020", "workspace_context_profiles", "tenant_isolation_workspace_context_profiles"],
   ["0021", "intake_classifications", "tenant_isolation_intake_classifications"],
   ["0022", "client_mail_items", "tenant_isolation_client_mail_items"],
+  ["0024", "workspace_response_profiles", "tenant_isolation_workspace_response_profiles"],
 ] as const satisfies readonly (readonly [MigrationId, string, string])[];
 
 const emailSendDeliveryColumns = [
@@ -97,6 +98,46 @@ const clientMailItemIndexes = [
   "client_mail_items_workspace_lead_id_idx",
   "client_mail_items_workspace_contact_id_idx",
   "client_mail_items_workspace_draft_id_idx",
+] as const;
+
+const workspaceResponseProfileColumns = [
+  ["id", "uuid", false],
+  ["workspace_id", "uuid", false],
+  ["name", "character varying", false],
+  ["sender_name", "character varying", false],
+  ["role_label", "character varying", false],
+  ["description", "text", true],
+  ["tone", "character varying", false],
+  ["style_notes", "text", true],
+  ["authority_level", "character varying", false],
+  ["applies_to_categories", "jsonb", false],
+  ["specific_rules", "jsonb", false],
+  ["escalation_rules", "jsonb", false],
+  ["forbidden_claims", "jsonb", false],
+  ["is_default", "boolean", false],
+  ["is_active", "boolean", false],
+  ["sort_order", "integer", false],
+  ["created_at", "timestamp with time zone", false],
+  ["updated_at", "timestamp with time zone", false],
+] as const satisfies readonly (readonly [string, string, boolean])[];
+
+const workspaceResponseProfileConstraints = [
+  "workspace_response_profiles_tone_check",
+  "workspace_response_profiles_authority_level_check",
+  "workspace_response_profiles_applies_to_categories_array_check",
+  "workspace_response_profiles_specific_rules_array_check",
+  "workspace_response_profiles_escalation_rules_array_check",
+  "workspace_response_profiles_forbidden_claims_array_check",
+  "workspace_response_profiles_sort_order_check",
+  "workspace_response_profiles_name_non_empty_check",
+  "workspace_response_profiles_sender_name_non_empty_check",
+  "workspace_response_profiles_role_label_non_empty_check",
+] as const;
+
+const workspaceResponseProfileIndexes = [
+  "workspace_response_profiles_workspace_active_idx",
+  "workspace_response_profiles_workspace_order_idx",
+  "workspace_response_profiles_one_active_default_idx",
 ] as const;
 
 export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
@@ -272,6 +313,45 @@ export const schemaInvariantRegistry: readonly SchemaInvariant[] = [
     grantee: "syrantis_app",
     privilegeType: "INSERT",
   },
+  ...workspaceResponseProfileColumns.map(([column, dataType, isNullable]) => ({
+    kind: "column" as const,
+    migration: "0024" as const,
+    schema: defaultSchema,
+    table: "workspace_response_profiles",
+    column,
+    dataType,
+    isNullable,
+  })),
+  ...workspaceResponseProfileConstraints.map((constraintName) => ({
+    kind: "check_constraint" as const,
+    migration: "0024" as const,
+    schema: defaultSchema,
+    table: "workspace_response_profiles",
+    constraintName,
+  })),
+  ...workspaceResponseProfileIndexes.map((indexName) => ({
+    kind: "index" as const,
+    migration: "0024" as const,
+    schema: defaultSchema,
+    table: "workspace_response_profiles",
+    indexName,
+  })),
+  {
+    kind: "trigger",
+    migration: "0024",
+    schema: defaultSchema,
+    table: "workspace_response_profiles",
+    triggerName: "workspace_response_profiles_set_updated_at_trg",
+    functionName: "syrantis_set_updated_at",
+  },
+  ...(["SELECT", "INSERT", "UPDATE"] as const).map((privilegeType) => ({
+    kind: "table_privilege" as const,
+    migration: "0024" as const,
+    schema: defaultSchema,
+    table: "workspace_response_profiles",
+    grantee: "syrantis_app",
+    privilegeType,
+  })),
 ] as const;
 
 export function getInvariantObject(invariant: SchemaInvariant): string {
